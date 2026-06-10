@@ -76,6 +76,19 @@ describe("sync store (mock ipc)", () => {
     expect(useSync.getState().error).toContain("로그인");
   });
 
+  it("resetWorkspace clears stale status and error from the previous folder", async () => {
+    useSync.setState({
+      status: { state: "pending", ahead: 1, behind: 0, conflictFiles: [] },
+      error: "git add 실패: index.lock",
+      syncing: true,
+    });
+    useSync.getState().resetWorkspace();
+    const s = useSync.getState();
+    expect(s.status).toBeNull();
+    expect(s.error).toBeNull();
+    expect(s.syncing).toBe(false);
+  });
+
   it("logout clears the account", async () => {
     mockSyncControl.login = "mock-user";
     await useSync.getState().init();

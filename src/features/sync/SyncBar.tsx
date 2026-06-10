@@ -164,6 +164,8 @@ export function SyncBar() {
   // 상태 폴링 + (켜져 있으면) 주기 자동 동기화 (FR-4.3)
   useEffect(() => {
     if (!root) return;
+    // 워크스페이스가 바뀌면 이전 폴더의 상태·에러는 무효 — 비우고 새로 조회
+    useSync.getState().resetWorkspace();
     void refreshStatus(root);
     const statusTimer = setInterval(() => void refreshStatus(root), STATUS_POLL_MS);
     const autoTimer = autoSync
