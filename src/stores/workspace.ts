@@ -72,6 +72,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   async init() {
     try {
       set({ recent: await ipc.recentWorkspaces() });
+      // 마지막 세션 복원: 명시적으로 닫지 않았다면 이전 워크스페이스를 다시 연다
+      const last = await ipc.getLastWorkspace();
+      if (last && !get().root) {
+        await get().openFolder(last);
+      }
     } catch (e) {
       set({ error: String(e) });
     }
@@ -98,6 +103,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         docs: {},
         loading: false,
       });
+      await restoreSession(target, tree, get());
     } catch (e) {
       set({ error: String(e), loading: false });
     }
@@ -116,6 +122,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   closeWorkspace() {
     autosaveTimers.forEach(clearTimeout);
     autosaveTimers.clear();
+    void ipc.clearLastWorkspace(); // 다음 시작은 시작 화면
     set({
       root: null,
       tree: null,
@@ -275,3 +282,46 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((s) => ({ sourceMode: !s.sourceMode }));
   },
 }));
+
+function collectFilePaths(tree: FileNode, into = new Set<string>()): Set<string> {
+  if (tree.kind === "file") into.add(tree.path);
+  tree.children?.forEach((c) => collectFilePaths(c, into));
+  return into;
+}
+
+/** 저장된 세션의 탭들을 다시 연다 — 사라진 파일은 건너뛴다 */
+async function restoreSession(
+  root: string,
+  tree: FileNode,
+  store: Pick<WorkspaceState, "openFile" | "setActiveTab">,
+) {
+  const session = await ipc.getWorkspaceState(root).catch(() => null);
+  if (!session?.openTabs?.length) return;
+  const existing = collectFilePaths(tree);
+  for (const tab of session.openTabs) {
+    if (existing.has(tab.path)) {
+      await store.openFile({ ...tab, kind: "file" });
+    }
+  }
+  if (session.activePath && existing.has(session.activePath)) {
+    store.setActiveTab(session.activePath);
+  }
+}
+
+// 탭/활성 파일이 바뀔 때마다 세션을 전역 레지스트리에 저장 (디바운스, FR-5.5)
+const SESSION_PERSIST_DELAY_MS = 500;
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+let lastPersisted = "";
+
+useWorkspace.subscribe((s) => {
+  if (!s.root) return;
+  const snapshot = JSON.stringify({ root: s.root, tabs: s.tabs, activePath: s.activePath });
+  if (snapshot === lastPersisted) return;
+  lastPersisted = snapshot;
+  const root = s.root;
+  const state = { openTabs: s.tabs, activePath: s.activePath };
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    void ipc.setWorkspaceState(root, state).catch(() => undefined);
+  }, SESSION_PERSIST_DELAY_MS);
+});

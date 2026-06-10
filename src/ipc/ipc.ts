@@ -13,6 +13,7 @@ import type {
   Settings,
   SyncStatus,
   SynapseIpc,
+  WorkspaceSession,
 } from "./types";
 
 const isTauri =
@@ -31,6 +32,16 @@ const tauriIpc: SynapseIpc = {
   recentWorkspaces: () => invoke<string[]>("recent_workspaces"),
   recordWorkspaceOpened: (path) =>
     invoke<string[]>("record_workspace_opened", { path }),
+  getLastWorkspace: () => invoke<string | null>("get_last_workspace"),
+  clearLastWorkspace: () => invoke<void>("clear_last_workspace"),
+  async getWorkspaceState(root) {
+    const state = await invoke<WorkspaceSession | null>("get_workspace_state", {
+      path: root,
+    });
+    return state && Array.isArray(state.openTabs) ? state : null;
+  },
+  setWorkspaceState: (root, state) =>
+    invoke<void>("set_workspace_state", { path: root, state }),
 
   githubLoginStart: () => invoke<DeviceCode>("github_login_start"),
   githubLoginPoll: () => invoke<PollResult>("github_login_poll"),
@@ -51,6 +62,14 @@ const tauriIpc: SynapseIpc = {
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
 
   setWindowTheme: (theme) => getCurrentWindow().setTheme(theme),
+
+  async prepareHtmlView(cacheName, html) {
+    const path = await invoke<string>("viewer_cache_write", {
+      fileName: cacheName,
+      content: html,
+    });
+    return convertFileSrc(path);
+  },
 
   appVersion: () => getVersion(),
   async checkUpdate() {

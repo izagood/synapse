@@ -188,7 +188,8 @@ export function SettingsModal() {
           </label>
           {settings.htmlViewer.allowScripts && (
             <p className="setting-warning error">
-              신뢰할 수 없는 HTML의 스크립트가 실행될 수 있습니다.
+              스크립트 허용 시 HTML 정화 없이 원문 그대로 격리된 샌드박스에서
+              실행됩니다. 신뢰할 수 있는 문서만 여세요.
             </p>
           )}
         </section>

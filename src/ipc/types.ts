@@ -66,6 +66,11 @@ export const DEFAULT_SETTINGS: Settings = {
   htmlViewer: { allowScripts: false, allowNetwork: false },
 };
 
+export interface WorkspaceSession {
+  openTabs: { path: string; name: string; fileType: FileType }[];
+  activePath: string | null;
+}
+
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
@@ -81,6 +86,12 @@ export interface SynapseIpc {
   recentWorkspaces(): Promise<string[]>;
   /** 폴더 열람 기록, 갱신된 최근 목록 반환 */
   recordWorkspaceOpened(path: string): Promise<string[]>;
+  /** 앱 재시작 시 복원할 워크스페이스 (명시적으로 닫았거나 폴더가 없으면 null) */
+  getLastWorkspace(): Promise<string | null>;
+  clearLastWorkspace(): Promise<void>;
+  /** 워크스페이스별 세션(열린 탭 등) — FR-5.5: 폴더가 아닌 전역 레지스트리에 저장 */
+  getWorkspaceState(root: string): Promise<WorkspaceSession | null>;
+  setWorkspaceState(root: string, state: WorkspaceSession): Promise<void>;
 
   // ---- GitHub 인증 (FR-4.1) ----
   githubLoginStart(): Promise<DeviceCode>;
@@ -105,6 +116,12 @@ export interface SynapseIpc {
 
   /** 네이티브 창(타이틀바) 테마 동기화 — null이면 OS 테마 따름 */
   setWindowTheme(theme: "light" | "dark" | null): Promise<void>;
+
+  /**
+   * 뷰어용 HTML을 캐시에 쓰고 iframe이 로드할 수 있는 실제 URL을 돌려준다.
+   * (srcdoc은 #앵커 이동·CSP 상속 문제가 있어 실제 URL로 렌더링한다, FR-3)
+   */
+  prepareHtmlView(cacheName: string, html: string): Promise<string>;
 
   // ---- 앱 업데이트 (F2) ----
   appVersion(): Promise<string>;

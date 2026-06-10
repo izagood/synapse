@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isDirty, useWorkspace } from "./workspace";
 import { ipc } from "../ipc/ipc";
+import { mockSessionControl } from "../ipc/mock";
 
 // node 환경에서는 ipc가 자동으로 mockIpc로 동작한다 (src/ipc/ipc.ts의 isTauri 분기)
 const MOCK_ROOT = "/mock/notes";
@@ -20,6 +21,8 @@ function findNode(name: string) {
 
 describe("workspace store (mock ipc)", () => {
   beforeEach(async () => {
+    mockSessionControl.states.clear();
+    mockSessionControl.lastWorkspace = null;
     useWorkspace.getState().closeWorkspace();
     await useWorkspace.getState().openFolder(MOCK_ROOT);
   });
@@ -123,6 +126,50 @@ describe("workspace store (mock ipc)", () => {
     const s = useWorkspace.getState();
     expect(s.tabs).toEqual([]);
     expect(s.activePath).toBeNull();
+  });
+
+  it("restores saved session tabs on reopen, skipping deleted files", async () => {
+    const readme = findNode("README.md");
+    const daily = findNode("2026-06-10.md");
+    mockSessionControl.states.set(MOCK_ROOT, {
+      openTabs: [
+        { path: readme.path, name: readme.name, fileType: "markdown" },
+        { path: `${MOCK_ROOT}/없어진 파일.md`, name: "없어진 파일.md", fileType: "markdown" },
+        { path: daily.path, name: daily.name, fileType: "markdown" },
+      ],
+      activePath: readme.path,
+    });
+
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+    const s = useWorkspace.getState();
+    expect(s.tabs.map((t) => t.name)).toEqual(["README.md", "2026-06-10.md"]);
+    expect(s.activePath).toBe(readme.path);
+    // 복원된 탭의 문서가 디스크 내용으로 로드되어 있어야 한다
+    const doc = s.docs[readme.path];
+    expect(doc.loading).toBe(false);
+    expect(doc.content).toBe(await ipc.readFile(MOCK_ROOT, readme.path));
+  });
+
+  it("init reopens the last workspace unless explicitly closed", async () => {
+    useWorkspace.getState().closeWorkspace(); // 명시적 닫기 → lastWorkspace 해제
+    expect(mockSessionControl.lastWorkspace).toBeNull();
+
+    mockSessionControl.lastWorkspace = MOCK_ROOT;
+    await useWorkspace.getState().init();
+    expect(useWorkspace.getState().root).toBe(MOCK_ROOT);
+  });
+
+  it("persists tabs and active path after the debounce delay", async () => {
+    vi.useFakeTimers();
+    try {
+      await useWorkspace.getState().openFile(findNode("README.md"));
+      await vi.advanceTimersByTimeAsync(600);
+      const saved = mockSessionControl.states.get(MOCK_ROOT);
+      expect(saved?.openTabs.map((t) => t.name)).toEqual(["README.md"]);
+      expect(saved?.activePath).toContain("README.md");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("surfaces errors for an invalid folder", async () => {
