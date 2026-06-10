@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { badgeOf, useSync } from "../../stores/sync";
+import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
 import { LoginModal } from "./LoginModal";
 
 const STATUS_POLL_MS = 15_000;
-const AUTO_SYNC_MS = 5 * 60_000;
 
 const BADGE_LABEL = {
   synced: "✅ 동기화됨",
@@ -96,21 +96,29 @@ export function SyncBar() {
     void init();
   }, [init]);
 
+  const autoSync = useSettings((s) => s.settings.sync.auto);
+  const intervalMinutes = useSettings((s) => s.settings.sync.intervalMinutes);
+
   useEffect(() => {
     if (!root) return;
     void refreshStatus(root);
     const statusTimer = setInterval(() => void refreshStatus(root), STATUS_POLL_MS);
-    const autoTimer = setInterval(() => {
-      const s = useSync.getState();
-      if (s.login && s.status?.state === "pending" && !s.syncing) {
-        void s.syncNow(root);
-      }
-    }, AUTO_SYNC_MS);
+    const autoTimer = autoSync
+      ? setInterval(
+          () => {
+            const s = useSync.getState();
+            if (s.login && s.status?.state === "pending" && !s.syncing) {
+              void s.syncNow(root);
+            }
+          },
+          Math.max(intervalMinutes, 1) * 60_000,
+        )
+      : undefined;
     return () => {
       clearInterval(statusTimer);
-      clearInterval(autoTimer);
+      if (autoTimer) clearInterval(autoTimer);
     };
-  }, [root, refreshStatus]);
+  }, [root, refreshStatus, autoSync, intervalMinutes]);
 
   if (!root) return null;
   const badge = badgeOf(status);

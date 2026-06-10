@@ -3,6 +3,7 @@ pub mod git;
 pub mod github;
 pub mod paths;
 pub mod registry;
+pub mod settings;
 pub mod tree;
 
 pub use fs_io::{atomic_write, create_unique_note, ensure_writable_within};

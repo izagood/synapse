@@ -41,6 +41,21 @@ export type PollResult =
   | { status: "ok"; login: string }
   | { status: "failed"; message: string };
 
+// Rust synapse-core::settings::Settings 와 1:1 대응 (FR-5)
+export interface Settings {
+  appearance: { theme: "system" | "light" | "dark"; language: string };
+  editor: { fontSize: number; autoSaveDelayMs: number; assetsFolder: string };
+  sync: { auto: boolean; intervalMinutes: number };
+  htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  appearance: { theme: "system", language: "ko" },
+  editor: { fontSize: 16, autoSaveDelayMs: 1000, assetsFolder: "assets" },
+  sync: { auto: true, intervalMinutes: 5 },
+  htmlViewer: { allowScripts: false, allowNetwork: false },
+};
+
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
@@ -72,4 +87,8 @@ export interface SynapseIpc {
   publishWorkspace(root: string, name: string, isPrivate: boolean): Promise<SyncStatus>;
   /** parentDir/name 으로 클론하고 새 워크스페이스 경로 반환 */
   cloneRepo(url: string, parentDir: string, name: string): Promise<string>;
+
+  // ---- 전역 설정 (FR-5) ----
+  getSettings(): Promise<Settings>;
+  updateSettings(settings: Settings): Promise<void>;
 }

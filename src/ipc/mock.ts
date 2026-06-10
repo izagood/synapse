@@ -1,4 +1,5 @@
-import type { FileNode, FileType, SyncStatus, SynapseIpc } from "./types";
+import type { FileNode, FileType, Settings, SyncStatus, SynapseIpc } from "./types";
+import { DEFAULT_SETTINGS } from "./types";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.
 // 파일 맵에서 트리를 파생시키므로 쓰기/생성도 실제처럼 동작한다.
@@ -170,7 +171,16 @@ export const mockIpc: SynapseIpc = {
     sync.hasRemote = true;
     return `${parentDir}/${name}`;
   },
+
+  async getSettings() {
+    return structuredClone(mockSettings);
+  },
+  async updateSettings(settings) {
+    mockSettings = structuredClone(settings);
+  },
 };
+
+let mockSettings: Settings = structuredClone(DEFAULT_SETTINGS);
 
 const sync = {
   login: null as string | null,

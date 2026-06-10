@@ -39,10 +39,33 @@ cargo test         # crates/synapse-core 에서 실행 — GUI 의존성 없는 
 - `src-tauri/` — Tauri 셸. 커맨드 글루만 담당하는 얇은 레이어.
 - `crates/synapse-core/` — 파일 트리, 워크스페이스 레지스트리, 경로 가드 등 핵심 로직. GUI 의존성이 없어 어디서든 `cargo test`로 검증 가능.
 
+### GitHub 로그인 설정 (배포 전 1회)
+
+동기화 기능은 GitHub OAuth App이 필요합니다.
+
+1. GitHub → Settings → Developer settings → **OAuth Apps** → New OAuth App
+2. **Enable Device Flow** 체크 (callback URL은 아무 값이나 가능, Device Flow만 사용)
+3. 발급된 Client ID를 환경변수로 넣고 빌드:
+
+```bash
+SYNAPSE_GITHUB_CLIENT_ID=<client_id> npm run tauri build
+```
+
+### 패키징
+
+```bash
+npm run tauri build   # 플랫폼별 설치 파일 생성 (deb/AppImage/msi/dmg)
+```
+
+아이콘은 `src-tauri/icons/`에 포함되어 있고, `npx tauri icon <원본.png>`로 교체할 수 있습니다.
+
 ### 마일스톤 현황
 
-- [x] **M0 골격** — 폴더 열기, 파일 트리, 최근 폴더, 읽기 전용 미리보기
-- [ ] **M1 에디터** — Tiptap WYSIWYG, md 라운드트립, 자동 저장
-- [ ] **M2 뷰어** — HTML 샌드박스 렌더링
-- [ ] **M3 동기화** — GitHub 로그인, 자동/수동 sync
-- [ ] **M4 설정/마감** — 전역 설정 UI, 패키징
+- [x] **M0 골격** — 폴더 열기, 파일 트리, 최근 폴더
+- [x] **M1 에디터** — Tiptap WYSIWYG, md 라운드트립, 자동 저장, 소스 모드, 탭
+- [x] **M2 뷰어** — HTML 정화 + 샌드박스 렌더링, 렌더/소스 전환
+- [x] **M3 동기화** — GitHub Device Flow 로그인, 게시/클론, 자동/수동 sync, 충돌 3택
+- [x] **M4 설정/마감** — 전역 설정 UI, 빠른 열기(Ctrl+P), 테마, 패키징 설정
+
+이후 계획(post-MVP)은 [요구사항 정의서의 FR-6](docs/REQUIREMENTS.md)을 참조: 전체 텍스트 검색,
+위키링크/백링크, HTML↔MD 변환, 파일 히스토리, 슬래시 커맨드 메뉴, AI 연동.

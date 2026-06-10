@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { resolveAssetUrl } from "../../ipc/ipc";
+import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
 import { sanitizeHtml } from "./sanitize";
 
@@ -12,14 +13,16 @@ function resolveRelative(baseDir: string, rel: string): string {
 // 스크립트 실행/같은 출처 접근/팝업/폼 제출 모두 불가 (FR-3.2).
 export function HtmlViewer({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
+  const viewerSettings = useSettings((s) => s.settings.htmlViewer);
   const baseDir = path.slice(0, path.lastIndexOf("/"));
 
   const sanitized = useMemo(
     () =>
       sanitizeHtml(doc?.content ?? "", {
         resolveLocal: (rel) => resolveRelative(baseDir, rel),
+        allowNetwork: viewerSettings.allowNetwork,
       }),
-    [doc?.content, baseDir],
+    [doc?.content, baseDir, viewerSettings.allowNetwork],
   );
 
   const srcDoc = useMemo(
@@ -37,7 +40,8 @@ export function HtmlViewer({ path }: { path: string }) {
     <iframe
       className="html-viewer"
       title={path}
-      sandbox=""
+      // 설정에서 명시적으로 허용한 경우에만 스크립트 실행 (경고 후, FR-3.2)
+      sandbox={viewerSettings.allowScripts ? "allow-scripts" : ""}
       srcDoc={srcDoc}
     />
   );

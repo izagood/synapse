@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
+import { useSettings } from "../../stores/settings";
 import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
 import { ContentPane } from "./ContentPane";
+import { QuickOpenModal } from "./QuickOpenModal";
 import { SyncBar } from "../sync/SyncBar";
 
 export function WorkspaceView() {
@@ -18,13 +20,20 @@ export function WorkspaceView() {
   const createNote = useWorkspace((s) => s.createNote);
   const saveActive = useWorkspace((s) => s.saveActive);
   const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
+  const openSettings = useSettings((s) => s.openSettings);
+  const [quickOpen, setQuickOpen] = useState(false);
 
-  // Ctrl/Cmd+S: 즉시 저장 (FR-2.6)
+  // Ctrl/Cmd+S: 즉시 저장 (FR-2.6) · Ctrl/Cmd+P: 빠른 열기 (FR-1.4)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "s") {
         e.preventDefault();
         void saveActive();
+      } else if (key === "p") {
+        e.preventDefault();
+        setQuickOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -58,6 +67,9 @@ export function WorkspaceView() {
           <button onClick={() => void openFolder()} title="다른 폴더 열기">
             폴더 열기
           </button>
+          <button onClick={openSettings} title="설정">
+            ⚙
+          </button>
           <button onClick={closeWorkspace} title="시작 화면으로">
             닫기
           </button>
@@ -76,6 +88,7 @@ export function WorkspaceView() {
         </main>
       </div>
       <SyncBar />
+      {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
     </div>
   );
 }

@@ -52,3 +52,13 @@ pub fn recent_workspaces() -> Result<Vec<String>, String> {
 pub fn record_workspace_opened(path: String) -> Result<Vec<String>, String> {
     synapse_core::record_opened(&config_dir()?, Path::new(&path)).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn get_settings() -> Result<synapse_core::settings::Settings, String> {
+    Ok(synapse_core::settings::load_settings(&config_dir()?))
+}
+
+#[tauri::command]
+pub fn update_settings(settings: synapse_core::settings::Settings) -> Result<(), String> {
+    synapse_core::settings::save_settings(&config_dir()?, &settings).map_err(|e| e.to_string())
+}
