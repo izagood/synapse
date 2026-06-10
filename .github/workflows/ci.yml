@@ -21,6 +21,23 @@ jobs:
       - run: npm test
       - run: npm run build
 
+      # 릴리스는 세 파일의 버전이 같아야 한다 — 어긋나면 PR 단계에서 잡는다
+      - name: 버전 일치 검사 (package.json / tauri.conf.json / Cargo.toml)
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = require("./package.json").version;
+            const tauri = require("./src-tauri/tauri.conf.json").version;
+            const cargo = fs.readFileSync("./src-tauri/Cargo.toml", "utf8")
+              .match(/^version = "([^"]+)"/m)[1];
+            if (pkg !== tauri || pkg !== cargo) {
+              console.error("버전 불일치: package.json=" + pkg
+                + " tauri.conf.json=" + tauri + " Cargo.toml=" + cargo);
+              process.exit(1);
+            }
+            console.log("버전 일치: " + pkg);
+          '
+
       # synapse-core는 GUI 의존성이 없어 어떤 러너에서도 테스트 가능
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -29,8 +46,11 @@ jobs:
       - run: cargo test
         working-directory: crates/synapse-core
 
-  # macOS 네이티브 코드(dock 메뉴 등)의 컴파일 검증 — 릴리스 전에 잡는다
-  check-macos:
+  # PR이 릴리즈 가능한 상태인지 검증 — 릴리스 워크플로우(release-macos.yml)와
+  # 같은 macOS 번들 빌드를 업로드 없이 드라이런한다. cargo check만 할 때와 달리
+  # 번들링·업데이터 아티팩트 생성까지 검증된다.
+  # 시간 절약을 위해 universal 대신 러너 네이티브(arm64) 타깃만 빌드한다.
+  release-dry-run:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +63,16 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
-      - run: npm run build
-      - run: cargo check
-        working-directory: src-tauri
+      # createUpdaterArtifacts: true 라서 서명 키가 필요하다.
+      # 시크릿이 없는 환경(포크에서 온 PR)에서는 업데이터 아티팩트 생성을 끄고 빌드한다.
+      - name: Tauri 번들 빌드 (드라이런)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            npx tauri build --target aarch64-apple-darwin \
+              --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          else
+            npx tauri build --target aarch64-apple-darwin
+          fi
