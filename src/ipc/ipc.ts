@@ -1,6 +1,9 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { mockIpc } from "./mock";
 import type {
   DeviceCode,
@@ -45,7 +48,21 @@ const tauriIpc: SynapseIpc = {
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
+
+  appVersion: () => getVersion(),
+  async checkUpdate() {
+    const update = await check();
+    pendingUpdate = update;
+    return update ? { version: update.version } : null;
+  },
+  async installUpdate() {
+    if (!pendingUpdate) throw new Error("설치할 업데이트가 없습니다");
+    await pendingUpdate.downloadAndInstall();
+    await relaunch();
+  },
 };
+
+let pendingUpdate: Update | null = null;
 
 export const ipc: SynapseIpc = isTauri ? tauriIpc : mockIpc;
 

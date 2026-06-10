@@ -862,6 +862,44 @@ select {
   color: var(--fg);
 }
 
+.update-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  animation: fade-in 0.25s ease;
+}
+
+.update-badge:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.update-install-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.setting-action-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.setting-action-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.setting-hint {
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  margin: 4px 0 0;
+}
+
 /* 자동 동기화 토글 스위치 */
 .auto-sync-toggle {
   display: flex;
