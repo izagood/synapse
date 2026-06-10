@@ -1,5 +1,57 @@
+import { useEffect, useState } from "react";
 import { useSettings } from "../../stores/settings";
 import { useUpdate } from "../../stores/update";
+
+// 숫자 설정 입력: 지우는 동안 빈칸을 허용하고(즉시 기본값으로 되돌리지 않음),
+// 유효한 숫자만 커밋하며 포커스를 벗어날 때 범위를 보정한다
+function NumberInput({
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onCommit: (n: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = Number(e.target.value);
+        if (e.target.value !== "" && Number.isFinite(n) && n >= min && n <= max) {
+          onCommit(clamp(n));
+        }
+      }}
+      onBlur={() => {
+        const n = Number(text);
+        if (text === "" || !Number.isFinite(n)) {
+          setText(String(value)); // 빈 채로 떠나면 기존 값 복원
+        } else {
+          const committed = clamp(n);
+          setText(String(committed));
+          onCommit(committed);
+        }
+      }}
+    />
+  );
+}
 
 function UpdateSection() {
   const { current, available, checking, installing, checked, error, check, install } =
@@ -98,32 +150,24 @@ export function SettingsModal() {
           </datalist>
           <label className="setting-row">
             <span>글자 크기</span>
-            <input
-              type="number"
+            <NumberInput
               min={12}
               max={28}
               value={settings.editor.fontSize}
-              onChange={(e) =>
-                void update({
-                  editor: { ...settings.editor, fontSize: Number(e.target.value) || 16 },
-                })
+              onCommit={(fontSize) =>
+                void update({ editor: { ...settings.editor, fontSize } })
               }
             />
           </label>
           <label className="setting-row">
             <span>자동 저장 지연 (ms)</span>
-            <input
-              type="number"
+            <NumberInput
               min={200}
+              max={10000}
               step={100}
               value={settings.editor.autoSaveDelayMs}
-              onChange={(e) =>
-                void update({
-                  editor: {
-                    ...settings.editor,
-                    autoSaveDelayMs: Number(e.target.value) || 1000,
-                  },
-                })
+              onCommit={(autoSaveDelayMs) =>
+                void update({ editor: { ...settings.editor, autoSaveDelayMs } })
               }
             />
           </label>
@@ -143,18 +187,12 @@ export function SettingsModal() {
           </label>
           <label className="setting-row">
             <span>동기화 주기 (분)</span>
-            <input
-              type="number"
+            <NumberInput
               min={1}
               max={60}
               value={settings.sync.intervalMinutes}
-              onChange={(e) =>
-                void update({
-                  sync: {
-                    ...settings.sync,
-                    intervalMinutes: Number(e.target.value) || 5,
-                  },
-                })
+              onCommit={(intervalMinutes) =>
+                void update({ sync: { ...settings.sync, intervalMinutes } })
               }
             />
           </label>
