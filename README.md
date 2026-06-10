@@ -57,6 +57,8 @@ SYNAPSE_GITHUB_CLIENT_ID=<client_id> npm run tauri build
 npm run tauri build   # 플랫폼별 설치 파일 생성 (deb/AppImage/msi/dmg)
 ```
 
+macOS 설치 파일(.dmg) 만들기와 GitHub Releases 자동 배포는 **[패키징 가이드](docs/PACKAGING.md)** 참조 —
+`git tag v0.1.0 && git push origin v0.1.0` 한 번이면 유니버설 dmg가 Releases에 올라옵니다.
 아이콘은 `src-tauri/icons/`에 포함되어 있고, `npx tauri icon <원본.png>`로 교체할 수 있습니다.
 
 ### 마일스톤 현황
