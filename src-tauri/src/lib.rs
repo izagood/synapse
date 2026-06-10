@@ -6,6 +6,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             commands::read_file,
+            commands::write_file,
+            commands::create_note,
             commands::recent_workspaces,
             commands::record_workspace_opened,
         ])

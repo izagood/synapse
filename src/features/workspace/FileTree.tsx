@@ -10,8 +10,8 @@ const FILE_ICONS: Record<string, string> = {
 
 function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth === 0);
-  const selectedPath = useWorkspace((s) => s.selectedPath);
-  const selectFile = useWorkspace((s) => s.selectFile);
+  const activePath = useWorkspace((s) => s.activePath);
+  const openFile = useWorkspace((s) => s.openFile);
 
   const indent = { paddingLeft: `${depth * 14 + 8}px` };
 
@@ -36,9 +36,9 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
 
   return (
     <button
-      className={`tree-row tree-file${selectedPath === node.path ? " selected" : ""}`}
+      className={`tree-row tree-file${activePath === node.path ? " selected" : ""}`}
       style={indent}
-      onClick={() => void selectFile(node)}
+      onClick={() => void openFile(node)}
     >
       <span className="tree-icon">{FILE_ICONS[node.fileType]}</span>
       <span className="tree-name">{node.name}</span>

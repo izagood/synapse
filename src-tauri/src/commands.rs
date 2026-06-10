@@ -23,6 +23,21 @@ pub fn read_file(root: String, path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn write_file(root: String, path: String, content: String) -> Result<(), String> {
+    let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
+        .map_err(|e| e.to_string())?;
+    synapse_core::atomic_write(&resolved, &content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_note(root: String, dir: String) -> Result<String, String> {
+    let resolved =
+        ensure_within(Path::new(&root), Path::new(&dir)).map_err(|e| e.to_string())?;
+    let path = synapse_core::create_unique_note(&resolved).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
 pub fn recent_workspaces() -> Result<Vec<String>, String> {
     Ok(synapse_core::recent_workspaces(&config_dir()?))
 }

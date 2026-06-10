@@ -1,16 +1,30 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { useWorkspace } from "./workspace";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isDirty, useWorkspace } from "./workspace";
+import { ipc } from "../ipc/ipc";
 
 // node 환경에서는 ipc가 자동으로 mockIpc로 동작한다 (src/ipc/ipc.ts의 isTauri 분기)
 const MOCK_ROOT = "/mock/notes";
 
+function findNode(name: string) {
+  const walk = (nodes: ReturnType<typeof useWorkspace.getState>["tree"][]): any => {
+    for (const n of nodes) {
+      if (!n) continue;
+      if (n.name === name) return n;
+      const found = n.children ? walk(n.children) : null;
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk([useWorkspace.getState().tree]);
+}
+
 describe("workspace store (mock ipc)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     useWorkspace.getState().closeWorkspace();
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
   });
 
-  it("opens a folder: tree loaded and recorded in recent", async () => {
-    await useWorkspace.getState().openFolder(MOCK_ROOT);
+  it("opens a folder: tree loaded and recorded in recent", () => {
     const s = useWorkspace.getState();
     expect(s.root).toBe(MOCK_ROOT);
     expect(s.tree?.kind).toBe("dir");
@@ -19,38 +33,67 @@ describe("workspace store (mock ipc)", () => {
     expect(s.error).toBeNull();
   });
 
-  it("selects a markdown file and loads its content", async () => {
-    await useWorkspace.getState().openFolder(MOCK_ROOT);
-    const readme = useWorkspace
-      .getState()
-      .tree!.children!.find((n) => n.name === "README.md")!;
-    await useWorkspace.getState().selectFile(readme);
+  it("opens a file in a tab and loads content", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
     const s = useWorkspace.getState();
-    expect(s.selectedPath).toBe(readme.path);
-    expect(s.fileContent).toContain("Mock 워크스페이스");
+    expect(s.tabs.map((t) => t.name)).toEqual(["README.md"]);
+    expect(s.activePath).toContain("README.md");
+    expect(s.docs[s.activePath!].content).toContain("Mock 워크스페이스");
+    expect(isDirty(s.docs[s.activePath!])).toBe(false);
   });
 
-  it("ignores selecting a directory", async () => {
-    await useWorkspace.getState().openFolder(MOCK_ROOT);
-    const dir = useWorkspace
-      .getState()
-      .tree!.children!.find((n) => n.kind === "dir")!;
-    await useWorkspace.getState().selectFile(dir);
-    expect(useWorkspace.getState().selectedPath).toBeNull();
+  it("keeps multiple tabs and switches active", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+    let s = useWorkspace.getState();
+    expect(s.tabs).toHaveLength(2);
+    expect(s.activePath).toContain("2026-06-10.md");
+
+    s.setActiveTab(s.tabs[0].path);
+    s = useWorkspace.getState();
+    expect(s.activePath).toContain("README.md");
+  });
+
+  it("updateContent marks dirty, autosave persists after delay", async () => {
+    vi.useFakeTimers();
+    try {
+      await useWorkspace.getState().openFile(findNode("README.md"));
+      const path = useWorkspace.getState().activePath!;
+      useWorkspace.getState().updateContent(path, "# 수정됨");
+      expect(isDirty(useWorkspace.getState().docs[path])).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(isDirty(useWorkspace.getState().docs[path])).toBe(false);
+      expect(await ipc.readFile(MOCK_ROOT, path)).toBe("# 수정됨");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("closeTab saves pending changes and activates a neighbor", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+    const closing = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(closing, "닫기 전 수정");
+
+    await useWorkspace.getState().closeTab(closing);
+    const s = useWorkspace.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.activePath).toContain("README.md");
+    expect(await ipc.readFile(MOCK_ROOT, closing)).toBe("닫기 전 수정");
+  });
+
+  it("createNote creates, refreshes the tree, and opens a markdown tab", async () => {
+    await useWorkspace.getState().createNote();
+    const s = useWorkspace.getState();
+    expect(s.activePath).toMatch(/새 노트.*\.md$/);
+    expect(s.tabs.at(-1)?.fileType).toBe("markdown");
+    expect(findNode(s.tabs.at(-1)!.name)).toBeTruthy();
   });
 
   it("surfaces errors for an invalid folder", async () => {
     await useWorkspace.getState().openFolder("/does/not/exist");
     const s = useWorkspace.getState();
-    expect(s.root).toBeNull();
     expect(s.error).toContain("not a directory");
-  });
-
-  it("closeWorkspace returns to start state", async () => {
-    await useWorkspace.getState().openFolder(MOCK_ROOT);
-    useWorkspace.getState().closeWorkspace();
-    const s = useWorkspace.getState();
-    expect(s.root).toBeNull();
-    expect(s.tree).toBeNull();
   });
 });
