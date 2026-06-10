@@ -180,6 +180,10 @@ export const mockIpc: SynapseIpc = {
     mockSettings = structuredClone(settings);
   },
 
+  async setWindowTheme() {
+    // 브라우저 모드에는 네이티브 창이 없다
+  },
+
   async appVersion() {
     return "0.2.0-dev";
   },

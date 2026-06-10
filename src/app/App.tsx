@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { ipc } from "../ipc/ipc";
 import { useWorkspace } from "../stores/workspace";
 import { effectiveTheme, useSettings } from "../stores/settings";
 import { StartScreen } from "../features/workspace/StartScreen";
@@ -32,10 +33,12 @@ export default function App() {
   }, []);
 
   // 테마 적용: data-theme 속성 + 시스템 테마 변화 추적 (FR-5.3)
+  // 네이티브 창(타이틀바)도 같은 테마를 따르도록 동기화한다
   useEffect(() => {
     const apply = () =>
       document.documentElement.setAttribute("data-theme", effectiveTheme(theme));
     apply();
+    void ipc.setWindowTheme(theme === "system" ? null : theme).catch(() => undefined);
     if (theme === "system" && "matchMedia" in window) {
       const mq = window.matchMedia("(prefers-color-scheme: light)");
       mq.addEventListener("change", apply);

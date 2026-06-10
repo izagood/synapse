@@ -103,6 +103,9 @@ export interface SynapseIpc {
   getSettings(): Promise<Settings>;
   updateSettings(settings: Settings): Promise<void>;
 
+  /** 네이티브 창(타이틀바) 테마 동기화 — null이면 OS 테마 따름 */
+  setWindowTheme(theme: "light" | "dark" | null): Promise<void>;
+
   // ---- 앱 업데이트 (F2) ----
   appVersion(): Promise<string>;
   /** 새 버전이 있으면 버전 정보, 없으면 null */
