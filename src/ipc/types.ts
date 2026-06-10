@@ -89,6 +89,14 @@ export interface SynapseIpc {
   saveImage(root: string, dir: string, desiredName: string, base64: string): Promise<string>;
   /** 새 앱 창 열기 (여러 폴더 동시 사용) */
   newWindow(): Promise<void>;
+
+  // ---- 파일 작업 (FR-1.3) ----
+  /** 같은 폴더 안에서 이름 변경 (덮어쓰기 거부), 새 절대 경로 반환 */
+  renamePath(root: string, path: string, newName: string): Promise<string>;
+  /** 파일/폴더 삭제 (복구 불가 — UI에서 확인 필수) */
+  deletePath(root: string, path: string): Promise<void>;
+  /** 파일을 "이름 2.ext"로 복제, 새 파일명 반환 */
+  duplicatePath(root: string, path: string): Promise<string>;
   /** 최근 연 폴더 (최신순) */
   recentWorkspaces(): Promise<string[]>;
   /** 폴더 열람 기록, 갱신된 최근 목록 반환 */

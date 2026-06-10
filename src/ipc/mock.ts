@@ -139,6 +139,58 @@ export const mockIpc: SynapseIpc = {
     window.open?.(location.href, "_blank");
   },
 
+  async renamePath(root, path, newName) {
+    assertInside(root, path);
+    if (!newName || newName.includes("/") || newName === "." || newName === "..") {
+      throw new Error("invalid name");
+    }
+    const parent = path.slice(0, path.lastIndexOf("/"));
+    const target = `${parent}/${newName}`;
+    const isDir = ![...files.keys()].includes(path);
+    if (files.has(target) || [...files.keys()].some((k) => k.startsWith(`${target}/`))) {
+      throw new Error(`이미 존재합니다: ${newName}`);
+    }
+    if (isDir) {
+      for (const [k, v] of [...files]) {
+        if (k.startsWith(`${path}/`)) {
+          files.delete(k);
+          files.set(target + k.slice(path.length), v);
+        }
+      }
+    } else {
+      const content = files.get(path);
+      if (content === undefined) throw new Error(`no such file: ${path}`);
+      files.delete(path);
+      files.set(target, content);
+    }
+    return target;
+  },
+  async deletePath(root, path) {
+    assertInside(root, path);
+    files.delete(path);
+    for (const k of [...files.keys()]) {
+      if (k.startsWith(`${path}/`)) files.delete(k);
+    }
+  },
+  async duplicatePath(root, path) {
+    assertInside(root, path);
+    const content = files.get(path);
+    if (content === undefined) throw new Error(`no such file: ${path}`);
+    const name = path.split("/").pop()!;
+    const dir = path.slice(0, path.lastIndexOf("/"));
+    const dotAt = name.lastIndexOf(".");
+    const stem = dotAt > 0 ? name.slice(0, dotAt) : name;
+    const ext = dotAt > 0 ? name.slice(dotAt) : "";
+    for (let i = 2; i < 1000; i++) {
+      const candidate = `${stem} ${i}${ext}`;
+      if (!files.has(`${dir}/${candidate}`)) {
+        files.set(`${dir}/${candidate}`, content);
+        return candidate;
+      }
+    }
+    throw new Error("too many name collisions");
+  },
+
   async recentWorkspaces() {
     return [...recent];
   },

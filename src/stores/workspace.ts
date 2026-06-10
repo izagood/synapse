@@ -53,8 +53,22 @@ interface WorkspaceState {
   updateContent(path: string, content: string): void;
   saveDoc(path: string): Promise<void>;
   saveActive(): Promise<void>;
-  createNote(): Promise<void>;
+  createNote(dir?: string): Promise<void>;
   toggleSourceMode(): void;
+
+  // ---- 파일 작업 (FR-1.3, VS Code 스타일 우클릭) ----
+  /** 저장 없이 탭을 닫는다 (삭제된 파일 정리용) */
+  closeTabDiscard(path: string): void;
+  renameEntry(node: Pick<FileNode, "path" | "kind">, newName: string): Promise<void>;
+  deleteEntry(node: Pick<FileNode, "path" | "kind">): Promise<void>;
+  duplicateEntry(node: Pick<FileNode, "path">): Promise<void>;
+}
+
+function fileTypeOf(name: string): FileType {
+  const ext = name.split(".").pop()?.toLowerCase();
+  if (ext === "md" || ext === "markdown") return "markdown";
+  if (ext === "html" || ext === "htm") return "html";
+  return "other";
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -274,11 +288,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (activePath) await get().saveDoc(activePath);
   },
 
-  async createNote() {
+  async createNote(dir) {
     const { root } = get();
     if (!root) return;
     try {
-      const path = await ipc.createNote(root, root);
+      const path = await ipc.createNote(root, dir ?? root);
       await get().refreshTree();
       await get().openFile({
         path,
@@ -293,6 +307,86 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   toggleSourceMode() {
     set((s) => ({ sourceMode: !s.sourceMode }));
+  },
+
+  closeTabDiscard(path) {
+    const timer = autosaveTimers.get(path);
+    if (timer) {
+      clearTimeout(timer);
+      autosaveTimers.delete(path);
+    }
+    set((s) => {
+      const tabs = s.tabs.filter((t) => t.path !== path);
+      const docs = { ...s.docs };
+      delete docs[path];
+      let activePath = s.activePath;
+      if (activePath === path) {
+        const idx = s.tabs.findIndex((t) => t.path === path);
+        activePath = tabs[Math.min(idx, tabs.length - 1)]?.path ?? null;
+      }
+      return { tabs, docs, activePath };
+    });
+  },
+
+  async renameEntry(node, newName) {
+    const { root } = get();
+    if (!root) return;
+    try {
+      // 영향받는 열린 탭을 먼저 저장하고 닫는다 (자동 저장이 옛 경로에 쓰지 않게)
+      const affected = get().tabs.filter(
+        (t) => t.path === node.path || t.path.startsWith(`${node.path}/`),
+      );
+      const reopen = affected.find((t) => t.path === node.path && node.kind === "file");
+      for (const t of affected) {
+        await get().closeTab(t.path);
+      }
+      const newPath = await ipc.renamePath(root, node.path, newName);
+      await get().refreshTree();
+      if (reopen) {
+        await get().openFile({
+          path: newPath,
+          name: newName,
+          kind: "file",
+          fileType: fileTypeOf(newName),
+        });
+      }
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async deleteEntry(node) {
+    const { root } = get();
+    if (!root) return;
+    try {
+      for (const t of get().tabs.filter(
+        (t) => t.path === node.path || t.path.startsWith(`${node.path}/`),
+      )) {
+        get().closeTabDiscard(t.path);
+      }
+      await ipc.deletePath(root, node.path);
+      await get().refreshTree();
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async duplicateEntry(node) {
+    const { root } = get();
+    if (!root) return;
+    try {
+      const newName = await ipc.duplicatePath(root, node.path);
+      await get().refreshTree();
+      const dir = node.path.slice(0, node.path.lastIndexOf("/"));
+      await get().openFile({
+        path: `${dir}/${newName}`,
+        name: newName,
+        kind: "file",
+        fileType: fileTypeOf(newName),
+      });
+    } catch (e) {
+      set({ error: String(e) });
+    }
   },
 }));
 

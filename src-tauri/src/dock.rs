@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use objc2::ffi::class_addMethod;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
-use objc2::{sel, MainThreadMarker};
+use objc2::{sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSApplication, NSMenu, NSMenuItem};
 use objc2_foundation::NSString;
 use tauri::AppHandle;
@@ -24,10 +24,12 @@ pub fn install(app: AppHandle) {
         return; // setup은 메인 스레드에서 불리지만, 아니면 조용히 포기
     };
     let ns_app = NSApplication::sharedApplication(mtm);
-    let Some(delegate) = (unsafe { ns_app.delegate() }) else {
+    let Some(delegate) = ns_app.delegate() else {
         return;
     };
-    let class: &AnyClass = delegate.class();
+    let delegate_obj: &AnyObject =
+        unsafe { &*(Retained::as_ptr(&delegate) as *const AnyObject) };
+    let class: &AnyClass = delegate_obj.class();
     let cls = class as *const AnyClass as *mut AnyClass;
 
     type DockMenuFn = extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> *mut NSMenu;
@@ -115,7 +117,8 @@ extern "C-unwind" fn action_open_recent(
 ) {
     let Some(app) = APP.get() else { return };
     let sender = unsafe { &*(sender as *const NSMenuItem) };
-    let path = unsafe { sender.representedObject() }
+    let path = sender
+        .representedObject()
         .and_then(|obj| obj.downcast::<NSString>().ok())
         .map(|s| s.to_string());
     if let Some(path) = path {

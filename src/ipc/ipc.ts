@@ -32,6 +32,10 @@ const tauriIpc: SynapseIpc = {
   saveImage: (root, dir, desiredName, base64) =>
     invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
   newWindow: () => invoke<void>("new_window"),
+  renamePath: (root, path, newName) =>
+    invoke<string>("rename_path", { root, path, newName }),
+  deletePath: (root, path) => invoke<void>("delete_path", { root, path }),
+  duplicatePath: (root, path) => invoke<string>("duplicate_path", { root, path }),
   recentWorkspaces: () => invoke<string[]>("recent_workspaces"),
   recordWorkspaceOpened: (path) =>
     invoke<string[]>("record_workspace_opened", { path }),

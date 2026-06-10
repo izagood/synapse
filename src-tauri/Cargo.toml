@@ -1,6 +1,6 @@
 [package]
 name = "synapse"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Synapse — Notion-style note app that saves plain Markdown, synced via GitHub"
 
@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
