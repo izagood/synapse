@@ -14,6 +14,8 @@ pub fn run() {
             commands::create_note,
             commands::recent_workspaces,
             commands::record_workspace_opened,
+            commands::get_settings,
+            commands::update_settings,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,

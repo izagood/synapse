@@ -6,6 +6,7 @@ import type {
   DeviceCode,
   FileNode,
   PollResult,
+  Settings,
   SyncStatus,
   SynapseIpc,
 } from "./types";
@@ -41,6 +42,9 @@ const tauriIpc: SynapseIpc = {
     invoke<SyncStatus>("publish_workspace", { root, name, private: isPrivate }),
   cloneRepo: (url, parentDir, name) =>
     invoke<string>("clone_repo", { url, parentDir, name }),
+
+  getSettings: () => invoke<Settings>("get_settings"),
+  updateSettings: (settings) => invoke<void>("update_settings", { settings }),
 };
 
 export const ipc: SynapseIpc = isTauri ? tauriIpc : mockIpc;

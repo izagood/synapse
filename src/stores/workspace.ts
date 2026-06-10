@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import type { FileNode, FileType } from "../ipc/types";
+import { useSettings } from "./settings";
 
 export interface TabInfo {
   path: string;
@@ -20,8 +21,10 @@ export interface DocState {
 export const isDirty = (doc: DocState | undefined): boolean =>
   !!doc && !doc.loading && doc.content !== doc.savedContent;
 
-const AUTOSAVE_DELAY_MS = 1000;
 const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+const autosaveDelayMs = () =>
+  useSettings.getState().settings.editor.autoSaveDelayMs || 1000;
 
 interface WorkspaceState {
   recent: string[];
@@ -194,7 +197,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       setTimeout(() => {
         autosaveTimers.delete(path);
         void get().saveDoc(path);
-      }, AUTOSAVE_DELAY_MS),
+      }, autosaveDelayMs()),
     );
   },
 
