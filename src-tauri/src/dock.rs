@@ -5,14 +5,13 @@
 //! 메뉴는 dock이 열릴 때마다 최신 최근 폴더 목록으로 다시 만들어진다.
 #![cfg(target_os = "macos")]
 
-use std::ffi::CStr;
 use std::path::Path;
 use std::sync::OnceLock;
 
 use objc2::ffi::class_addMethod;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Sel};
-use objc2::{msg_send, sel, MainThreadMarker, Message};
+use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
+use objc2::{sel, MainThreadMarker};
 use objc2_app_kit::{NSApplication, NSMenu, NSMenuItem};
 use objc2_foundation::NSString;
 use tauri::AppHandle;
@@ -28,36 +27,29 @@ pub fn install(app: AppHandle) {
     let Some(delegate) = (unsafe { ns_app.delegate() }) else {
         return;
     };
-    let class = delegate.class();
-    let types = CStr::from_bytes_with_nul(b"@@:@\0").unwrap();
-    let action_types = CStr::from_bytes_with_nul(b"v@:@\0").unwrap();
+    let class: &AnyClass = delegate.class();
+    let cls = class as *const AnyClass as *mut AnyClass;
+
+    type DockMenuFn = extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> *mut NSMenu;
+    type ActionFn = extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject);
     unsafe {
         class_addMethod(
-            class as *const _ as *mut _,
-            sel!(applicationDockMenu:).as_ptr(),
-            Some(std::mem::transmute::<
-                extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> *mut NSMenu,
-                unsafe extern "C-unwind" fn(),
-            >(dock_menu)),
-            types.as_ptr(),
+            cls,
+            sel!(applicationDockMenu:),
+            std::mem::transmute::<DockMenuFn, Imp>(dock_menu),
+            c"@@:@".as_ptr(),
         );
         class_addMethod(
-            class as *const _ as *mut _,
-            sel!(synapseNewWindow:).as_ptr(),
-            Some(std::mem::transmute::<
-                extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject),
-                unsafe extern "C-unwind" fn(),
-            >(action_new_window)),
-            action_types.as_ptr(),
+            cls,
+            sel!(synapseNewWindow:),
+            std::mem::transmute::<ActionFn, Imp>(action_new_window),
+            c"v@:@".as_ptr(),
         );
         class_addMethod(
-            class as *const _ as *mut _,
-            sel!(synapseOpenRecent:).as_ptr(),
-            Some(std::mem::transmute::<
-                extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject),
-                unsafe extern "C-unwind" fn(),
-            >(action_open_recent)),
-            action_types.as_ptr(),
+            cls,
+            sel!(synapseOpenRecent:),
+            std::mem::transmute::<ActionFn, Imp>(action_open_recent),
+            c"v@:@".as_ptr(),
         );
     }
 }
@@ -74,6 +66,7 @@ extern "C-unwind" fn dock_menu(
     _app: *mut AnyObject,
 ) -> *mut NSMenu {
     let mtm = unsafe { MainThreadMarker::new_unchecked() };
+    let target = unsafe { &*this };
     let menu = NSMenu::new(mtm);
 
     unsafe {
@@ -83,7 +76,7 @@ extern "C-unwind" fn dock_menu(
             Some(sel!(synapseNewWindow:)),
             &NSString::from_str(""),
         );
-        let _: () = msg_send![&new_window, setTarget: this];
+        new_window.setTarget(Some(target));
         menu.addItem(&new_window);
 
         let recent = recent_folders();
@@ -101,9 +94,8 @@ extern "C-unwind" fn dock_menu(
                 Some(sel!(synapseOpenRecent:)),
                 &NSString::from_str(""),
             );
-            let repr = NSString::from_str(&path);
-            let _: () = msg_send![&item, setRepresentedObject: &*repr];
-            let _: () = msg_send![&item, setTarget: this];
+            item.setRepresentedObject(Some(&NSString::from_str(&path)));
+            item.setTarget(Some(target));
             menu.addItem(&item);
         }
     }
@@ -122,14 +114,10 @@ extern "C-unwind" fn action_open_recent(
     sender: *mut AnyObject,
 ) {
     let Some(app) = APP.get() else { return };
-    let path = unsafe {
-        let sender = &*sender;
-        let repr: Option<Retained<AnyObject>> = msg_send![sender, representedObject];
-        repr.map(|r| {
-            let s: &NSString = &*(Retained::as_ptr(&r) as *const NSString);
-            s.retain().to_string()
-        })
-    };
+    let sender = unsafe { &*(sender as *const NSMenuItem) };
+    let path = unsafe { sender.representedObject() }
+        .and_then(|obj| obj.downcast::<NSString>().ok())
+        .map(|s| s.to_string());
     if let Some(path) = path {
         let _ = crate::commands::open_extra_window(app, Some(path));
     }
