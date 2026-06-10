@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import type { ConflictChoice, DeviceCode, SyncStatus } from "../ipc/types";
+import { syncCommitMessage } from "../features/sync/commitMessage";
 
 // FR-4.8: 엔진 상태는 세분화되어 있지만 UI는 3가지로 접는다
 export type SyncBadge = "synced" | "pending" | "conflict" | "none";
@@ -114,7 +115,7 @@ export const useSync = create<SyncStoreState>((set, get) => ({
     if (get().syncing) return;
     set({ syncing: true, error: null });
     try {
-      set({ status: await ipc.syncNow(root) });
+      set({ status: await ipc.syncNow(root, syncCommitMessage()) });
     } catch (e) {
       set({ error: String(e) });
     } finally {

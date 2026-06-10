@@ -1,40 +1,138 @@
+import { useEffect, useState } from "react";
 import { isDirty, useWorkspace } from "../../stores/workspace";
+import { CloseIcon, CodeIcon, PlusIcon } from "../../shared/Icons";
+
+interface ContextMenuState {
+  path: string;
+  x: number;
+  y: number;
+}
+
+// VS Code 스타일 탭 우클릭 메뉴
+function TabContextMenu({
+  menu,
+  onClose,
+}: {
+  menu: ContextMenuState;
+  onClose: () => void;
+}) {
+  const closeTab = useWorkspace((s) => s.closeTab);
+  const closeOtherTabs = useWorkspace((s) => s.closeOtherTabs);
+  const closeTabsToRight = useWorkspace((s) => s.closeTabsToRight);
+  const closeAllTabs = useWorkspace((s) => s.closeAllTabs);
+  const tabs = useWorkspace((s) => s.tabs);
+
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close);
+    };
+  }, [onClose]);
+
+  const idx = tabs.findIndex((t) => t.path === menu.path);
+  const run = (action: () => Promise<void>) => {
+    onClose();
+    void action();
+  };
+
+  return (
+    <div
+      className="context-menu"
+      style={{ left: menu.x, top: menu.y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button onClick={() => run(() => closeTab(menu.path))}>닫기</button>
+      <button
+        disabled={tabs.length <= 1}
+        onClick={() => run(() => closeOtherTabs(menu.path))}
+      >
+        다른 탭 모두 닫기
+      </button>
+      <button
+        disabled={idx === tabs.length - 1}
+        onClick={() => run(() => closeTabsToRight(menu.path))}
+      >
+        오른쪽 탭 닫기
+      </button>
+      <div className="context-sep" />
+      <button onClick={() => run(closeAllTabs)}>모든 탭 닫기</button>
+    </div>
+  );
+}
 
 export function TabBar() {
   const tabs = useWorkspace((s) => s.tabs);
   const activePath = useWorkspace((s) => s.activePath);
   const docs = useWorkspace((s) => s.docs);
+  const sourceMode = useWorkspace((s) => s.sourceMode);
   const setActiveTab = useWorkspace((s) => s.setActiveTab);
   const closeTab = useWorkspace((s) => s.closeTab);
+  const createNote = useWorkspace((s) => s.createNote);
+  const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
 
-  if (tabs.length === 0) return null;
+  const activeTab = tabs.find((t) => t.path === activePath);
 
   return (
     <div className="tab-bar" role="tablist">
-      {tabs.map((tab) => (
-        <div
-          key={tab.path}
-          className={`tab${tab.path === activePath ? " active" : ""}`}
-          role="tab"
-          aria-selected={tab.path === activePath}
-        >
+      <div className="tabs">
+        {tabs.map((tab) => {
+          const dirty = isDirty(docs[tab.path]);
+          return (
+            <div
+              key={tab.path}
+              className={`tab${tab.path === activePath ? " active" : ""}${dirty ? " dirty" : ""}`}
+              role="tab"
+              aria-selected={tab.path === activePath}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenu({ path: tab.path, x: e.clientX, y: e.clientY });
+              }}
+              onAuxClick={(e) => {
+                // 휠 클릭으로 닫기 (VS Code)
+                if (e.button === 1) void closeTab(tab.path);
+              }}
+            >
+              <button
+                className="tab-label"
+                title={tab.path}
+                onClick={() => setActiveTab(tab.path)}
+              >
+                {tab.name}
+              </button>
+              <button
+                className="tab-close"
+                title={dirty ? "저장 후 닫기" : "닫기"}
+                onClick={() => void closeTab(tab.path)}
+              >
+                <span className="tab-dirty-dot" />
+                <span className="tab-close-x">
+                  <CloseIcon size={12} />
+                </span>
+              </button>
+            </div>
+          );
+        })}
+        <button className="tab-add" title="새 노트" onClick={() => void createNote()}>
+          <PlusIcon size={14} />
+        </button>
+      </div>
+      <div className="tab-actions">
+        {activeTab && activeTab.fileType !== "other" && (
           <button
-            className="tab-label"
-            title={tab.path}
-            onClick={() => setActiveTab(tab.path)}
+            className={sourceMode ? "active" : ""}
+            onClick={toggleSourceMode}
+            title={sourceMode ? "렌더 보기로 전환" : "소스 보기로 전환"}
           >
-            {isDirty(docs[tab.path]) && <span className="tab-dirty">●</span>}
-            {tab.name}
+            <CodeIcon size={15} />
           </button>
-          <button
-            className="tab-close"
-            title="탭 닫기"
-            onClick={() => void closeTab(tab.path)}
-          >
-            ×
-          </button>
-        </div>
-      ))}
+        )}
+      </div>
+      {menu && <TabContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </div>
   );
 }

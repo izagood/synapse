@@ -11,11 +11,25 @@ export default function App() {
   const initSettings = useSettings((s) => s.init);
   const theme = useSettings((s) => s.settings.appearance.theme);
   const fontSize = useSettings((s) => s.settings.editor.fontSize);
+  const fontFamily = useSettings((s) => s.settings.editor.fontFamily);
 
   useEffect(() => {
     void initWorkspace();
     void initSettings();
   }, [initWorkspace, initSettings]);
+
+  // Cmd/Ctrl+,: 설정 (F3) — 시작 화면에서도 동작하도록 앱 전역에 둔다
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+        e.preventDefault();
+        const s = useSettings.getState();
+        s.showSettings ? s.closeSettings() : s.openSettings();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // 테마 적용: data-theme 속성 + 시스템 테마 변화 추적 (FR-5.3)
   useEffect(() => {
@@ -30,8 +44,10 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--editor-font-size", `${fontSize}px`);
-  }, [fontSize]);
+    const style = document.documentElement.style;
+    style.setProperty("--editor-font-size", `${fontSize}px`);
+    style.setProperty("--editor-font-family", fontFamily || "system-ui");
+  }, [fontSize, fontFamily]);
 
   return (
     <>

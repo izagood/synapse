@@ -35,7 +35,7 @@ const tauriIpc: SynapseIpc = {
   openExternal: (url) => openUrl(url),
 
   syncStatus: (root) => invoke<SyncStatus>("sync_status", { root }),
-  syncNow: (root) => invoke<SyncStatus>("sync_now", { root }),
+  syncNow: (root, message) => invoke<SyncStatus>("sync_now", { root, message }),
   resolveConflict: (root, choice) =>
     invoke<SyncStatus>("resolve_conflict", { root, choice }),
   publishWorkspace: (root, name, isPrivate) =>

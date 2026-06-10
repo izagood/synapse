@@ -91,6 +91,40 @@ describe("workspace store (mock ipc)", () => {
     expect(findNode(s.tabs.at(-1)!.name)).toBeTruthy();
   });
 
+  it("closeOtherTabs keeps only the given tab, saving dirty ones", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+    await useWorkspace.getState().openFile(findNode("summary.html"));
+    const keep = useWorkspace.getState().tabs[1].path;
+    const other = useWorkspace.getState().tabs[0].path;
+    useWorkspace.getState().updateContent(other, "닫히기 전 저장될 내용");
+
+    await useWorkspace.getState().closeOtherTabs(keep);
+    const s = useWorkspace.getState();
+    expect(s.tabs.map((t) => t.path)).toEqual([keep]);
+    expect(s.activePath).toBe(keep);
+    expect(await ipc.readFile(MOCK_ROOT, other)).toBe("닫히기 전 저장될 내용");
+  });
+
+  it("closeTabsToRight closes only tabs after the given one", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+    await useWorkspace.getState().openFile(findNode("summary.html"));
+    const first = useWorkspace.getState().tabs[0].path;
+
+    await useWorkspace.getState().closeTabsToRight(first);
+    expect(useWorkspace.getState().tabs.map((t) => t.path)).toEqual([first]);
+  });
+
+  it("closeAllTabs empties the tab bar", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+    await useWorkspace.getState().closeAllTabs();
+    const s = useWorkspace.getState();
+    expect(s.tabs).toEqual([]);
+    expect(s.activePath).toBeNull();
+  });
+
   it("surfaces errors for an invalid folder", async () => {
     await useWorkspace.getState().openFolder("/does/not/exist");
     const s = useWorkspace.getState();

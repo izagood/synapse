@@ -25,6 +25,7 @@ impl Default for Appearance {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct EditorSettings {
+    pub font_family: String,
     pub font_size: u32,
     pub auto_save_delay_ms: u64,
     pub assets_folder: String,
@@ -32,7 +33,12 @@ pub struct EditorSettings {
 
 impl Default for EditorSettings {
     fn default() -> Self {
-        EditorSettings { font_size: 16, auto_save_delay_ms: 1000, assets_folder: "assets".into() }
+        EditorSettings {
+            font_family: "system-ui".into(),
+            font_size: 16,
+            auto_save_delay_ms: 1000,
+            assets_folder: "assets".into(),
+        }
     }
 }
 
@@ -119,6 +125,7 @@ mod tests {
     fn serializes_camel_case() {
         let json = serde_json::to_string(&Settings::default()).unwrap();
         assert!(json.contains("\"autoSaveDelayMs\""));
+        assert!(json.contains("\"fontFamily\""));
         assert!(json.contains("\"htmlViewer\""));
         assert!(json.contains("\"intervalMinutes\""));
     }
