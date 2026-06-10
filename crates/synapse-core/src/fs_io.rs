@@ -69,6 +69,66 @@ pub fn create_unique_note(dir: &Path) -> io::Result<PathBuf> {
     Err(io::Error::other("too many untitled notes"))
 }
 
+/// `dir` 안에 `desired_name`으로 바이너리를 쓴다. 같은 이름이 이미 있으면
+/// "이름 2.ext", "이름 3.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
+pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8]) -> io::Result<String> {
+    let (stem, ext) = match desired_name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), Some(e.to_string())),
+        _ => (desired_name.to_string(), None),
+    };
+    for i in 1..1000 {
+        let name = match (&ext, i) {
+            (Some(e), 1) => format!("{stem}.{e}"),
+            (Some(e), n) => format!("{stem} {n}.{e}"),
+            (None, 1) => stem.clone(),
+            (None, n) => format!("{stem} {n}"),
+        };
+        match fs::OpenOptions::new().write(true).create_new(true).open(dir.join(&name)) {
+            Ok(mut f) => {
+                use std::io::Write;
+                f.write_all(bytes)?;
+                return Ok(name);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::other("too many name collisions"))
+}
+
+/// base64 표준 알파벳 디코더 (이미지 붙여넣기용 — 의존성 없이)
+pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    fn val(c: u8) -> Result<u32, String> {
+        match c {
+            b'A'..=b'Z' => Ok((c - b'A') as u32),
+            b'a'..=b'z' => Ok((c - b'a' + 26) as u32),
+            b'0'..=b'9' => Ok((c - b'0' + 52) as u32),
+            b'+' => Ok(62),
+            b'/' => Ok(63),
+            _ => Err(format!("invalid base64 byte: {c}")),
+        }
+    }
+    let cleaned: Vec<u8> = input.bytes().filter(|b| !b" \n\r\t".contains(b)).collect();
+    let stripped = cleaned.strip_suffix(b"==").or_else(|| cleaned.strip_suffix(b"=")).unwrap_or(&cleaned);
+    let mut out = Vec::with_capacity(stripped.len() * 3 / 4);
+    for chunk in stripped.chunks(4) {
+        let mut acc: u32 = 0;
+        for (i, &b) in chunk.iter().enumerate() {
+            acc |= val(b)? << (18 - 6 * i);
+        }
+        let n_bytes = match chunk.len() {
+            4 => 3,
+            3 => 2,
+            2 => 1,
+            _ => return Err("truncated base64".to_string()),
+        };
+        for i in 0..n_bytes {
+            out.push(((acc >> (16 - 8 * i)) & 0xff) as u8);
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,6 +163,29 @@ mod tests {
         fs::create_dir(&sub).unwrap();
         let escape = sub.join("../evil.md");
         assert!(ensure_writable_within(&sub, &escape).is_err());
+    }
+
+    #[test]
+    fn write_unique_keeps_original_name_then_suffixes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let first = write_unique(tmp.path(), "diagram.png", b"v1").unwrap();
+        let second = write_unique(tmp.path(), "diagram.png", b"v2").unwrap();
+        assert_eq!(first, "diagram.png");
+        assert_eq!(second, "diagram 2.png");
+        assert_eq!(fs::read(tmp.path().join("diagram.png")).unwrap(), b"v1");
+        assert_eq!(fs::read(tmp.path().join("diagram 2.png")).unwrap(), b"v2");
+    }
+
+    #[test]
+    fn base64_decode_known_vectors() {
+        assert_eq!(base64_decode("Zg==").unwrap(), b"f");
+        assert_eq!(base64_decode("Zm8=").unwrap(), b"fo");
+        assert_eq!(base64_decode("Zm9v").unwrap(), b"foo");
+        assert_eq!(
+            base64_decode("eC1hY2Nlc3MtdG9rZW46YWJj").unwrap(),
+            b"x-access-token:abc"
+        );
+        assert!(base64_decode("!!!").is_err());
     }
 
     #[test]

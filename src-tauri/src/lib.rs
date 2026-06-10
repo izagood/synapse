@@ -23,6 +23,8 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::viewer_cache_write,
+            commands::new_window,
+            commands::save_image,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,

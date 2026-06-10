@@ -72,9 +72,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   async init() {
     try {
       set({ recent: await ipc.recentWorkspaces() });
-      // 마지막 세션 복원: 명시적으로 닫지 않았다면 이전 워크스페이스를 다시 연다
+      // 마지막 세션 복원: 명시적으로 닫지 않았다면 이전 워크스페이스를 다시 연다.
+      // 새 창(⇧⌘N)은 다른 폴더를 열기 위한 것이므로 복원 없이 시작 화면에서 출발.
+      const freshWindow =
+        typeof window !== "undefined" &&
+        (window as { __SYNAPSE_FRESH_WINDOW__?: boolean }).__SYNAPSE_FRESH_WINDOW__;
       const last = await ipc.getLastWorkspace();
-      if (last && !get().root) {
+      if (last && !get().root && !freshWindow) {
         await get().openFolder(last);
       }
     } catch (e) {

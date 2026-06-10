@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use synapse_core::{build_tree, ensure_within, FileNode};
 
@@ -71,6 +72,44 @@ pub fn viewer_cache_write(
     use tauri::Manager;
     let _ = app.asset_protocol_scope().allow_file(&path);
     Ok(path.display().to_string())
+}
+
+static WINDOW_SEQ: AtomicU32 = AtomicU32::new(1);
+
+/// 새 앱 창을 띄운다 (여러 폴더를 동시에 보기, FR-1)
+/// 새 창은 세션 복원 없이 시작 화면에서 출발한다.
+#[tauri::command]
+pub fn new_window(app: tauri::AppHandle) -> Result<(), String> {
+    let label = format!("synapse-{}", WINDOW_SEQ.fetch_add(1, Ordering::Relaxed));
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("Synapse")
+    .inner_size(1280.0, 800.0)
+    .min_inner_size(800.0, 500.0)
+    .initialization_script("window.__SYNAPSE_FRESH_WINDOW__ = true;")
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 이미지 바이트를 노트와 같은 폴더에 저장한다 (드래그앤드롭/붙여넣기, FR-2.7 변형)
+/// 같은 이름이 있으면 "이름 2.ext"로 비켜 쓰고 최종 파일명을 돌려준다.
+#[tauri::command]
+pub fn save_image(
+    root: String,
+    dir: String,
+    desired_name: String,
+    data_base64: String,
+) -> Result<String, String> {
+    if desired_name.contains('/') || desired_name.contains('\\') || desired_name.contains("..") {
+        return Err("invalid image file name".to_string());
+    }
+    let dir = ensure_within(Path::new(&root), Path::new(&dir)).map_err(|e| e.to_string())?;
+    let bytes = synapse_core::fs_io::base64_decode(&data_base64)?;
+    synapse_core::fs_io::write_unique(&dir, &desired_name, &bytes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

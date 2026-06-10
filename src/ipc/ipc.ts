@@ -29,6 +29,9 @@ const tauriIpc: SynapseIpc = {
   writeFile: (root, path, content) =>
     invoke<void>("write_file", { root, path, content }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
+  saveImage: (root, dir, desiredName, base64) =>
+    invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
+  newWindow: () => invoke<void>("new_window"),
   recentWorkspaces: () => invoke<string[]>("recent_workspaces"),
   recordWorkspaceOpened: (path) =>
     invoke<string[]>("record_workspace_opened", { path }),
