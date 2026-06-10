@@ -1,0 +1,13 @@
+[package]
+name = "synapse-core"
+version = "0.1.0"
+edition = "2021"
+description = "Synapse core logic: file tree, workspace registry, path guards (GUI-free, fully testable)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
