@@ -18,8 +18,13 @@ pub fn sync_status(root: String) -> SyncStatus {
 }
 
 #[tauri::command]
-pub fn sync_now(root: String) -> Result<SyncStatus, String> {
-    workspace(&root).sync("synapse: 노트 동기화")
+pub fn sync_now(root: String, message: String) -> Result<SyncStatus, String> {
+    let message = if message.trim().is_empty() {
+        "synapse: 노트 동기화"
+    } else {
+        message.trim()
+    };
+    workspace(&root).sync(message)
 }
 
 #[tauri::command]

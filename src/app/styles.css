@@ -1,25 +1,40 @@
 :root {
-  --bg: #1e1f22;
-  --bg-panel: #26272b;
-  --bg-hover: #323338;
-  --fg: #e8e8ea;
-  --fg-dim: #9b9ca3;
-  --accent: #6c8cff;
-  --border: #3a3b40;
-  --error: #ff7a7a;
-  font-family: -apple-system, "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+  --bg: #1e1e1e;
+  --bg-panel: #252526;
+  --bg-rail: #1b1b1c;
+  --bg-hover: #2f2f33;
+  --bg-active: #37373d;
+  --fg: #d8d8dc;
+  --fg-dim: #9a9aa3;
+  --fg-faint: #6b6b74;
+  --accent: #7c6cf0;
+  --accent-soft: rgba(124, 108, 240, 0.18);
+  --border: #333338;
+  --error: #ef7070;
+  --ok: #4cc38a;
+  --warn: #e5b567;
+  --ui-font: -apple-system, "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+  --mono-font: "JetBrains Mono", "D2Coding", ui-monospace, monospace;
+  font-family: var(--ui-font);
+  font-size: 13.5px;
   color-scheme: dark;
 }
 
 :root[data-theme="light"] {
   --bg: #ffffff;
-  --bg-panel: #f4f4f6;
-  --bg-hover: #e7e7ec;
-  --fg: #1d1d22;
+  --bg-panel: #f5f5f7;
+  --bg-rail: #ececef;
+  --bg-hover: #e6e6ea;
+  --bg-active: #dcdce2;
+  --fg: #25252a;
   --fg-dim: #6e6f78;
-  --accent: #3b5bdb;
-  --border: #d9d9e0;
+  --fg-faint: #9b9ca4;
+  --accent: #5b4ee0;
+  --accent-soft: rgba(91, 78, 224, 0.12);
+  --border: #dddde3;
   --error: #d6453d;
+  --ok: #1d9d6c;
+  --warn: #b07d22;
   color-scheme: light;
 }
 
@@ -42,13 +57,41 @@ button {
   background: none;
   border: none;
   cursor: pointer;
+  padding: 0;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+input,
+select {
+  font: inherit;
 }
 
 .error {
   color: var(--error);
 }
 
-/* ---------- 시작 화면 ---------- */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ===================== 시작 화면 ===================== */
 .start-screen {
   height: 100%;
   display: flex;
@@ -80,17 +123,14 @@ button {
   font-weight: 600;
 }
 
-.primary-btn:disabled {
-  opacity: 0.5;
-}
-
 .recent {
-  margin-top: 40px;
+  margin-top: 36px;
   text-align: left;
 }
 
-.recent h2 {
-  font-size: 0.85rem;
+.recent h2,
+.clone-form h2 {
+  font-size: 0.8rem;
   color: var(--fg-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -120,47 +160,48 @@ button {
 }
 
 .recent-path {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: var(--fg-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ---------- 워크스페이스 ---------- */
+.clone-form {
+  margin-top: 28px;
+  text-align: left;
+}
+
+.clone-row {
+  display: flex;
+  gap: 8px;
+}
+
+.clone-row input {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 8px 10px;
+}
+
+.clone-row button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.clone-row button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+/* ===================== 워크스페이스 레이아웃 ===================== */
 .workspace {
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
-}
-
-.topbar-title {
-  font-weight: 600;
-}
-
-.topbar-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.topbar-actions button {
-  padding: 4px 10px;
-  border-radius: 6px;
-  color: var(--fg-dim);
-}
-
-.topbar-actions button:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
 }
 
 .workspace-body {
@@ -169,50 +210,179 @@ button {
   min-height: 0;
 }
 
+.workspace-error {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ----- 액티비티 바 (VS Code) ----- */
+.activity-bar {
+  width: 48px;
+  flex-shrink: 0;
+  background: var(--bg-rail);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.activity-top,
+.activity-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.activity-bar button {
+  width: 40px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--fg-faint);
+  position: relative;
+}
+
+.activity-bar button:hover {
+  color: var(--fg);
+}
+
+.activity-bar button.active {
+  color: var(--fg);
+}
+
+.activity-bar button.active::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ----- 사이드바 (Obsidian) ----- */
 .sidebar {
-  width: 260px;
   flex-shrink: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
   background: var(--bg-panel);
-  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.content {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px 14px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  z-index: 1;
 }
 
-/* ---------- 파일 트리 ---------- */
+.sidebar-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.sidebar-actions button {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--fg-faint);
+}
+
+.sidebar-actions button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.sidebar-resize-handle {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.15s;
+  touch-action: none;
+}
+
+.sidebar-resize-handle:hover {
+  background: var(--accent);
+}
+
+/* ----- 파일 트리 ----- */
+.file-tree {
+  padding: 2px 6px 16px;
+  font-size: 0.88rem;
+}
+
 .tree-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  padding-right: 8px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 5px;
   text-align: left;
   white-space: nowrap;
+  color: var(--fg-dim);
 }
 
 .tree-row:hover {
   background: var(--bg-hover);
+  color: var(--fg);
 }
 
 .tree-row.selected {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.tree-dir {
+  color: var(--fg);
 }
 
 .tree-caret {
-  width: 12px;
-  color: var(--fg-dim);
-  font-size: 0.75rem;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-faint);
+  transition: transform 0.12s ease;
+}
+
+.tree-caret.expanded {
+  transform: rotate(90deg);
 }
 
 .tree-icon {
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  color: var(--fg-faint);
+  flex-shrink: 0;
+}
+
+.tree-row.selected .tree-icon {
+  color: var(--accent);
 }
 
 .tree-name {
@@ -220,8 +390,20 @@ button {
   text-overflow: ellipsis;
 }
 
-.tree-dir .tree-name {
-  font-weight: 500;
+/* 인덴트 가이드 (Obsidian) */
+.tree-children {
+  margin-left: 12px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.tree-file {
+  padding-left: 20px;
+}
+
+.tree-children .tree-file {
+  padding-left: 6px;
+  margin-left: 14px;
 }
 
 .tree-empty {
@@ -229,13 +411,10 @@ button {
   padding: 0 14px;
 }
 
-.workspace-error {
-  padding: 6px 14px;
-  font-size: 0.85rem;
-  border-bottom: 1px solid var(--border);
-}
-
+/* ===================== 탭 바 ===================== */
 .content {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -246,13 +425,24 @@ button {
   overflow-y: auto;
 }
 
-/* ---------- 탭 ---------- */
 .tab-bar {
   display: flex;
-  overflow-x: auto;
+  align-items: stretch;
+  justify-content: space-between;
+  background: var(--bg-rail);
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
   flex-shrink: 0;
+  min-height: 34px;
+}
+
+.tabs {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
@@ -261,6 +451,8 @@ button {
   border-right: 1px solid var(--border);
   color: var(--fg-dim);
   white-space: nowrap;
+  position: relative;
+  font-size: 0.85rem;
 }
 
 .tab.active {
@@ -268,29 +460,149 @@ button {
   color: var(--fg);
 }
 
-.tab-label {
-  padding: 7px 4px 7px 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.tab.active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
 }
 
-.tab-dirty {
-  color: var(--accent);
-  font-size: 0.6rem;
+.tab:hover:not(.active) {
+  background: var(--bg-hover);
+}
+
+.tab-label {
+  padding: 0 4px 0 12px;
+  height: 100%;
+  display: flex;
+  align-items: center;
 }
 
 .tab-close {
-  padding: 4px 8px;
+  width: 22px;
+  height: 22px;
+  margin-right: 5px;
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
   color: var(--fg-dim);
 }
 
 .tab-close:hover {
+  background: var(--bg-active);
   color: var(--fg);
 }
 
-/* ---------- 에디터 ---------- */
+/* VS Code 동작: 평소엔 dirty 점, 호버하면 닫기 X */
+.tab-dirty-dot {
+  display: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.tab.dirty .tab-dirty-dot {
+  display: block;
+}
+
+.tab-close-x {
+  display: none;
+  line-height: 0;
+}
+
+.tab:not(.dirty) .tab-close-x {
+  display: block;
+  opacity: 0;
+}
+
+.tab:hover .tab-close-x,
+.tab.active:not(.dirty) .tab-close-x {
+  display: block;
+  opacity: 1;
+}
+
+.tab:hover .tab-dirty-dot {
+  display: none;
+}
+
+.tab:hover.dirty .tab-close-x {
+  display: block;
+}
+
+.tab-add {
+  width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-faint);
+  flex-shrink: 0;
+}
+
+.tab-add:hover {
+  color: var(--fg);
+}
+
+.tab-actions {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+  gap: 2px;
+}
+
+.tab-actions button {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--fg-faint);
+}
+
+.tab-actions button:hover,
+.tab-actions button.active {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* 컨텍스트 메뉴 (VS Code) */
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 5px;
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-size: 0.86rem;
+}
+
+.context-menu button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.context-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* ===================== 에디터 ===================== */
 .editor-wrap {
   height: 100%;
   display: flex;
@@ -299,7 +611,7 @@ button {
 
 .frontmatter-badge {
   font-size: 0.75rem;
-  color: var(--fg-dim);
+  color: var(--fg-faint);
   padding: 6px 24px;
   border-bottom: 1px dashed var(--border);
 }
@@ -312,16 +624,17 @@ button {
 .editor-content .tiptap {
   min-height: 100%;
   outline: none;
-  padding: 28px 48px 40vh;
-  max-width: 820px;
+  padding: 32px 48px 40vh;
+  max-width: 780px;
   margin: 0 auto;
   line-height: 1.7;
-  font-size: var(--editor-font-size, 1rem);
+  font-size: var(--editor-font-size, 16px);
+  font-family: var(--editor-font-family, system-ui), var(--ui-font);
 }
 
-.tiptap h1 { font-size: 1.9rem; margin: 1.2em 0 0.4em; }
-.tiptap h2 { font-size: 1.5rem; margin: 1.1em 0 0.4em; }
-.tiptap h3 { font-size: 1.2rem; margin: 1em 0 0.3em; }
+.tiptap h1 { font-size: 1.9em; margin: 1.1em 0 0.4em; }
+.tiptap h2 { font-size: 1.45em; margin: 1em 0 0.4em; }
+.tiptap h3 { font-size: 1.18em; margin: 0.9em 0 0.3em; }
 
 .tiptap p { margin: 0.4em 0; }
 
@@ -339,7 +652,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.1em 0.35em;
-  font-family: "JetBrains Mono", "D2Coding", monospace;
+  font-family: var(--mono-font);
   font-size: 0.88em;
 }
 
@@ -391,7 +704,7 @@ button {
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: var(--fg-dim);
+  color: var(--fg-faint);
   pointer-events: none;
   height: 0;
 }
@@ -404,43 +717,196 @@ button {
   outline: none;
   background: var(--bg);
   color: var(--fg);
-  font-family: "JetBrains Mono", "D2Coding", monospace;
+  font-family: var(--mono-font);
   font-size: 0.9rem;
   line-height: 1.6;
   padding: 24px 32px;
 }
 
-/* ---------- 동기화 ---------- */
-.sync-bar {
+/* ===================== HTML 뷰어 / 미리보기 ===================== */
+.html-viewer {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+.preview {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-path {
+  padding: 8px 16px;
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-content {
+  flex: 1;
+  margin: 0;
+  padding: 20px 24px;
+  overflow: auto;
+  font-family: var(--mono-font);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preview-placeholder {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-faint);
+}
+
+/* ===================== 상태바 ===================== */
+.status-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 5px 14px;
+  height: 26px;
+  padding: 0 10px;
   border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-  font-size: 0.82rem;
+  background: var(--bg-rail);
+  font-size: 0.78rem;
   color: var(--fg-dim);
 }
 
-.sync-actions {
+.status-left,
+.status-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  min-width: 0;
 }
 
-.sync-actions button {
-  padding: 3px 10px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
+.status-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sync-actions button:hover {
+.statusbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.statusbar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.statusbar-icon-btn {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 4px;
+}
+
+.statusbar-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.sync-indicator:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
+.sync-indicator.state-synced {
+  color: var(--ok);
+}
+
+.sync-indicator.state-pending {
+  color: var(--warn);
+}
+
+.sync-indicator.state-conflict {
+  color: var(--error);
+}
+
+.sync-indicator.state-syncing {
+  color: var(--accent);
+}
+
+.sync-icon {
+  display: flex;
+  align-items: center;
+  animation: fade-in 0.18s ease;
+}
+
+.sync-icon.spin {
+  animation: spin 0.9s linear infinite;
+}
+
 .sync-user {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   color: var(--fg);
+}
+
+/* 자동 동기화 토글 스위치 */
+.auto-sync-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch {
+  position: relative;
+  width: 26px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  transition: background 0.15s;
+  display: inline-block;
+}
+
+.switch.on {
+  background: var(--accent);
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+  pointer-events: none;
+}
+
+.switch.on .switch-knob {
+  transform: translateX(11px);
 }
 
 .publish-form {
@@ -449,14 +915,20 @@ button {
   gap: 8px;
 }
 
-.publish-form input[type="text"],
-.publish-form input:not([type]) {
+.publish-form input:not([type="checkbox"]) {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--fg);
-  padding: 3px 8px;
-  width: 160px;
+  padding: 2px 8px;
+  width: 150px;
+  font-size: 0.8rem;
+}
+
+.publish-form button {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
 }
 
 .conflict-panel {
@@ -491,7 +963,7 @@ button {
   background: var(--bg-hover);
 }
 
-/* ---------- 모달 ---------- */
+/* ===================== 모달 ===================== */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -509,6 +981,7 @@ button {
   padding: 24px 28px;
   width: min(420px, 90vw);
   text-align: center;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
 
 .modal h2 {
@@ -516,7 +989,7 @@ button {
 }
 
 .device-code {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--mono-font);
   font-size: 1.8rem;
   letter-spacing: 0.15em;
   background: var(--bg);
@@ -540,18 +1013,22 @@ button {
   border: 1px solid var(--border);
 }
 
+.modal-actions .primary-btn {
+  border: none;
+}
+
 .modal-hint {
   color: var(--fg-dim);
   font-size: 0.8rem;
   margin-bottom: 0;
 }
 
-/* ---------- 설정 ---------- */
+/* 설정 모달 */
 .settings-modal {
   text-align: left;
   max-height: 80vh;
   overflow-y: auto;
-  width: min(480px, 92vw);
+  width: min(500px, 92vw);
 }
 
 .settings-modal section {
@@ -559,7 +1036,7 @@ button {
 }
 
 .settings-modal h3 {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--fg-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -576,13 +1053,13 @@ button {
 }
 
 .setting-row select,
-.setting-row input[type="number"] {
+.setting-row input:not([type="checkbox"]) {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--fg);
   padding: 4px 8px;
-  width: 120px;
+  width: 170px;
 }
 
 .setting-warning {
@@ -590,7 +1067,7 @@ button {
   margin: 4px 0 0;
 }
 
-/* ---------- 빠른 열기 ---------- */
+/* ===================== 빠른 열기 ===================== */
 .quick-open-backdrop {
   align-items: flex-start;
   padding-top: 12vh;
@@ -602,6 +1079,7 @@ button {
   border-radius: 10px;
   width: min(560px, 92vw);
   overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
 
 .quick-open input {
@@ -633,7 +1111,7 @@ button {
 }
 
 .quick-open li button.selected {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  background: var(--accent-soft);
 }
 
 .qo-name {
@@ -651,84 +1129,4 @@ button {
 .qo-empty {
   color: var(--fg-dim);
   padding: 10px 16px;
-}
-
-/* ---------- 클론 폼 ---------- */
-.clone-form {
-  margin-top: 28px;
-  text-align: left;
-}
-
-.clone-form h2 {
-  font-size: 0.85rem;
-  color: var(--fg-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.clone-row {
-  display: flex;
-  gap: 8px;
-}
-
-.clone-row input {
-  flex: 1;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--fg);
-  padding: 8px 10px;
-}
-
-.clone-row button {
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-}
-
-.clone-row button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-/* ---------- HTML 뷰어 ---------- */
-.html-viewer {
-  width: 100%;
-  height: 100%;
-  border: none;
-  background: #fff;
-}
-
-/* ---------- 미리보기 ---------- */
-.preview {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.preview-path {
-  padding: 8px 16px;
-  font-size: 0.78rem;
-  color: var(--fg-dim);
-  border-bottom: 1px solid var(--border);
-}
-
-.preview-content {
-  flex: 1;
-  margin: 0;
-  padding: 20px 24px;
-  overflow: auto;
-  font-family: "JetBrains Mono", "D2Coding", monospace;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.preview-placeholder {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--fg-dim);
 }

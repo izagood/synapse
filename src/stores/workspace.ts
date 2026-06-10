@@ -46,6 +46,10 @@ interface WorkspaceState {
   openFile(node: Pick<FileNode, "path" | "name" | "kind" | "fileType">): Promise<void>;
   setActiveTab(path: string): void;
   closeTab(path: string): Promise<void>;
+  /** VS Code 스타일 일괄 닫기 (FR-1.7) — 미저장분은 닫기 전에 저장 */
+  closeOtherTabs(path: string): Promise<void>;
+  closeTabsToRight(path: string): Promise<void>;
+  closeAllTabs(): Promise<void>;
   updateContent(path: string, content: string): void;
   saveDoc(path: string): Promise<void>;
   saveActive(): Promise<void>;
@@ -183,6 +187,27 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       }
       return { tabs, docs, activePath };
     });
+  },
+
+  async closeOtherTabs(path) {
+    for (const t of get().tabs.filter((t) => t.path !== path)) {
+      await get().closeTab(t.path);
+    }
+  },
+
+  async closeTabsToRight(path) {
+    const tabs = get().tabs;
+    const idx = tabs.findIndex((t) => t.path === path);
+    if (idx === -1) return;
+    for (const t of tabs.slice(idx + 1)) {
+      await get().closeTab(t.path);
+    }
+  },
+
+  async closeAllTabs() {
+    for (const t of [...get().tabs]) {
+      await get().closeTab(t.path);
+    }
   },
 
   updateContent(path, content) {

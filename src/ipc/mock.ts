@@ -141,7 +141,8 @@ export const mockIpc: SynapseIpc = {
   async syncStatus() {
     return currentSyncStatus();
   },
-  async syncNow() {
+  async syncNow(_root, message) {
+    sync.lastMessage = message;
     if (!sync.hasRemote) return currentSyncStatus();
     if (sync.conflictOnNextSync) {
       sync.conflictOnNextSync = false;
@@ -189,6 +190,7 @@ const sync = {
   dirty: false,
   repoName: "",
   conflictOnNextSync: false,
+  lastMessage: "",
 };
 
 function currentSyncStatus(): SyncStatus {

@@ -39,6 +39,28 @@ export function SettingsModal() {
         <section>
           <h3>에디터</h3>
           <label className="setting-row">
+            <span>폰트</span>
+            <input
+              list="synapse-fonts"
+              value={settings.editor.fontFamily}
+              onChange={(e) =>
+                void update({
+                  editor: { ...settings.editor, fontFamily: e.target.value || "system-ui" },
+                })
+              }
+              placeholder="system-ui"
+            />
+          </label>
+          <datalist id="synapse-fonts">
+            <option value="system-ui" label="시스템 기본" />
+            <option value="Pretendard" />
+            <option value="Noto Sans KR" />
+            <option value="Apple SD Gothic Neo" />
+            <option value="D2Coding" />
+            <option value="JetBrains Mono" />
+            <option value="monospace" />
+          </datalist>
+          <label className="setting-row">
             <span>글자 크기</span>
             <input
               type="number"

@@ -44,14 +44,24 @@ export type PollResult =
 // Rust synapse-core::settings::Settings 와 1:1 대응 (FR-5)
 export interface Settings {
   appearance: { theme: "system" | "light" | "dark"; language: string };
-  editor: { fontSize: number; autoSaveDelayMs: number; assetsFolder: string };
+  editor: {
+    fontFamily: string;
+    fontSize: number;
+    autoSaveDelayMs: number;
+    assetsFolder: string;
+  };
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   appearance: { theme: "system", language: "ko" },
-  editor: { fontSize: 16, autoSaveDelayMs: 1000, assetsFolder: "assets" },
+  editor: {
+    fontFamily: "system-ui",
+    fontSize: 16,
+    autoSaveDelayMs: 1000,
+    assetsFolder: "assets",
+  },
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },
 };
@@ -82,7 +92,8 @@ export interface SynapseIpc {
 
   // ---- 동기화 (FR-4.2 ~ FR-4.5) ----
   syncStatus(root: string): Promise<SyncStatus>;
-  syncNow(root: string): Promise<SyncStatus>;
+  /** message: 커밋 메시지 (시각 포함, 프론트에서 생성) */
+  syncNow(root: string, message: string): Promise<SyncStatus>;
   resolveConflict(root: string, choice: ConflictChoice): Promise<SyncStatus>;
   publishWorkspace(root: string, name: string, isPrivate: boolean): Promise<SyncStatus>;
   /** parentDir/name 으로 클론하고 새 워크스페이스 경로 반환 */

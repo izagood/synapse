@@ -1,29 +1,35 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
-import { useSettings } from "../../stores/settings";
 import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
 import { ContentPane } from "./ContentPane";
 import { QuickOpenModal } from "./QuickOpenModal";
+import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
+import { PlusIcon, RefreshIcon } from "../../shared/Icons";
+
+const SIDEBAR_DEFAULT = 260;
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 520;
+const SIDEBAR_KEY = "synapse.sidebarWidth";
+
+function loadSidebarWidth(): number {
+  const saved = Number(localStorage.getItem(SIDEBAR_KEY));
+  return saved >= SIDEBAR_MIN && saved <= SIDEBAR_MAX ? saved : SIDEBAR_DEFAULT;
+}
 
 export function WorkspaceView() {
   const root = useWorkspace((s) => s.root);
-  const sourceMode = useWorkspace((s) => s.sourceMode);
-  const activeTab = useWorkspace((s) =>
-    s.tabs.find((t) => t.path === s.activePath),
-  );
   const error = useWorkspace((s) => s.error);
-  const openFolder = useWorkspace((s) => s.openFolder);
-  const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
   const refreshTree = useWorkspace((s) => s.refreshTree);
   const createNote = useWorkspace((s) => s.createNote);
   const saveActive = useWorkspace((s) => s.saveActive);
-  const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
-  const openSettings = useSettings((s) => s.openSettings);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const dragging = useRef(false);
 
-  // Ctrl/Cmd+S: 즉시 저장 (FR-2.6) · Ctrl/Cmd+P: 빠른 열기 (FR-1.4)
+  // Ctrl/Cmd+S 저장 · Ctrl/Cmd+P 빠른 열기 · Ctrl/Cmd+B 사이드바 (VS Code)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -34,54 +40,82 @@ export function WorkspaceView() {
       } else if (key === "p") {
         e.preventDefault();
         setQuickOpen((v) => !v);
+      } else if (key === "b") {
+        e.preventDefault();
+        setSidebarVisible((v) => !v);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [saveActive]);
 
+  // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
+  const onHandleDown = useCallback((e: React.PointerEvent) => {
+    dragging.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const onHandleMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    // 액티비티 바(48px)를 뺀 위치가 사이드바 너비
+    const width = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - 48));
+    setSidebarWidth(width);
+  }, []);
+
+  const onHandleUp = useCallback(() => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    setSidebarWidth((w) => {
+      localStorage.setItem(SIDEBAR_KEY, String(w));
+      return w;
+    });
+  }, []);
+
+  const resetSidebar = useCallback(() => {
+    setSidebarWidth(SIDEBAR_DEFAULT);
+    localStorage.setItem(SIDEBAR_KEY, String(SIDEBAR_DEFAULT));
+  }, []);
+
   const folderName = root?.split("/").pop() || root;
 
   return (
     <div className="workspace">
-      <header className="topbar">
-        <span className="topbar-title" title={root ?? ""}>
-          {folderName}
-        </span>
-        <div className="topbar-actions">
-          <button onClick={() => void createNote()} title="새 노트 만들기">
-            ＋ 새 노트
-          </button>
-          {activeTab && activeTab.fileType !== "other" && (
-            <button onClick={toggleSourceMode} title="렌더 ↔ 소스 전환">
-              {sourceMode
-                ? activeTab.fileType === "markdown"
-                  ? "편집 모드"
-                  : "렌더 보기"
-                : "소스 모드"}
-            </button>
-          )}
-          <button onClick={() => void refreshTree()} title="파일 트리 새로고침">
-            ⟳
-          </button>
-          <button onClick={() => void openFolder()} title="다른 폴더 열기">
-            폴더 열기
-          </button>
-          <button onClick={openSettings} title="설정">
-            ⚙
-          </button>
-          <button onClick={closeWorkspace} title="시작 화면으로">
-            닫기
-          </button>
-        </div>
-      </header>
-      {error && <div className="workspace-error error">{error}</div>}
       <div className="workspace-body">
-        <aside className="sidebar">
-          <FileTree />
-        </aside>
+        <ActivityBar
+          sidebarVisible={sidebarVisible}
+          onToggleSidebar={() => setSidebarVisible((v) => !v)}
+          onQuickOpen={() => setQuickOpen(true)}
+        />
+        {sidebarVisible && (
+          <>
+            <aside className="sidebar" style={{ width: sidebarWidth }}>
+              <div className="sidebar-header">
+                <span className="sidebar-title" title={root ?? ""}>
+                  {folderName}
+                </span>
+                <span className="sidebar-actions">
+                  <button onClick={() => void createNote()} title="새 노트">
+                    <PlusIcon size={15} />
+                  </button>
+                  <button onClick={() => void refreshTree()} title="파일 트리 새로고침">
+                    <RefreshIcon size={14} />
+                  </button>
+                </span>
+              </div>
+              <FileTree />
+            </aside>
+            <div
+              className="sidebar-resize-handle"
+              onPointerDown={onHandleDown}
+              onPointerMove={onHandleMove}
+              onPointerUp={onHandleUp}
+              onDoubleClick={resetSidebar}
+            />
+          </>
+        )}
         <main className="content">
           <TabBar />
+          {error && <div className="workspace-error error">{error}</div>}
           <div className="content-pane">
             <ContentPane />
           </div>
