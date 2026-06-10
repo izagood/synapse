@@ -134,6 +134,14 @@ export const SidebarIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const NewWindowIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="3" width="9" height="8" rx="1" />
+    <path d="M12 6.5h2M13 5.5v2" />
+    <path d="M5 13h6.5A1.5 1.5 0 0 0 13 11.5V10" />
+  </Svg>
+);
+
 export const GitHubIcon = (p: IconProps) => (
   <Svg {...p}>
     <path

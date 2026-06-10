@@ -616,6 +616,60 @@ select {
   border-bottom: 1px dashed var(--border);
 }
 
+.lossy-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.8rem;
+  padding: 7px 24px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--bg-panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+  color: var(--fg);
+}
+
+.lossy-banner button {
+  color: var(--fg-dim);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.lossy-banner button:hover {
+  background: var(--bg-hover);
+}
+
+.tiptap img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.tiptap img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+}
+
+/* 에디터 내 표 */
+.tiptap table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  width: 100%;
+}
+
+.tiptap th,
+.tiptap td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.tiptap th {
+  background: var(--bg-panel);
+  font-weight: 600;
+}
+
+.tiptap .selectedCell {
+  background: var(--accent-soft);
+}
+
 .editor-content {
   flex: 1;
   overflow-y: auto;

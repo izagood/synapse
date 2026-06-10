@@ -19,13 +19,17 @@ export default function App() {
     void initSettings();
   }, [initWorkspace, initSettings]);
 
-  // Cmd/Ctrl+,: 설정 (F3) — 시작 화면에서도 동작하도록 앱 전역에 둔다
+  // 전역 단축키: Cmd+, 설정 · Cmd+Shift+N 새 창
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === ",") {
         e.preventDefault();
         const s = useSettings.getState();
         s.showSettings ? s.closeSettings() : s.openSettings();
+      } else if (e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        void ipc.newWindow();
       }
     };
     window.addEventListener("keydown", onKeyDown);

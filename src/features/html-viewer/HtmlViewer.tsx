@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ipc, resolveAssetUrl } from "../../ipc/ipc";
+import { ipc } from "../../ipc/ipc";
+import { resolveAssetUrl } from "../../ipc/ipc";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
 import { buildViewerHtml } from "./buildViewerHtml";
@@ -44,6 +45,22 @@ export function HtmlViewer({ path }: { path: string }) {
     };
   }, [content, baseDir, path, viewerSettings.allowScripts, viewerSettings.allowNetwork]);
 
+  // 뷰어 런타임이 보내는 외부 링크 열기 요청 처리
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { type?: string; href?: string } | null;
+      if (
+        data?.type === "synapse:open-external" &&
+        typeof data.href === "string" &&
+        /^https?:\/\//i.test(data.href)
+      ) {
+        void ipc.openExternal(data.href);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   if (error) {
     return (
       <div className="preview-placeholder">
@@ -64,8 +81,10 @@ export function HtmlViewer({ path }: { path: string }) {
     <iframe
       className="html-viewer"
       title={path}
-      // 스크립트는 설정에서 명시적으로 허용했을 때만. 같은 출처/탑 네비게이션은 항상 차단 (FR-3.2)
-      sandbox={viewerSettings.allowScripts ? "allow-scripts" : ""}
+      // allow-scripts는 뷰어 런타임(# 앵커·외부 링크) 동작에 필요하다.
+      // 기본 모드에서는 문서 자체 스크립트가 정화 단계에서 이미 제거되어
+      // 우리 런타임만 실행된다. 같은 출처/탑 네비게이션은 항상 차단 (FR-3.2)
+      sandbox="allow-scripts"
       src={frameSrc}
     />
   );

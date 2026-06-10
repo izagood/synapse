@@ -48,6 +48,37 @@ const CASES: Record<string, { input: string; mustContain: string[] }> = {
 };
 
 describe("markdown roundtrip (tiptap-markdown)", () => {
+  it("preserves tables (가장 치명적이었던 손상 케이스)", () => {
+    const table = "| 이름 | 값 |\n| --- | --- |\n| a | 1 |\n| b | 2 |";
+    const out = roundtrip(table);
+    expect(out).toContain("| 이름 | 값 |");
+    expect(out).toContain("| --- | --- |");
+    expect(out).toContain("| a | 1 |");
+    expect(out).toContain("| b | 2 |");
+    expect(roundtrip(out)).toBe(out);
+  });
+
+  it("keeps task lists tight (항목 사이 빈 줄 삽입 금지)", () => {
+    const input = "- [ ] 미완료\n- [x] 완료\n- [ ] 셋째";
+    expect(roundtrip(input)).toBe(input);
+  });
+
+  it("does not alter a typical note exactly (정확 일치)", () => {
+    const note = [
+      "# | TODO |",
+      "",
+      "- [Cloud weekly](https://example.com/weekly)",
+      "- kv cache",
+      "  - Mooncake",
+      "",
+      "일반 문단 snake_case_name 그리고 | 파이프 | 텍스트",
+      "",
+      "- [ ] 미완료",
+      "- [x] 완료",
+    ].join("\n");
+    expect(roundtrip(note)).toBe(note);
+  });
+
   for (const [name, { input, mustContain }] of Object.entries(CASES)) {
     it(`${name}: preserves semantics and is idempotent`, () => {
       const once = roundtrip(input);

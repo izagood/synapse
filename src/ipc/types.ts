@@ -82,6 +82,13 @@ export interface SynapseIpc {
   writeFile(root: string, path: string, content: string): Promise<void>;
   /** dir 안에 "새 노트.md" 계열의 겹치지 않는 빈 노트 생성, 생성된 경로 반환 */
   createNote(root: string, dir: string): Promise<string>;
+  /**
+   * 이미지 바이트(base64)를 dir에 저장. 같은 이름이 있으면 "이름 2.ext"로
+   * 비켜 쓰고 실제 저장된 파일명을 반환 (드래그앤드롭/붙여넣기)
+   */
+  saveImage(root: string, dir: string, desiredName: string, base64: string): Promise<string>;
+  /** 새 앱 창 열기 (여러 폴더 동시 사용) */
+  newWindow(): Promise<void>;
   /** 최근 연 폴더 (최신순) */
   recentWorkspaces(): Promise<string[]>;
   /** 폴더 열람 기록, 갱신된 최근 목록 반환 */
