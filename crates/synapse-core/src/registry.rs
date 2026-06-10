@@ -17,6 +17,10 @@ const MAX_RECENT: usize = 10;
 pub struct Registry {
     #[serde(default)]
     pub recent: Vec<String>,
+    /// 마지막으로 열려 있던 워크스페이스 — 앱 재시작 시 세션 복원용.
+    /// 사용자가 명시적으로 닫으면(시작 화면으로) None.
+    #[serde(default)]
+    pub last_workspace: Option<String>,
     #[serde(default)]
     pub workspaces: BTreeMap<String, serde_json::Value>,
 }
@@ -48,14 +52,62 @@ pub fn recent_workspaces(config_dir: &Path) -> Vec<String> {
 }
 
 /// 폴더를 열었음을 기록한다: 중복 제거 후 맨 앞에 추가, 최대 10개 유지.
+/// 세션 복원을 위해 마지막 워크스페이스로도 표시한다.
 pub fn record_opened(config_dir: &Path, workspace: &Path) -> io::Result<Vec<String>> {
     let workspace = workspace.display().to_string();
     let mut registry = load(config_dir);
     registry.recent.retain(|p| p != &workspace);
-    registry.recent.insert(0, workspace);
+    registry.recent.insert(0, workspace.clone());
     registry.recent.truncate(MAX_RECENT);
+    registry.last_workspace = Some(workspace);
     save(config_dir, &registry)?;
     Ok(registry.recent)
+}
+
+/// 앱 재시작 시 복원할 워크스페이스 (삭제된 폴더면 None)
+pub fn last_workspace(config_dir: &Path) -> Option<String> {
+    load(config_dir)
+        .last_workspace
+        .filter(|p| Path::new(p).is_dir())
+}
+
+/// 사용자가 워크스페이스를 명시적으로 닫음 — 다음 시작은 시작 화면
+pub fn clear_last_workspace(config_dir: &Path) -> io::Result<()> {
+    let mut registry = load(config_dir);
+    registry.last_workspace = None;
+    save(config_dir, &registry)
+}
+
+/// 워크스페이스별 세션 상태(열린 탭 등)를 읽는다 (FR-5.5)
+pub fn workspace_state(config_dir: &Path, workspace: &Path) -> serde_json::Value {
+    load(config_dir)
+        .workspaces
+        .get(&workspace.display().to_string())
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// 워크스페이스별 세션 상태를 저장한다. 기존 항목의 다른 키(예: 추후
+/// 리포지토리 메타데이터)는 보존하고 주어진 키만 덮어쓴다.
+pub fn set_workspace_state(
+    config_dir: &Path,
+    workspace: &Path,
+    state: serde_json::Value,
+) -> io::Result<()> {
+    let mut registry = load(config_dir);
+    let entry = registry
+        .workspaces
+        .entry(workspace.display().to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    match (entry.as_object_mut(), state.as_object()) {
+        (Some(existing), Some(new)) => {
+            for (k, v) in new {
+                existing.insert(k.clone(), v.clone());
+            }
+        }
+        _ => *entry = state,
+    }
+    save(config_dir, &registry)
 }
 
 #[cfg(test)]
@@ -99,6 +151,50 @@ mod tests {
         let ws = tempfile::tempdir().unwrap();
         let recent = record_opened(config.path(), ws.path()).unwrap();
         assert_eq!(recent.len(), 1);
+    }
+
+    #[test]
+    fn tracks_and_clears_last_workspace() {
+        let config = tempfile::tempdir().unwrap();
+        let ws = tempfile::tempdir().unwrap();
+        record_opened(config.path(), ws.path()).unwrap();
+        assert_eq!(
+            last_workspace(config.path()),
+            Some(ws.path().display().to_string())
+        );
+
+        clear_last_workspace(config.path()).unwrap();
+        assert_eq!(last_workspace(config.path()), None);
+
+        // 삭제된 폴더는 복원 대상이 아니다
+        record_opened(config.path(), ws.path()).unwrap();
+        drop(ws);
+        assert_eq!(last_workspace(config.path()), None);
+    }
+
+    #[test]
+    fn workspace_state_merges_keys_preserving_others() {
+        let config = tempfile::tempdir().unwrap();
+        let ws = tempfile::tempdir().unwrap();
+        set_workspace_state(
+            config.path(),
+            ws.path(),
+            serde_json::json!({"remote": "git@github.com:a/b.git"}),
+        )
+        .unwrap();
+        set_workspace_state(
+            config.path(),
+            ws.path(),
+            serde_json::json!({"openTabs": ["a.md"], "activePath": "a.md"}),
+        )
+        .unwrap();
+
+        let state = workspace_state(config.path(), ws.path());
+        assert_eq!(state["remote"], "git@github.com:a/b.git"); // 기존 키 보존
+        assert_eq!(state["openTabs"][0], "a.md");
+
+        let missing = tempfile::tempdir().unwrap();
+        assert!(workspace_state(config.path(), missing.path()).is_null());
     }
 
     #[test]

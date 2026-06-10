@@ -1,4 +1,11 @@
-import type { FileNode, FileType, Settings, SyncStatus, SynapseIpc } from "./types";
+import type {
+  FileNode,
+  FileType,
+  Settings,
+  SyncStatus,
+  SynapseIpc,
+  WorkspaceSession,
+} from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.
@@ -68,6 +75,14 @@ function buildMockTree(): FileNode {
 let recent: string[] = [];
 const MAX_RECENT = 10;
 
+const session = {
+  lastWorkspace: null as string | null,
+  states: new Map<string, WorkspaceSession>(),
+};
+
+/** 테스트 전용: mock 세션 상태 제어 */
+export const mockSessionControl = session;
+
 function assertInside(root: string, path: string) {
   if (!path.startsWith(`${root}/`)) {
     throw new Error(`path escapes workspace root: ${path}`);
@@ -110,7 +125,20 @@ export const mockIpc: SynapseIpc = {
   },
   async recordWorkspaceOpened(path) {
     recent = [path, ...recent.filter((p) => p !== path)].slice(0, MAX_RECENT);
+    session.lastWorkspace = path;
     return [...recent];
+  },
+  async getLastWorkspace() {
+    return session.lastWorkspace;
+  },
+  async clearLastWorkspace() {
+    session.lastWorkspace = null;
+  },
+  async getWorkspaceState(root) {
+    return session.states.get(root) ?? null;
+  },
+  async setWorkspaceState(root, state) {
+    session.states.set(root, structuredClone(state));
   },
 
   // ---- GitHub / 동기화 시뮬레이션 ----
@@ -182,6 +210,13 @@ export const mockIpc: SynapseIpc = {
 
   async setWindowTheme() {
     // 브라우저 모드에는 네이티브 창이 없다
+  },
+
+  async prepareHtmlView(_cacheName, html) {
+    if (typeof URL.createObjectURL === "function") {
+      return URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    }
+    return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   },
 
   async appVersion() {
