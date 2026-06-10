@@ -7,7 +7,9 @@ import { ContentPane } from "./ContentPane";
 export function WorkspaceView() {
   const root = useWorkspace((s) => s.root);
   const sourceMode = useWorkspace((s) => s.sourceMode);
-  const activePath = useWorkspace((s) => s.activePath);
+  const activeTab = useWorkspace((s) =>
+    s.tabs.find((t) => t.path === s.activePath),
+  );
   const error = useWorkspace((s) => s.error);
   const openFolder = useWorkspace((s) => s.openFolder);
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
@@ -40,12 +42,13 @@ export function WorkspaceView() {
           <button onClick={() => void createNote()} title="새 노트 만들기">
             ＋ 새 노트
           </button>
-          {activePath?.endsWith(".md") && (
-            <button
-              onClick={toggleSourceMode}
-              title="WYSIWYG ↔ 마크다운 소스 전환"
-            >
-              {sourceMode ? "편집 모드" : "소스 모드"}
+          {activeTab && activeTab.fileType !== "other" && (
+            <button onClick={toggleSourceMode} title="렌더 ↔ 소스 전환">
+              {sourceMode
+                ? activeTab.fileType === "markdown"
+                  ? "편집 모드"
+                  : "렌더 보기"
+                : "소스 모드"}
             </button>
           )}
           <button onClick={() => void refreshTree()} title="파일 트리 새로고침">

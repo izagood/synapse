@@ -11,7 +11,13 @@ fn config_dir() -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn list_workspace(path: String) -> Result<FileNode, String> {
+pub fn list_workspace(app: tauri::AppHandle, path: String) -> Result<FileNode, String> {
+    // 연 폴더만 asset protocol(로컬 이미지 등)로 접근 가능하게 런타임 스코프를 연다.
+    // 설정 파일에 "**" 같은 광역 스코프를 두지 않기 위한 조치 (NFR-4).
+    use tauri::Manager;
+    let _ = app
+        .asset_protocol_scope()
+        .allow_directory(Path::new(&path), true);
     build_tree(Path::new(&path)).map_err(|e| e.to_string())
 }
 
