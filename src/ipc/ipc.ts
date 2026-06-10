@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -48,6 +49,8 @@ const tauriIpc: SynapseIpc = {
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
+
+  setWindowTheme: (theme) => getCurrentWindow().setTheme(theme),
 
   appVersion: () => getVersion(),
   async checkUpdate() {
