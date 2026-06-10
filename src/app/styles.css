@@ -398,6 +398,180 @@ button {
   padding: 24px 32px;
 }
 
+/* ---------- 동기화 ---------- */
+.sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+}
+
+.sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync-actions button {
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.sync-actions button:hover {
+  background: var(--bg-hover);
+}
+
+.sync-user {
+  color: var(--fg);
+}
+
+.publish-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.publish-form input[type="text"],
+.publish-form input:not([type]) {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  padding: 3px 8px;
+  width: 160px;
+}
+
+.conflict-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--error);
+  background: color-mix(in srgb, var(--error) 12%, var(--bg-panel));
+  font-size: 0.88rem;
+}
+
+.conflict-files {
+  color: var(--fg-dim);
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.conflict-actions button {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.conflict-actions button:hover {
+  background: var(--bg-hover);
+}
+
+/* ---------- 모달 ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 28px;
+  width: min(420px, 90vw);
+  text-align: center;
+}
+
+.modal h2 {
+  margin-top: 0;
+}
+
+.device-code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 1.8rem;
+  letter-spacing: 0.15em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0;
+  user-select: all;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.modal-actions button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.modal-hint {
+  color: var(--fg-dim);
+  font-size: 0.8rem;
+  margin-bottom: 0;
+}
+
+/* ---------- 클론 폼 ---------- */
+.clone-form {
+  margin-top: 28px;
+  text-align: left;
+}
+
+.clone-form h2 {
+  font-size: 0.85rem;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.clone-row {
+  display: flex;
+  gap: 8px;
+}
+
+.clone-row input {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 8px 10px;
+}
+
+.clone-row button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.clone-row button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
 /* ---------- HTML 뷰어 ---------- */
 .html-viewer {
   width: 100%;

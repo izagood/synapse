@@ -1,4 +1,5 @@
 import { useWorkspace } from "../../stores/workspace";
+import { CloneForm } from "../sync/CloneForm";
 
 export function StartScreen() {
   const { recent, loading, error, openFolder } = useWorkspace();
@@ -18,6 +19,8 @@ export function StartScreen() {
         </button>
 
         {error && <p className="error">{error}</p>}
+
+        <CloneForm />
 
         {recent.length > 0 && (
           <div className="recent">

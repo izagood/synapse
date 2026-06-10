@@ -3,6 +3,7 @@ import { useWorkspace } from "../../stores/workspace";
 import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
 import { ContentPane } from "./ContentPane";
+import { SyncBar } from "../sync/SyncBar";
 
 export function WorkspaceView() {
   const root = useWorkspace((s) => s.root);
@@ -74,6 +75,7 @@ export function WorkspaceView() {
           </div>
         </main>
       </div>
+      <SyncBar />
     </div>
   );
 }

@@ -10,6 +10,37 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+// Rust synapse-core::git::SyncStatus 와 1:1 대응
+export type SyncState =
+  | "noGit"
+  | "noRepo"
+  | "noRemote"
+  | "synced"
+  | "pending"
+  | "conflict";
+
+export interface SyncStatus {
+  state: SyncState;
+  ahead: number;
+  behind: number;
+  conflictFiles: string[];
+  message?: string;
+}
+
+export type ConflictChoice = "keepMine" | "keepRemote" | "keepBoth";
+
+export interface DeviceCode {
+  userCode: string;
+  verificationUri: string;
+  interval: number;
+}
+
+export type PollResult =
+  | { status: "pending" }
+  | { status: "slowDown" }
+  | { status: "ok"; login: string }
+  | { status: "failed"; message: string };
+
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
@@ -25,4 +56,20 @@ export interface SynapseIpc {
   recentWorkspaces(): Promise<string[]>;
   /** 폴더 열람 기록, 갱신된 최근 목록 반환 */
   recordWorkspaceOpened(path: string): Promise<string[]>;
+
+  // ---- GitHub 인증 (FR-4.1) ----
+  githubLoginStart(): Promise<DeviceCode>;
+  githubLoginPoll(): Promise<PollResult>;
+  githubUser(): Promise<string | null>;
+  githubLogout(): Promise<void>;
+  /** 시스템 브라우저로 URL 열기 */
+  openExternal(url: string): Promise<void>;
+
+  // ---- 동기화 (FR-4.2 ~ FR-4.5) ----
+  syncStatus(root: string): Promise<SyncStatus>;
+  syncNow(root: string): Promise<SyncStatus>;
+  resolveConflict(root: string, choice: ConflictChoice): Promise<SyncStatus>;
+  publishWorkspace(root: string, name: string, isPrivate: boolean): Promise<SyncStatus>;
+  /** parentDir/name 으로 클론하고 새 워크스페이스 경로 반환 */
+  cloneRepo(url: string, parentDir: string, name: string): Promise<string>;
 }
