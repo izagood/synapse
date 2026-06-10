@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { mockIpc } from "./mock";
 import type { FileNode, SynapseIpc } from "./types";
@@ -22,3 +22,8 @@ const tauriIpc: SynapseIpc = {
 };
 
 export const ipc: SynapseIpc = isTauri ? tauriIpc : mockIpc;
+
+/** 로컬 절대 경로를 webview가 로드할 수 있는 URL로 변환 (Tauri asset protocol) */
+export function resolveAssetUrl(absolutePath: string): string {
+  return isTauri ? convertFileSrc(absolutePath) : absolutePath;
+}
