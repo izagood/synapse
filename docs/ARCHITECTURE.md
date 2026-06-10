@@ -10,7 +10,7 @@
 | 프론트엔드 | **React 18 + TypeScript + Vite** | 생태계, Tiptap 공식 React 바인딩 |
 | 에디터 | **Tiptap (ProseMirror)** | Notion 스타일 블록 편집(FR-2)의 사실상 표준. 슬래시 커맨드·표·체크리스트 확장 존재, markdown 직렬화 가능 |
 | md 직렬화 | **remark/unified + frontmatter** (TS) | 에디터 모델 ↔ CommonMark+GFM 변환, AST 기반이라 라운드트립 제어 용이 |
-| git | **git2-rs (libgit2)** in Rust | 시스템 git 설치 불필요. clone/commit/push/pull/머지를 백엔드에서 수행 |
+| git | **시스템 git CLI 서브프로세스** (Rust) | 충돌·rebase 동작이 사용자의 git과 동일하고 실제 리포지토리로 통합 테스트 가능. libgit2(git2-rs)는 TLS 의존성 빌드 부담이 커서 보류 — git 미설치 환경은 상태바에서 안내하고, 추후 libgit2 내장으로 교체 가능하도록 `GitWorkspace` 모듈에 격리 |
 | GitHub 인증 | **OAuth Device Flow** + OS 키체인 (`keyring` crate) | 데스크톱에서 client secret 없이 안전한 로그인, 토큰 평문 저장 금지(NFR-4) |
 | HTML sanitize | **DOMPurify** + sandboxed iframe | FR-3.2 보안 요구 |
 | 상태 관리 | **Zustand** | 단순하고 충분함 |
