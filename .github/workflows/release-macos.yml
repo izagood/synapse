@@ -41,6 +41,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SYNAPSE_GITHUB_CLIENT_ID: ${{ secrets.SYNAPSE_GITHUB_CLIENT_ID }}
+          # 원클릭 업데이트 아티팩트 서명 (tauri signer로 생성한 키)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Synapse ${{ github.ref_name }}"

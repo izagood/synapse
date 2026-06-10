@@ -102,4 +102,11 @@ export interface SynapseIpc {
   // ---- 전역 설정 (FR-5) ----
   getSettings(): Promise<Settings>;
   updateSettings(settings: Settings): Promise<void>;
+
+  // ---- 앱 업데이트 (F2) ----
+  appVersion(): Promise<string>;
+  /** 새 버전이 있으면 버전 정보, 없으면 null */
+  checkUpdate(): Promise<{ version: string } | null>;
+  /** 다운로드·설치 후 앱 재시작 (성공 시 resolve 전에 재시작됨) */
+  installUpdate(): Promise<void>;
 }

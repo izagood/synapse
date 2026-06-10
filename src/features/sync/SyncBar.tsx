@@ -3,6 +3,7 @@ import { badgeOf, useSync } from "../../stores/sync";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
 import { LoginModal } from "./LoginModal";
+import { UpdateBadge } from "../update/UpdateBadge";
 import {
   AlertIcon,
   CheckIcon,
@@ -196,6 +197,7 @@ export function SyncBar() {
           {error && <span className="error status-error">{error}</span>}
         </span>
         <span className="status-right">
+          <UpdateBadge />
           {login ? (
             <>
               <span className="sync-user" title="GitHub 계정">

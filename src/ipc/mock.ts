@@ -179,6 +179,17 @@ export const mockIpc: SynapseIpc = {
   async updateSettings(settings) {
     mockSettings = structuredClone(settings);
   },
+
+  async appVersion() {
+    return "0.2.0-dev";
+  },
+  async checkUpdate() {
+    return sync.updateAvailable ? { version: sync.updateAvailable } : null;
+  },
+  async installUpdate() {
+    if (!sync.updateAvailable) throw new Error("설치할 업데이트가 없습니다");
+    sync.updateAvailable = null;
+  },
 };
 
 let mockSettings: Settings = structuredClone(DEFAULT_SETTINGS);
@@ -191,6 +202,7 @@ const sync = {
   repoName: "",
   conflictOnNextSync: false,
   lastMessage: "",
+  updateAvailable: null as string | null,
 };
 
 function currentSyncStatus(): SyncStatus {

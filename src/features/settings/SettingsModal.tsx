@@ -1,4 +1,40 @@
 import { useSettings } from "../../stores/settings";
+import { useUpdate } from "../../stores/update";
+
+function UpdateSection() {
+  const { current, available, checking, installing, checked, error, check, install } =
+    useUpdate();
+
+  return (
+    <section>
+      <h3>업데이트</h3>
+      <div className="setting-row">
+        <span>현재 버전 {current ? `v${current}` : ""}</span>
+        {available ? (
+          <button
+            className="primary-btn update-install-btn"
+            disabled={installing}
+            onClick={() => void install()}
+          >
+            {installing ? "설치 중…" : `v${available} 설치 후 재시작`}
+          </button>
+        ) : (
+          <button
+            className="setting-action-btn"
+            disabled={checking}
+            onClick={() => void check()}
+          >
+            {checking ? "확인 중…" : "업데이트 확인"}
+          </button>
+        )}
+      </div>
+      {checked && !available && !checking && !error && (
+        <p className="setting-hint">최신 버전입니다.</p>
+      )}
+      {error && <p className="setting-warning error">{error}</p>}
+    </section>
+  );
+}
 
 // 단일 전역 설정 화면 (FR-5.2) — 모든 항목이 이 한 곳에서 관리된다
 export function SettingsModal() {
@@ -156,6 +192,8 @@ export function SettingsModal() {
             </p>
           )}
         </section>
+
+        <UpdateSection />
 
         <div className="modal-actions">
           <button className="primary-btn" onClick={closeSettings}>
