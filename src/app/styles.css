@@ -602,6 +602,29 @@ select {
   margin: 4px 6px;
 }
 
+.context-menu .context-danger {
+  color: var(--error);
+}
+
+.danger-btn {
+  background: var(--error);
+  color: #fff;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.rename-dialog input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 8px 10px;
+  margin: 8px 0 16px;
+  font-size: 0.95rem;
+}
+
 /* ===================== 에디터 ===================== */
 .editor-wrap {
   height: 100%;

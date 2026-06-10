@@ -172,6 +172,44 @@ describe("workspace store (mock ipc)", () => {
     }
   });
 
+  it("renameEntry saves, renames, and reopens the tab at the new path", async () => {
+    const readme = findNode("README.md");
+    await useWorkspace.getState().openFile(readme);
+    useWorkspace.getState().updateContent(readme.path, "이름 바꾸기 전 내용");
+
+    await useWorkspace.getState().renameEntry(readme, "소개.md");
+    const s = useWorkspace.getState();
+    expect(s.tabs.map((t) => t.name)).toEqual(["소개.md"]);
+    expect(s.activePath).toContain("소개.md");
+    expect(await ipc.readFile(MOCK_ROOT, s.activePath!)).toBe("이름 바꾸기 전 내용");
+    expect(findNode("README.md")).toBeNull();
+    // 정리: 다음 테스트를 위해 되돌린다
+    await useWorkspace.getState().renameEntry(findNode("소개.md"), "README.md");
+  });
+
+  it("deleteEntry closes the tab without saving and removes the file", async () => {
+    await useWorkspace.getState().createNote();
+    const note = useWorkspace.getState().tabs.at(-1)!;
+    useWorkspace.getState().updateContent(note.path, "저장되면 안 되는 내용");
+
+    await useWorkspace.getState().deleteEntry({ path: note.path, kind: "file" });
+    const s = useWorkspace.getState();
+    expect(s.tabs.find((t) => t.path === note.path)).toBeUndefined();
+    expect(findNode(note.name)).toBeNull();
+    await expect(ipc.readFile(MOCK_ROOT, note.path)).rejects.toThrow();
+  });
+
+  it("duplicateEntry creates a suffixed copy and opens it", async () => {
+    const readme = findNode("README.md");
+    await useWorkspace.getState().duplicateEntry(readme);
+    const s = useWorkspace.getState();
+    expect(s.activePath).toContain("README 2.md");
+    expect(await ipc.readFile(MOCK_ROOT, s.activePath!)).toBe(
+      await ipc.readFile(MOCK_ROOT, readme.path),
+    );
+    await useWorkspace.getState().deleteEntry({ path: s.activePath!, kind: "file" });
+  });
+
   it("surfaces errors for an invalid folder", async () => {
     await useWorkspace.getState().openFolder("/does/not/exist");
     const s = useWorkspace.getState();

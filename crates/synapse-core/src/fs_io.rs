@@ -96,6 +96,44 @@ pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8]) -> io::Result<
     Err(io::Error::other("too many name collisions"))
 }
 
+/// 파일/폴더 이름 변경. 같은 디렉토리 안에서만, 기존 항목을 덮어쓰지 않는다.
+/// 새 전체 경로를 돌려준다.
+pub fn rename_entry(path: &Path, new_name: &str) -> io::Result<PathBuf> {
+    if new_name.is_empty()
+        || new_name.contains('/')
+        || new_name.contains('\\')
+        || new_name == "."
+        || new_name == ".."
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid name"));
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no parent"))?;
+    let target = parent.join(new_name);
+    if target.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("이미 존재합니다: {new_name}"),
+        ));
+    }
+    fs::rename(path, &target)?;
+    Ok(target)
+}
+
+/// 파일을 같은 폴더에 "이름 2.ext" 식으로 복제하고 새 파일명을 돌려준다.
+pub fn duplicate_file(path: &Path) -> io::Result<String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?
+        .to_string_lossy();
+    let bytes = fs::read(path)?;
+    write_unique(parent, &name, &bytes)
+}
+
 /// base64 표준 알파벳 디코더 (이미지 붙여넣기용 — 의존성 없이)
 pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     fn val(c: u8) -> Result<u32, String> {
@@ -174,6 +212,31 @@ mod tests {
         assert_eq!(second, "diagram 2.png");
         assert_eq!(fs::read(tmp.path().join("diagram.png")).unwrap(), b"v1");
         assert_eq!(fs::read(tmp.path().join("diagram 2.png")).unwrap(), b"v2");
+    }
+
+    #[test]
+    fn rename_entry_moves_and_refuses_overwrite() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = tmp.path().join("a.md");
+        fs::write(&a, "내용").unwrap();
+        let renamed = rename_entry(&a, "b.md").unwrap();
+        assert_eq!(renamed.file_name().unwrap().to_string_lossy(), "b.md");
+        assert_eq!(fs::read_to_string(&renamed).unwrap(), "내용");
+        assert!(!a.exists());
+
+        fs::write(&a, "다른 내용").unwrap();
+        assert!(rename_entry(&a, "b.md").is_err()); // 덮어쓰기 금지
+        assert!(rename_entry(&a, "x/y.md").is_err()); // 경로 문자 금지
+    }
+
+    #[test]
+    fn duplicate_file_creates_suffixed_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = tmp.path().join("note.md");
+        fs::write(&a, "원본").unwrap();
+        assert_eq!(duplicate_file(&a).unwrap(), "note 2.md");
+        assert_eq!(duplicate_file(&a).unwrap(), "note 3.md");
+        assert_eq!(fs::read_to_string(tmp.path().join("note 2.md")).unwrap(), "원본");
     }
 
     #[test]

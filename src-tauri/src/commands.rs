@@ -121,6 +121,39 @@ pub fn save_image(
 }
 
 #[tauri::command]
+pub fn rename_path(root: String, path: String, new_name: String) -> Result<String, String> {
+    let resolved =
+        ensure_within(Path::new(&root), Path::new(&path)).map_err(|e| e.to_string())?;
+    if resolved == Path::new(&root) {
+        return Err("워크스페이스 루트는 이름을 바꿀 수 없습니다".to_string());
+    }
+    synapse_core::fs_io::rename_entry(&resolved, &new_name)
+        .map(|p| p.display().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_path(root: String, path: String) -> Result<(), String> {
+    let resolved =
+        ensure_within(Path::new(&root), Path::new(&path)).map_err(|e| e.to_string())?;
+    if resolved == Path::new(&root) {
+        return Err("워크스페이스 루트는 삭제할 수 없습니다".to_string());
+    }
+    if resolved.is_dir() {
+        fs::remove_dir_all(&resolved).map_err(|e| e.to_string())
+    } else {
+        fs::remove_file(&resolved).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub fn duplicate_path(root: String, path: String) -> Result<String, String> {
+    let resolved =
+        ensure_within(Path::new(&root), Path::new(&path)).map_err(|e| e.to_string())?;
+    synapse_core::fs_io::duplicate_file(&resolved).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_last_workspace() -> Result<Option<String>, String> {
     Ok(synapse_core::registry::last_workspace(&config_dir()?))
 }
