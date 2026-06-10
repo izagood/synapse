@@ -28,3 +28,21 @@ jobs:
           workspaces: crates/synapse-core
       - run: cargo test
         working-directory: crates/synapse-core
+
+  # macOS 네이티브 코드(dock 메뉴 등)의 컴파일 검증 — 릴리스 전에 잡는다
+  check-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run build
+      - run: cargo check
+        working-directory: src-tauri

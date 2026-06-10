@@ -1,9 +1,15 @@
 mod auth;
 mod commands;
+mod dock;
 mod sync;
 
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            dock::install(app.handle().clone());
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

@@ -76,23 +76,31 @@ pub fn viewer_cache_write(
 
 static WINDOW_SEQ: AtomicU32 = AtomicU32::new(1);
 
+/// 새 앱 창 생성. folder가 있으면 그 폴더를 바로 열고, 없으면 시작 화면.
+/// (⇧⌘N 커맨드와 macOS dock 메뉴가 공용으로 사용)
+pub fn open_extra_window(app: &tauri::AppHandle, folder: Option<String>) -> Result<(), String> {
+    let label = format!("synapse-{}", WINDOW_SEQ.fetch_add(1, Ordering::Relaxed));
+    let script = match &folder {
+        Some(path) => format!(
+            "window.__SYNAPSE_FRESH_WINDOW__ = true; window.__SYNAPSE_OPEN_FOLDER__ = {};",
+            serde_json::to_string(path).map_err(|e| e.to_string())?
+        ),
+        None => "window.__SYNAPSE_FRESH_WINDOW__ = true;".to_string(),
+    };
+    tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("index.html".into()))
+        .title("Synapse")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(800.0, 500.0)
+        .initialization_script(&script)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 새 앱 창을 띄운다 (여러 폴더를 동시에 보기, FR-1)
-/// 새 창은 세션 복원 없이 시작 화면에서 출발한다.
 #[tauri::command]
 pub fn new_window(app: tauri::AppHandle) -> Result<(), String> {
-    let label = format!("synapse-{}", WINDOW_SEQ.fetch_add(1, Ordering::Relaxed));
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        &label,
-        tauri::WebviewUrl::App("index.html".into()),
-    )
-    .title("Synapse")
-    .inner_size(1280.0, 800.0)
-    .min_inner_size(800.0, 500.0)
-    .initialization_script("window.__SYNAPSE_FRESH_WINDOW__ = true;")
-    .build()
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    open_extra_window(&app, None)
 }
 
 /// 이미지 바이트를 노트와 같은 폴더에 저장한다 (드래그앤드롭/붙여넣기, FR-2.7 변형)
