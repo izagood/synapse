@@ -638,7 +638,14 @@ select {
 
 .tiptap p { margin: 0.4em 0; }
 
-.tiptap a { color: var(--accent); }
+.tiptap a {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.tiptap a:hover {
+  text-decoration-thickness: 2px;
+}
 
 .tiptap blockquote {
   border-left: 3px solid var(--border);

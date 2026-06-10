@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
 import { editorExtensions, getMarkdown } from "./extensions";
 import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
@@ -17,6 +18,18 @@ export function MarkdownEditor({ path }: { path: string }) {
     extensions: editorExtensions(),
     content: initial.body,
     autofocus: true,
+    editorProps: {
+      // 링크 클릭 시 시스템 브라우저로 연다 (커서는 CSS에서 pointer)
+      handleClick(_view, _pos, event) {
+        const anchor = (event.target as HTMLElement).closest?.("a");
+        const href = anchor?.getAttribute("href");
+        if (href && /^https?:\/\//i.test(href)) {
+          void ipc.openExternal(href);
+          return true;
+        }
+        return false;
+      },
+    },
     onUpdate({ editor }) {
       updateContent(path, joinFrontmatter(initial.frontmatter, getMarkdown(editor)));
     },
