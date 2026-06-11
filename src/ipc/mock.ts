@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentEventPayload,
+  ConfigSyncStatus,
   FileCommit,
   FileNode,
   FileType,
@@ -386,6 +387,26 @@ export const mockIpc: SynapseIpc = {
     mockSettings = structuredClone(settings);
   },
 
+  async configSyncStatus() {
+    return structuredClone(mockConfigSync);
+  },
+  async linkConfigRepo(name) {
+    const [owner, repo] = name.includes("/") ? name.split("/") : ["me", name];
+    mockConfigSync = {
+      linked: true,
+      repoName: `${owner}/${repo}`,
+      sync: { state: "synced", ahead: 0, behind: 0, conflictFiles: [] },
+    };
+    return structuredClone(mockConfigSync);
+  },
+  async unlinkConfigRepo() {
+    mockConfigSync = { linked: false, repoName: null, sync: null };
+    return structuredClone(mockConfigSync);
+  },
+  async configSyncNow() {
+    return structuredClone(mockConfigSync);
+  },
+
   async setWindowTheme() {
     // 브라우저 모드에는 네이티브 창이 없다
   },
@@ -444,6 +465,11 @@ export const mockIpc: SynapseIpc = {
 };
 
 let mockSettings: Settings = structuredClone(DEFAULT_SETTINGS);
+let mockConfigSync: ConfigSyncStatus = {
+  linked: false,
+  repoName: null,
+  sync: null,
+};
 
 const sync = {
   login: null as string | null,

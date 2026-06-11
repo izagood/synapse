@@ -100,6 +100,18 @@ export const ko = {
     installNow: "지금 설치",
     installTitle: "다운로드 후 자동 재시작됩니다",
   },
+  configSync: {
+    section: "설정 동기화",
+    intro:
+      "개인 config 레포를 연결하면 기기를 바꿔도 GitHub 로그인만으로 설정이 따라옵니다. (settings.json만 동기화하며, 비공개 레포를 권장합니다.)",
+    repoLabel: "설정 레포",
+    link: "기존 레포 연결",
+    create: "새 레포 만들어 연결",
+    linkedTo: "연결됨: {repo}",
+    linkedHint: "설정 변경은 화면을 닫을 때 자동으로 동기화됩니다.",
+    syncNow: "지금 동기화",
+    unlink: "연결 해제",
+  },
   sync: {
     publishTitle: "이 폴더를 GitHub 리포지토리로 게시",
     publishToGitHub: "GitHub에 게시",

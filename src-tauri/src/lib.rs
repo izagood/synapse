@@ -1,6 +1,7 @@
 mod agent;
 mod auth;
 mod commands;
+mod config_sync;
 mod dock;
 mod sync;
 
@@ -48,6 +49,10 @@ pub fn run() {
             sync::resolve_conflict,
             sync::publish_workspace,
             sync::clone_repo,
+            config_sync::config_sync_status,
+            config_sync::link_config_repo,
+            config_sync::unlink_config_repo,
+            config_sync::config_sync_now,
             sync::file_history,
             sync::file_at_revision,
             agent::agent_status,

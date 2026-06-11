@@ -232,10 +232,27 @@ pub fn set_workspace_state(path: String, state: serde_json::Value) -> Result<(),
 
 #[tauri::command]
 pub fn get_settings() -> Result<synapse_core::settings::Settings, String> {
-    Ok(synapse_core::settings::load_settings(&config_dir()?))
+    let cfg = config_dir()?;
+    // 설정 동기화가 연결돼 있으면 클라우드 작업트리의 settings.json을 읽는다 (1-E).
+    let dir = synapse_core::config_sync::settings_dir(&cfg);
+    Ok(synapse_core::settings::load_settings(&dir))
 }
 
 #[tauri::command]
-pub fn update_settings(settings: synapse_core::settings::Settings) -> Result<(), String> {
-    synapse_core::settings::save_settings(&config_dir()?, &settings).map_err(|e| e.to_string())
+pub async fn update_settings(settings: synapse_core::settings::Settings) -> Result<(), String> {
+    crate::sync::run_blocking(move || {
+        let cfg = config_dir()?;
+        let dir = synapse_core::config_sync::settings_dir(&cfg);
+        synapse_core::settings::save_settings(&dir, &settings).map_err(|e| e.to_string())?;
+        // 연결돼 있으면 변경을 로컬 커밋만 해둔다(빠름·오프라인 우선). 실제 push/pull은
+        // config_sync_now(설정 화면 닫을 때·수동 동기화)에서 한다. 실패는 무시.
+        if synapse_core::config_sync::load_state(&cfg).linked {
+            let auth = crate::auth::stored_token()
+                .map(|t| synapse_core::GitWorkspace::auth_header_for_token(&t));
+            let cloud = synapse_core::config_sync::cloud_dir(&cfg);
+            let _ = synapse_core::GitWorkspace::new(cloud, auth).commit_all("synapse: 설정 변경");
+        }
+        Ok(())
+    })
+    .await
 }
