@@ -176,8 +176,11 @@ jobs:
           set -euo pipefail
           tag="$RELEASE_TAG"
           version="${tag#v}"
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
-          assets=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.assets[].name')
+          # REST get-by-tag(GET /releases/tags/{tag})는 draft 릴리스를 반환하지
+          # 않아 404가 난다. 이 단계는 아직 draft인 릴리스를 공개하는 게 목적이므로
+          # draft도 조회하는 `gh release view`로 id/assets를 가져온다.
+          release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
+          assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
           expected=(
             "Synapse_${version}_universal.dmg"
             "Synapse_universal.app.tar.gz"
