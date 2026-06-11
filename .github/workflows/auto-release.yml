@@ -137,10 +137,15 @@ jobs:
 
   cleanup-failed-release:
     needs: [prepare-release, build-desktop]
-    if: failure() && needs.prepare-release.outputs.release_tag != ''
+    # 빌드가 실패했을 때뿐 아니라 취소됐을 때도 정리한다. cancel-in-progress: false
+    # 덕에 큐에서 대기하다 취소되는 런은 job을 시작조차 안 해 잔해가 없지만,
+    # prepare-release가 commit/tag/draft를 만든 뒤 실행 중에 취소되는 경우
+    # (수동/강제/타임아웃)에는 미완료 draft가 남는다. failure()는 cancelled를
+    # 포함하지 않으므로 둘 다 명시한다.
+    if: (failure() || cancelled()) && needs.prepare-release.outputs.release_tag != ''
     runs-on: ubuntu-latest
     steps:
-      - name: 실패한 draft 릴리스 정리
+      - name: 미완료 draft 릴리스와 태그 정리
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
@@ -148,14 +153,22 @@ jobs:
           set -euo pipefail
           # REST get-by-tag는 draft를 반환하지 않으므로(404) draft도 포함하는
           # 목록 엔드포인트에서 찾는다. draft인 것만 골라 정리 — 안 그러면 빌드
-          # 실패로 남은 draft가 정리되지 않고 영원히 쌓인다.
+          # 실패/취소로 남은 draft가 정리되지 않고 영원히 쌓인다.
           # (이 잡은 checkout이 없어 git 저장소가 없으므로 repo를 명시하는
           #  `gh api`만 쓸 수 있다. `gh release ...`는 git 리모트 추론에 실패한다.)
           draft_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq "first(.[] | select(.tag_name == \"$RELEASE_TAG\" and .draft)) | .id")
-          if [ -n "$draft_id" ]; then
-            echo "릴리스 빌드 실패 — 공개되지 않은 draft Release 정리: $RELEASE_TAG (id=$draft_id)"
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"
-          else
-            echo "공개된 릴리스이거나 릴리스를 찾지 못해 정리하지 않음: $RELEASE_TAG"
+          if [ -z "$draft_id" ]; then
+            # draft가 없으면 이미 finalize가 공개한 릴리스 — 절대 건드리지 않는다.
+            echo "공개된 릴리스이거나 draft를 찾지 못해 정리하지 않음: $RELEASE_TAG"
+            exit 0
+          fi
+          echo "미완료 draft 정리: $RELEASE_TAG (id=$draft_id)"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"
+          # 태그도 지운다. 버전 bump 커밋(chore(release): X.Y.Z)은 main에 남으므로
+          # 다음 Auto Release가 같은 버전을 태그 없는 상태로 보고 재시도한다 →
+          # 버전 번호가 건너뛰어지지 않고 그대로 다시 릴리스된다.
+          if gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG"
+            echo "태그 삭제: $RELEASE_TAG (다음 Auto Release가 같은 버전으로 재시도)"
           fi
