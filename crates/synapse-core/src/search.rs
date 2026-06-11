@@ -203,17 +203,12 @@ fn make_snippet(line: &str, match_byte: usize, needle_len: usize, max_chars: usi
     let start = match_char.saturating_sub(half);
     let end = (start + max_chars).min(chars.len());
     let start = end.saturating_sub(max_chars).min(start);
+    let middle: String = chars[start..end].iter().collect();
     let mut out = String::new();
     if start > 0 {
         out.push('…');
     }
-    out.push_str(
-        &chars[start..end]
-            .iter()
-            .collect::<String>()
-            .trim()
-            .to_string(),
-    );
+    out.push_str(middle.trim());
     if end < chars.len() {
         out.push('…');
     }
