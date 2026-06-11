@@ -8,6 +8,7 @@ import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
 import { AgentPanel } from "../agent/AgentPanel";
 import { PlusIcon, RefreshIcon } from "../../shared/Icons";
+import { useT } from "../../i18n";
 
 const SIDEBAR_DEFAULT = 260;
 const SIDEBAR_MIN = 180;
@@ -33,6 +34,7 @@ export function WorkspaceView() {
     () => localStorage.getItem(AGENT_PANEL_KEY) === "1",
   );
   const dragging = useRef(false);
+  const t = useT();
 
   const toggleAgent = useCallback(() => {
     setAgentVisible((v) => {
@@ -112,10 +114,10 @@ export function WorkspaceView() {
                   {folderName}
                 </span>
                 <span className="sidebar-actions">
-                  <button onClick={() => void createNote()} title="새 노트">
+                  <button onClick={() => void createNote()} title={t("workspace.newNote")}>
                     <PlusIcon size={15} />
                   </button>
-                  <button onClick={() => void refreshTree()} title="파일 트리 새로고침">
+                  <button onClick={() => void refreshTree()} title={t("workspace.refreshTree")}>
                     <RefreshIcon size={14} />
                   </button>
                 </span>

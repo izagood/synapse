@@ -9,6 +9,7 @@ import { common, createLowlight } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import type { AnyExtension, Editor } from "@tiptap/core";
 import { resolveAssetUrl } from "../../ipc/ipc";
+import { ko } from "../../i18n/locales/ko";
 
 // 현재 편집 중인 노트의 디렉토리 — 상대 경로 이미지를 화면에 표시할 때만 사용.
 // 문서 모델(attrs.src)에는 항상 상대 경로가 남아 md 직렬화가 오염되지 않는다.
@@ -46,7 +47,10 @@ const WorkspaceImage = Image.extend({
 // 에디터 본체와 라운드트립 테스트가 동일한 구성을 쓰도록 한 곳에 모은다.
 // withPlaceholder=false: Placeholder는 브라우저 전용 API(elementFromPoint)를 써서
 // 헤드리스(jsdom) 라운드트립 테스트에서는 제외한다 — md 변환에는 관여하지 않는다.
-export function editorExtensions({ withPlaceholder = true } = {}): AnyExtension[] {
+export function editorExtensions({
+  withPlaceholder = true,
+  placeholder = ko.editor.placeholder,
+}: { withPlaceholder?: boolean; placeholder?: string } = {}): AnyExtension[] {
   return [
     StarterKit.configure({
       link: { openOnClick: false },
@@ -59,7 +63,7 @@ export function editorExtensions({ withPlaceholder = true } = {}): AnyExtension[
     TableKit.configure({ table: { resizable: false } }),
     WorkspaceImage,
     ...(withPlaceholder
-      ? [Placeholder.configure({ placeholder: "내용을 입력하세요. '# ', '- ', '> ' 같은 마크다운 단축 입력을 지원합니다." })]
+      ? [Placeholder.configure({ placeholder })]
       : []),
     Markdown.configure({
       html: true, // 표현 불가능한 원시 HTML은 보존 (NFR-3)

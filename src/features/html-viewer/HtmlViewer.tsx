@@ -3,6 +3,7 @@ import { ipc } from "../../ipc/ipc";
 import { resolveAssetUrl } from "../../ipc/ipc";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
+import { useT } from "../../i18n";
 import { buildViewerHtml } from "./buildViewerHtml";
 
 function cacheNameFor(path: string): string {
@@ -20,6 +21,7 @@ export function HtmlViewer({ path }: { path: string }) {
   const viewerSettings = useSettings((s) => s.settings.htmlViewer);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
 
   const baseDir = path.slice(0, path.lastIndexOf("/"));
   const content = doc?.content ?? "";
@@ -72,7 +74,7 @@ export function HtmlViewer({ path }: { path: string }) {
   if (!frameSrc) {
     return (
       <div className="preview-placeholder">
-        <p>렌더링 준비 중…</p>
+        <p>{t("viewer.preparing")}</p>
       </div>
     );
   }

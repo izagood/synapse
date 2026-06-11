@@ -1,4 +1,5 @@
 import { useWorkspace } from "../../stores/workspace";
+import { useT } from "../../i18n";
 import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
 import { HtmlViewer } from "../html-viewer/HtmlViewer";
 
@@ -7,11 +8,12 @@ export function ContentPane() {
   const tabs = useWorkspace((s) => s.tabs);
   const doc = useWorkspace((s) => (s.activePath ? s.docs[s.activePath] : undefined));
   const sourceMode = useWorkspace((s) => s.sourceMode);
+  const t = useT();
 
   if (!activePath) {
     return (
       <div className="preview-placeholder">
-        <p>왼쪽에서 파일을 선택하거나 새 노트를 만드세요</p>
+        <p>{t("workspace.empty")}</p>
       </div>
     );
   }
@@ -19,7 +21,7 @@ export function ContentPane() {
   if (!doc || doc.loading) {
     return (
       <div className="preview-placeholder">
-        <p>불러오는 중…</p>
+        <p>{t("common.loading")}</p>
       </div>
     );
   }

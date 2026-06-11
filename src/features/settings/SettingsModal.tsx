@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useSettings } from "../../stores/settings";
 import { useUpdate } from "../../stores/update";
+import { SUPPORTED_LOCALES, useT } from "../../i18n";
+import type { Language } from "../../ipc/types";
 
 // 숫자 설정 입력: 지우는 동안 빈칸을 허용하고(즉시 기본값으로 되돌리지 않음),
 // 유효한 숫자만 커밋하며 포커스를 벗어날 때 범위를 보정한다
@@ -56,19 +58,22 @@ function NumberInput({
 function UpdateSection() {
   const { current, available, checking, installing, checked, error, check, install } =
     useUpdate();
+  const t = useT();
 
   return (
     <section>
-      <h3>업데이트</h3>
+      <h3>{t("update.section")}</h3>
       <div className="setting-row">
-        <span>현재 버전 {current ? `v${current}` : ""}</span>
+        <span>{t("update.currentVersion", { version: current ? `v${current}` : "" })}</span>
         {available ? (
           <button
             className="primary-btn update-install-btn"
             disabled={installing}
             onClick={() => void install()}
           >
-            {installing ? "설치 중…" : `v${available} 설치 후 재시작`}
+            {installing
+              ? t("update.installing")
+              : t("update.installVersion", { version: available })}
           </button>
         ) : (
           <button
@@ -76,12 +81,12 @@ function UpdateSection() {
             disabled={checking}
             onClick={() => void check()}
           >
-            {checking ? "확인 중…" : "업데이트 확인"}
+            {checking ? t("update.checking") : t("update.check")}
           </button>
         )}
       </div>
       {checked && !available && !checking && !error && (
-        <p className="setting-hint">최신 버전입니다.</p>
+        <p className="setting-hint">{t("update.upToDate")}</p>
       )}
       {error && <p className="setting-warning error">{error}</p>}
     </section>
@@ -94,18 +99,19 @@ export function SettingsModal() {
   const settings = useSettings((s) => s.settings);
   const update = useSettings((s) => s.update);
   const closeSettings = useSettings((s) => s.closeSettings);
+  const t = useT();
 
   if (!show) return null;
 
   return (
     <div className="modal-backdrop" onClick={closeSettings}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>설정</h2>
+        <h2>{t("settings.title")}</h2>
 
         <section>
-          <h3>화면</h3>
+          <h3>{t("settings.appearance")}</h3>
           <label className="setting-row">
-            <span>테마</span>
+            <span>{t("settings.theme")}</span>
             <select
               value={settings.appearance.theme}
               onChange={(e) =>
@@ -117,17 +123,37 @@ export function SettingsModal() {
                 })
               }
             >
-              <option value="system">시스템 따름</option>
-              <option value="light">라이트</option>
-              <option value="dark">다크</option>
+              <option value="system">{t("settings.themeSystem")}</option>
+              <option value="light">{t("settings.themeLight")}</option>
+              <option value="dark">{t("settings.themeDark")}</option>
+            </select>
+          </label>
+          <label className="setting-row">
+            <span>{t("settings.language")}</span>
+            <select
+              value={settings.appearance.language}
+              onChange={(e) =>
+                void update({
+                  appearance: {
+                    ...settings.appearance,
+                    language: e.target.value as Language,
+                  },
+                })
+              }
+            >
+              {SUPPORTED_LOCALES.map((locale) => (
+                <option key={locale.code} value={locale.code}>
+                  {locale.label}
+                </option>
+              ))}
             </select>
           </label>
         </section>
 
         <section>
-          <h3>에디터</h3>
+          <h3>{t("settings.editor")}</h3>
           <label className="setting-row">
-            <span>폰트</span>
+            <span>{t("settings.font")}</span>
             <input
               list="synapse-fonts"
               value={settings.editor.fontFamily}
@@ -140,7 +166,7 @@ export function SettingsModal() {
             />
           </label>
           <datalist id="synapse-fonts">
-            <option value="system-ui" label="시스템 기본" />
+            <option value="system-ui" label={t("settings.systemDefault")} />
             <option value="Pretendard" />
             <option value="Noto Sans KR" />
             <option value="Apple SD Gothic Neo" />
@@ -149,7 +175,7 @@ export function SettingsModal() {
             <option value="monospace" />
           </datalist>
           <label className="setting-row">
-            <span>글자 크기</span>
+            <span>{t("settings.fontSize")}</span>
             <NumberInput
               min={12}
               max={28}
@@ -160,7 +186,7 @@ export function SettingsModal() {
             />
           </label>
           <label className="setting-row">
-            <span>자동 저장 지연 (ms)</span>
+            <span>{t("settings.autoSaveDelay")}</span>
             <NumberInput
               min={200}
               max={10000}
@@ -174,9 +200,9 @@ export function SettingsModal() {
         </section>
 
         <section>
-          <h3>파일</h3>
+          <h3>{t("settings.files")}</h3>
           <label className="setting-row">
-            <span>삭제 전에 확인 창 표시</span>
+            <span>{t("settings.confirmDelete")}</span>
             <input
               type="checkbox"
               checked={settings.files.confirmDelete}
@@ -187,15 +213,15 @@ export function SettingsModal() {
           </label>
           {!settings.files.confirmDelete && (
             <p className="setting-hint">
-              확인 없이 바로 삭제됩니다. 삭제는 되돌릴 수 없으니 주의하세요.
+              {t("settings.deleteWarning")}
             </p>
           )}
         </section>
 
         <section>
-          <h3>동기화</h3>
+          <h3>{t("settings.sync")}</h3>
           <label className="setting-row">
-            <span>자동 동기화</span>
+            <span>{t("settings.autoSync")}</span>
             <input
               type="checkbox"
               checked={settings.sync.auto}
@@ -205,7 +231,7 @@ export function SettingsModal() {
             />
           </label>
           <label className="setting-row">
-            <span>동기화 주기 (분)</span>
+            <span>{t("settings.syncInterval")}</span>
             <NumberInput
               min={1}
               max={60}
@@ -218,9 +244,9 @@ export function SettingsModal() {
         </section>
 
         <section>
-          <h3>HTML 뷰어</h3>
+          <h3>{t("settings.htmlViewer")}</h3>
           <label className="setting-row">
-            <span>외부 이미지/리소스 허용</span>
+            <span>{t("settings.allowNetwork")}</span>
             <input
               type="checkbox"
               checked={settings.htmlViewer.allowNetwork}
@@ -232,7 +258,7 @@ export function SettingsModal() {
             />
           </label>
           <label className="setting-row">
-            <span>스크립트 실행 허용 (위험)</span>
+            <span>{t("settings.allowScripts")}</span>
             <input
               type="checkbox"
               checked={settings.htmlViewer.allowScripts}
@@ -245,8 +271,7 @@ export function SettingsModal() {
           </label>
           {settings.htmlViewer.allowScripts && (
             <p className="setting-warning error">
-              스크립트 허용 시 HTML 정화 없이 원문 그대로 격리된 샌드박스에서
-              실행됩니다. 신뢰할 수 있는 문서만 여세요.
+              {t("settings.scriptWarning")}
             </p>
           )}
         </section>
@@ -255,7 +280,7 @@ export function SettingsModal() {
 
         <div className="modal-actions">
           <button className="primary-btn" onClick={closeSettings}>
-            닫기
+            {t("common.close")}
           </button>
         </div>
       </div>

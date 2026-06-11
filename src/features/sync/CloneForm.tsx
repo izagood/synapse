@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
+import { useT } from "../../i18n";
 
 function repoNameFrom(url: string): string {
   const tail = url.trim().replace(/\/+$/, "").split("/").pop() ?? "repo";
@@ -13,6 +14,7 @@ export function CloneForm() {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
 
   const clone = async () => {
     setError(null);
@@ -31,16 +33,16 @@ export function CloneForm() {
 
   return (
     <div className="clone-form">
-      <h2>GitHub에서 클론</h2>
+      <h2>{t("sync.cloneTitle")}</h2>
       <div className="clone-row">
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://github.com/사용자/리포지토리.git"
+          placeholder={t("sync.clonePlaceholder")}
           spellCheck={false}
         />
         <button disabled={busy || !url.trim()} onClick={() => void clone()}>
-          {busy ? "클론 중…" : "클론"}
+          {busy ? t("sync.cloning") : t("sync.clone")}
         </button>
       </div>
       {error && <p className="error">{error}</p>}

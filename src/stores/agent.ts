@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import type { AgentEvent, AgentStatus } from "../ipc/types";
+import { translate } from "../i18n";
+import { useSettings } from "./settings";
 
 // PLAN-v0.4 Phase 1: 워크스페이스를 cwd로 claude CLI 한 턴씩 실행하는 채팅.
 // 대화 내역은 메모리에만 두고, 세션 ID만 워크스페이스별로 localStorage에
@@ -160,7 +162,7 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
         break;
       case "aborted":
         set({ running: false });
-        push("info", "응답을 중단했습니다");
+        push("info", translate(useSettings.getState().settings.appearance.language, "agent.aborted"));
         break;
     }
   },

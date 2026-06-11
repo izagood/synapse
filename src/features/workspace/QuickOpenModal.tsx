@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
+import { useT } from "../../i18n";
 import { filterQuickOpen, flattenFiles } from "./quickOpen";
 
 export function QuickOpenModal({ onClose }: { onClose: () => void }) {
@@ -8,6 +9,7 @@ export function QuickOpenModal({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const t = useT();
 
   const items = useMemo(() => flattenFiles(tree), [tree]);
   const results = useMemo(() => filterQuickOpen(items, query), [items, query]);
@@ -50,7 +52,7 @@ export function QuickOpenModal({ onClose }: { onClose: () => void }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="파일 이름 검색…"
+          placeholder={t("quickOpen.placeholder")}
           spellCheck={false}
         />
         <ul>
@@ -66,7 +68,7 @@ export function QuickOpenModal({ onClose }: { onClose: () => void }) {
               </button>
             </li>
           ))}
-          {results.length === 0 && <li className="qo-empty">결과 없음</li>}
+          {results.length === 0 && <li className="qo-empty">{t("quickOpen.empty")}</li>}
         </ul>
       </div>
     </div>

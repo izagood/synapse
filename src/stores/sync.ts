@@ -4,6 +4,8 @@ import type { ConflictChoice, DeviceCode, SyncStatus } from "../ipc/types";
 import { syncCommitMessage } from "../features/sync/commitMessage";
 import { IPC_TIMEOUT_MS, withTimeout } from "../features/sync/guard";
 import { useWorkspace } from "./workspace";
+import { translate } from "../i18n";
+import { useSettings } from "./settings";
 
 // FR-4.8: 엔진 상태는 세분화되어 있지만 UI는 3가지로 접는다
 export type SyncBadge = "synced" | "pending" | "conflict" | "none";
@@ -105,7 +107,13 @@ export const useSync = create<SyncStoreState>((set, get) => ({
         return;
       }
     }
-    set({ loginError: "로그인 시간이 초과되었습니다", device: null });
+    set({
+      loginError: translate(
+        useSettings.getState().settings.appearance.language,
+        "sync.loginTimeout",
+      ),
+      device: null,
+    });
   },
 
   cancelLogin() {
@@ -131,12 +139,18 @@ export const useSync = create<SyncStoreState>((set, get) => ({
     try {
       // 미저장 편집을 먼저 CRDT에 기록해 이번 커밋에 싣는다
       await useWorkspace.getState().flushDirty();
+      const language = useSettings.getState().settings.appearance.language;
+      const syncLabel = translate(language, "sync.timeoutLabelSync");
       // 워치독: 백엔드가 응답하지 못해도 syncing이 영구히 잠기지 않게 한다
       set({
         status: await withTimeout(
-          ipc.syncNow(root, syncCommitMessage()),
+          ipc.syncNow(root, syncCommitMessage(new Date(), language)),
           IPC_TIMEOUT_MS,
-          "동기화",
+          syncLabel,
+          translate(language, "sync.timeoutMessage", {
+            label: syncLabel,
+            seconds: Math.round(IPC_TIMEOUT_MS / 1000),
+          }),
         ),
       });
       // pull로 받은 원격 변경을 열린 에디터에 라이브 반영
@@ -152,11 +166,17 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   async resolveConflict(root, choice) {
     set({ syncing: true, error: null });
     try {
+      const language = useSettings.getState().settings.appearance.language;
+      const label = translate(language, "sync.timeoutLabelConflict");
       set({
         status: await withTimeout(
           ipc.resolveConflict(root, choice),
           IPC_TIMEOUT_MS,
-          "충돌 해결",
+          label,
+          translate(language, "sync.timeoutMessage", {
+            label,
+            seconds: Math.round(IPC_TIMEOUT_MS / 1000),
+          }),
         ),
       });
       await useWorkspace.getState().reloadAfterSync();
@@ -170,11 +190,17 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   async publish(root, name, isPrivate) {
     set({ syncing: true, error: null });
     try {
+      const language = useSettings.getState().settings.appearance.language;
+      const label = translate(language, "sync.timeoutLabelPublish");
       set({
         status: await withTimeout(
           ipc.publishWorkspace(root, name, isPrivate),
           IPC_TIMEOUT_MS,
-          "게시",
+          label,
+          translate(language, "sync.timeoutMessage", {
+            label,
+            seconds: Math.round(IPC_TIMEOUT_MS / 1000),
+          }),
         ),
       });
     } catch (e) {

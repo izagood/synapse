@@ -11,6 +11,7 @@ import {
   SparkleIcon,
 } from "../../shared/Icons";
 import { shortcutLabel } from "../../shared/platform";
+import { useT } from "../../i18n";
 
 interface ActivityBarProps {
   sidebarVisible: boolean;
@@ -35,6 +36,7 @@ export function ActivityBar({
   const agentShortcut = shortcutLabel(["Shift", "Mod", "A"]);
   const newWindowShortcut = shortcutLabel(["Shift", "Mod", "N"]);
   const settingsShortcut = shortcutLabel(["Mod", ","]);
+  const t = useT();
 
   return (
     <nav className="activity-bar">
@@ -42,17 +44,17 @@ export function ActivityBar({
         <button
           className={sidebarVisible ? "active" : ""}
           onClick={onToggleSidebar}
-          title="사이드바 토글"
+          title={t("activity.toggleSidebar")}
         >
           <SidebarIcon size={18} />
         </button>
-        <button onClick={onQuickOpen} title={`빠른 열기 (${quickOpenShortcut})`}>
+        <button onClick={onQuickOpen} title={t("activity.quickOpen", { shortcut: quickOpenShortcut })}>
           <SearchIcon size={18} />
         </button>
         <button
           className={agentVisible ? "active" : ""}
           onClick={onToggleAgent}
-          title={`Claude 패널 (${agentShortcut})`}
+          title={t("activity.agentPanel", { shortcut: agentShortcut })}
         >
           <SparkleIcon size={18} />
         </button>
@@ -60,17 +62,17 @@ export function ActivityBar({
       <div className="activity-bottom">
         <button
           onClick={() => void ipc.newWindow()}
-          title={`새 창 (${newWindowShortcut}) - 다른 폴더를 동시에`}
+          title={t("activity.newWindow", { shortcut: newWindowShortcut })}
         >
           <NewWindowIcon size={18} />
         </button>
-        <button onClick={() => void openFolder()} title="다른 폴더 열기">
+        <button onClick={() => void openFolder()} title={t("activity.openAnotherFolder")}>
           <FolderIcon size={18} />
         </button>
-        <button onClick={closeWorkspace} title="시작 화면으로">
+        <button onClick={closeWorkspace} title={t("activity.backToStart")}>
           <HomeIcon size={18} />
         </button>
-        <button onClick={openSettings} title={`설정 (${settingsShortcut})`}>
+        <button onClick={openSettings} title={t("activity.settings", { shortcut: settingsShortcut })}>
           <GearIcon size={18} />
         </button>
       </div>

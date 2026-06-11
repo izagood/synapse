@@ -6,6 +6,7 @@ import { editorExtensions, getMarkdown, setImageBaseDir } from "./extensions";
 import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { resolveInternalLink } from "./internalLink";
 import { insertImages, isImageFile } from "./images";
+import { useT } from "../../i18n";
 
 /** 의미 비교용: 공백·이스케이프 차이를 무시하고 내용만 비교 */
 function essence(markdown: string): string {
@@ -22,6 +23,8 @@ function essence(markdown: string): string {
 export function MarkdownEditor({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
   const updateContent = useWorkspace((s) => s.updateContent);
+  const t = useT();
+  const placeholder = t("editor.placeholder");
 
   // 마운트 시점의 원본 전문과 frontmatter를 보존 (FR-2.9 1단계).
   // 원격 머지가 반영되면(externalRev) 아래 effect가 이 기준들을 갱신한다.
@@ -40,7 +43,7 @@ export function MarkdownEditor({ path }: { path: string }) {
   setImageBaseDir(path.slice(0, path.lastIndexOf("/")));
 
   const editor = useEditor({
-    extensions: editorExtensions(),
+    extensions: editorExtensions({ placeholder }),
     content: initial.body,
     autofocus: true,
     onCreate({ editor }) {
@@ -103,7 +106,7 @@ export function MarkdownEditor({ path }: { path: string }) {
       if (keepNlRef.current && !markdown.endsWith("\n")) markdown += "\n";
       updateContent(path, joinFrontmatter(fmRef.current, markdown));
     },
-  });
+  }, [path, placeholder]);
 
   const editorRef = useRef(editor);
   editorRef.current = editor;
@@ -134,17 +137,13 @@ export function MarkdownEditor({ path }: { path: string }) {
     <div className="editor-wrap">
       {frontmatter && (
         <div className="frontmatter-badge" title={frontmatter}>
-          frontmatter 보존됨 — 소스 모드에서 편집 가능
+          {t("editor.frontmatterPreserved")}
         </div>
       )}
       {lossy && !dismissedWarning && (
         <div className="lossy-banner">
-          <span>
-            ⚠️ 이 문서에는 에디터가 완전히 보존하지 못하는 요소(HTML 등)가
-            있습니다. 편집하면 해당 부분이 손실될 수 있으니 소스 모드 사용을
-            권장합니다. (편집하지 않으면 파일은 변경되지 않습니다)
-          </span>
-          <button onClick={() => setDismissedWarning(true)} title="닫기">
+          <span>⚠️ {t("editor.lossyWarning")}</span>
+          <button onClick={() => setDismissedWarning(true)} title={t("editor.dismissWarning")}>
             ×
           </button>
         </div>

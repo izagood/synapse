@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isDirty, useWorkspace } from "../../stores/workspace";
 import { CloseIcon, CodeIcon, PlusIcon } from "../../shared/Icons";
+import { useT } from "../../i18n";
 
 interface ContextMenuState {
   path: string;
@@ -21,6 +22,7 @@ function TabContextMenu({
   const closeTabsToRight = useWorkspace((s) => s.closeTabsToRight);
   const closeAllTabs = useWorkspace((s) => s.closeAllTabs);
   const tabs = useWorkspace((s) => s.tabs);
+  const t = useT();
 
   useEffect(() => {
     const close = () => onClose();
@@ -44,21 +46,21 @@ function TabContextMenu({
       style={{ left: menu.x, top: menu.y }}
       onClick={(e) => e.stopPropagation()}
     >
-      <button onClick={() => run(() => closeTab(menu.path))}>닫기</button>
+      <button onClick={() => run(() => closeTab(menu.path))}>{t("tabs.close")}</button>
       <button
         disabled={tabs.length <= 1}
         onClick={() => run(() => closeOtherTabs(menu.path))}
       >
-        다른 탭 모두 닫기
+        {t("tabs.closeOthers")}
       </button>
       <button
         disabled={idx === tabs.length - 1}
         onClick={() => run(() => closeTabsToRight(menu.path))}
       >
-        오른쪽 탭 닫기
+        {t("tabs.closeRight")}
       </button>
       <div className="context-sep" />
-      <button onClick={() => run(closeAllTabs)}>모든 탭 닫기</button>
+      <button onClick={() => run(closeAllTabs)}>{t("tabs.closeAll")}</button>
     </div>
   );
 }
@@ -74,6 +76,7 @@ export function TabBar() {
   const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   const activeTab = tabs.find((t) => t.path === activePath);
 
@@ -121,7 +124,7 @@ export function TabBar() {
               </button>
               <button
                 className="tab-close"
-                title={dirty ? "저장 후 닫기" : "닫기"}
+                title={dirty ? t("tabs.closeAfterSave") : t("tabs.close")}
                 onClick={() => void closeTab(tab.path)}
               >
                 <span className="tab-dirty-dot" />
@@ -132,7 +135,7 @@ export function TabBar() {
             </div>
           );
         })}
-        <button className="tab-add" title="새 노트" onClick={() => void createNote()}>
+        <button className="tab-add" title={t("workspace.newNote")} onClick={() => void createNote()}>
           <PlusIcon size={14} />
         </button>
       </div>
@@ -141,7 +144,7 @@ export function TabBar() {
           <button
             className={sourceMode ? "active" : ""}
             onClick={toggleSourceMode}
-            title={sourceMode ? "렌더 보기로 전환" : "소스 보기로 전환"}
+            title={sourceMode ? t("tabs.switchToRendered") : t("tabs.switchToSource")}
           >
             <CodeIcon size={15} />
           </button>

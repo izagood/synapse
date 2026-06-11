@@ -1,3 +1,5 @@
+import { ko } from "../../i18n/locales/ko";
+
 // 동기화 UI가 영구히 잠기지 않게 하는 안전망 (워치독 + 백오프).
 // 백엔드에도 git 명령 타임아웃이 있지만, IPC 자체가 응답하지 못하는
 // 경우까지 대비해 프론트에서 한 번 더 시간을 제한한다.
@@ -10,10 +12,13 @@ export function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
   label: string,
+  timeoutMessage = ko.sync.timeoutMessage
+    .replace("{label}", label)
+    .replace("{seconds}", String(Math.round(ms / 1000))),
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(`${label} 시간 초과 — ${Math.round(ms / 1000)}초 안에 응답이 없습니다`),
+      () => reject(timeoutMessage),
       ms,
     );
     promise.then(
