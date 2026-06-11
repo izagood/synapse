@@ -42,8 +42,10 @@ export type PollResult =
   | { status: "failed"; message: string };
 
 // Rust synapse-core::settings::Settings 와 1:1 대응 (FR-5)
+export type Language = "ko" | "en";
+
 export interface Settings {
-  appearance: { theme: "system" | "light" | "dark"; language: string };
+  appearance: { theme: "system" | "light" | "dark"; language: Language };
   editor: {
     fontFamily: string;
     fontSize: number;

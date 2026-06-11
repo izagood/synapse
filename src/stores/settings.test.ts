@@ -53,4 +53,17 @@ describe("settings store (mock ipc)", () => {
     expect(s.editor.fontSize).toBe(20);
     expect(s.editor.autoSaveDelayMs).toBe(1000);
   });
+
+  it("normalizes unsupported language values to Korean", async () => {
+    useSettings.setState({
+      settings: {
+        ...structuredClone(DEFAULT_SETTINGS),
+        appearance: { theme: "system", language: "fr" as "ko" },
+      },
+    });
+
+    await useSettings.getState().update({ sync: { auto: false, intervalMinutes: 5 } });
+
+    expect(useSettings.getState().settings.appearance.language).toBe("ko");
+  });
 });

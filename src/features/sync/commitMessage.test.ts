@@ -12,6 +12,13 @@ describe("syncCommitMessage", () => {
     expect(syncCommitMessage(fixed)).toBe("synapse: 노트 동기화 2026-01-05 09:03:07");
   });
 
+  it("uses the selected language", () => {
+    const fixed = new Date(2026, 5, 10, 21, 30, 45);
+    expect(syncCommitMessage(fixed, "en")).toBe(
+      "synapse: sync notes 2026-06-10 21:30:45",
+    );
+  });
+
   it("matches the expected pattern for the current time", () => {
     expect(syncCommitMessage()).toMatch(
       /^synapse: 노트 동기화 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,

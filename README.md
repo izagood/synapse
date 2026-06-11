@@ -133,6 +133,7 @@ Conflict actions:
 Synapse has one global settings screen. Current settings include:
 
 - Theme: system, light, or dark.
+- Language: Korean or English.
 - Editor font, font size, and auto-save delay.
 - Delete confirmation behavior.
 - Automatic sync and sync interval.
