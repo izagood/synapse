@@ -29,6 +29,13 @@ export interface SyncStatus {
 
 export type ConflictChoice = "keepMine" | "keepRemote" | "keepBoth";
 
+// 설정 동기화 상태 (1-E) — Rust config_sync::ConfigSyncStatus 와 1:1 대응
+export interface ConfigSyncStatus {
+  linked: boolean;
+  repoName: string | null;
+  sync: SyncStatus | null;
+}
+
 export interface DeviceCode {
   userCode: string;
   verificationUri: string;
@@ -164,6 +171,16 @@ export interface SynapseIpc {
   // ---- 전역 설정 (FR-5) ----
   getSettings(): Promise<Settings>;
   updateSettings(settings: Settings): Promise<void>;
+
+  // ---- 설정 동기화: config 레포 (1-E) ----
+  /** 현재 설정 동기화 연결 상태 */
+  configSyncStatus(): Promise<ConfigSyncStatus>;
+  /** config 레포 연결. name="owner/repo" 또는 "repo". create=true면 새 private 레포 생성 */
+  linkConfigRepo(name: string, create: boolean): Promise<ConfigSyncStatus>;
+  /** 연결 해제. keepLocal이면 클라우드 설정을 로컬로 복사 보존 */
+  unlinkConfigRepo(keepLocal: boolean): Promise<ConfigSyncStatus>;
+  /** 설정을 지금 push/pull */
+  configSyncNow(): Promise<ConfigSyncStatus>;
 
   /** 네이티브 창(타이틀바) 테마 동기화 — null이면 OS 테마 따름 */
   setWindowTheme(theme: "light" | "dark" | null): Promise<void>;

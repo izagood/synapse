@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSettings } from "../../stores/settings";
 import { useUpdate } from "../../stores/update";
+import { ipc } from "../../ipc/ipc";
 import { SUPPORTED_LOCALES, useT } from "../../i18n";
-import type { Language } from "../../ipc/types";
+import type { ConfigSyncStatus, Language } from "../../ipc/types";
 
 // 숫자 설정 입력: 지우는 동안 빈칸을 허용하고(즉시 기본값으로 되돌리지 않음),
 // 유효한 숫자만 커밋하며 포커스를 벗어날 때 범위를 보정한다
@@ -87,6 +88,106 @@ function UpdateSection() {
       </div>
       {checked && !available && !checking && !error && (
         <p className="setting-hint">{t("update.upToDate")}</p>
+      )}
+      {error && <p className="setting-warning error">{error}</p>}
+    </section>
+  );
+}
+
+// 설정 동기화 (1-E): 개인 config 레포를 연결해 settings.json을 기기 간 공유
+function ConfigSyncSection() {
+  const t = useT();
+  const reloadSettings = useSettings((s) => s.init);
+  const [status, setStatus] = useState<ConfigSyncStatus | null>(null);
+  const [repo, setRepo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const linkedRef = useRef(false);
+
+  useEffect(() => {
+    ipc.configSyncStatus().then(setStatus).catch(() => setStatus(null));
+  }, []);
+
+  useEffect(() => {
+    linkedRef.current = status?.linked ?? false;
+  }, [status]);
+
+  // 설정 화면을 닫을 때(=언마운트) 연결돼 있으면 누적된 로컬 커밋을 push/pull
+  useEffect(() => {
+    return () => {
+      if (linkedRef.current) void ipc.configSyncNow().catch(() => {});
+    };
+  }, []);
+
+  const run = async (fn: () => Promise<ConfigSyncStatus>, reload = false) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await fn();
+      setStatus(next);
+      if (reload) await reloadSettings();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section>
+      <h3>{t("configSync.section")}</h3>
+      {status?.linked ? (
+        <>
+          <div className="setting-row">
+            <span>{t("configSync.linkedTo", { repo: status.repoName ?? "" })}</span>
+            <span className="setting-actions">
+              <button
+                className="setting-action-btn"
+                disabled={busy}
+                onClick={() => void run(() => ipc.configSyncNow())}
+              >
+                {t("configSync.syncNow")}
+              </button>
+              <button
+                className="setting-action-btn"
+                disabled={busy}
+                onClick={() => void run(() => ipc.unlinkConfigRepo(true), true)}
+              >
+                {t("configSync.unlink")}
+              </button>
+            </span>
+          </div>
+          <p className="setting-hint">{t("configSync.linkedHint")}</p>
+        </>
+      ) : (
+        <>
+          <p className="setting-hint">{t("configSync.intro")}</p>
+          <label className="setting-row">
+            <span>{t("configSync.repoLabel")}</span>
+            <input
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+              placeholder="owner/synapse-config"
+              spellCheck={false}
+            />
+          </label>
+          <div className="modal-actions">
+            <button
+              className="setting-action-btn"
+              disabled={busy || !repo.trim()}
+              onClick={() => void run(() => ipc.linkConfigRepo(repo.trim(), false), true)}
+            >
+              {t("configSync.link")}
+            </button>
+            <button
+              className="primary-btn"
+              disabled={busy || !repo.trim()}
+              onClick={() => void run(() => ipc.linkConfigRepo(repo.trim(), true), true)}
+            >
+              {t("configSync.create")}
+            </button>
+          </div>
+        </>
       )}
       {error && <p className="setting-warning error">{error}</p>}
     </section>
@@ -275,6 +376,8 @@ export function SettingsModal() {
             </p>
           )}
         </section>
+
+        <ConfigSyncSection />
 
         <UpdateSection />
 

@@ -102,6 +102,18 @@ export const en: LocaleShape<KoMessages> = {
     installNow: "Install Now",
     installTitle: "Download and restart automatically",
   },
+  configSync: {
+    section: "Settings Sync",
+    intro:
+      "Link a personal config repo so your settings follow you to any machine with just a GitHub login. (Only settings.json is synced; a private repo is recommended.)",
+    repoLabel: "Config repo",
+    link: "Link existing repo",
+    create: "Create and link new repo",
+    linkedTo: "Linked: {repo}",
+    linkedHint: "Settings changes sync automatically when you close this window.",
+    syncNow: "Sync now",
+    unlink: "Unlink",
+  },
   sync: {
     publishTitle: "Publish this folder to a GitHub repository",
     publishToGitHub: "Publish to GitHub",
