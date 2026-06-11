@@ -279,4 +279,53 @@ describe("workspace store (mock ipc)", () => {
     const s = useWorkspace.getState();
     expect(s.error).toContain("not a directory");
   });
+
+  describe("파일 트리 자동 reveal", () => {
+    it("toggleDir로 폴더를 펼치고 접는다", () => {
+      const dir = `${MOCK_ROOT}/daily`;
+      useWorkspace.getState().toggleDir(dir);
+      expect(useWorkspace.getState().expandedDirs[dir]).toBe(true);
+      useWorkspace.getState().toggleDir(dir);
+      expect(useWorkspace.getState().expandedDirs[dir]).toBeUndefined();
+    });
+
+    it("openFile로 중첩 파일을 열면 조상 폴더가 펼쳐진다", async () => {
+      await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+      expect(useWorkspace.getState().expandedDirs[`${MOCK_ROOT}/daily`]).toBe(true);
+    });
+
+    it("사용자가 접은 조상 폴더도 탭을 다시 전환하면 펼쳐진다", async () => {
+      await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+      await useWorkspace.getState().openFile(findNode("README.md"));
+      useWorkspace.getState().toggleDir(`${MOCK_ROOT}/daily`); // 펼쳐진 것을 접음
+      expect(useWorkspace.getState().expandedDirs[`${MOCK_ROOT}/daily`]).toBeUndefined();
+
+      useWorkspace.getState().setActiveTab(findNode("2026-06-10.md").path);
+      expect(useWorkspace.getState().expandedDirs[`${MOCK_ROOT}/daily`]).toBe(true);
+    });
+
+    it("활성 탭을 닫아 이웃 탭이 활성화될 때도 reveal된다", async () => {
+      await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+      await useWorkspace.getState().openFile(findNode("summary.html"));
+      // daily를 접은 상태에서 summary 탭을 닫으면 daily 파일이 활성화되며 펼쳐져야 한다
+      useWorkspace.getState().toggleDir(`${MOCK_ROOT}/daily`);
+      await useWorkspace.getState().closeTab(`${MOCK_ROOT}/ai/summary.html`);
+
+      expect(useWorkspace.getState().activePath).toBe(`${MOCK_ROOT}/daily/2026-06-10.md`);
+      expect(useWorkspace.getState().expandedDirs[`${MOCK_ROOT}/daily`]).toBe(true);
+    });
+
+    it("reveal은 펼치기만 하고 무관한 폴더를 접지 않는다", async () => {
+      const other = `${MOCK_ROOT}/ai`;
+      useWorkspace.getState().toggleDir(other); // 사용자가 펼쳐 둠
+      await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+      expect(useWorkspace.getState().expandedDirs[other]).toBe(true);
+    });
+
+    it("워크스페이스를 다시 열면 expandedDirs가 초기화된다", async () => {
+      useWorkspace.getState().toggleDir(`${MOCK_ROOT}/daily`);
+      await useWorkspace.getState().openFolder(MOCK_ROOT);
+      expect(useWorkspace.getState().expandedDirs).toEqual({});
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
+import { ancestorDirsOf, clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
 import type { FileNode } from "../../ipc/types";
 
 describe("clampMenuPosition", () => {
@@ -54,6 +54,29 @@ describe("findNode", () => {
 
   it("없는 경로는 null", () => {
     expect(findNode(tree, "/ws/nope.md")).toBeNull();
+  });
+});
+
+describe("ancestorDirsOf", () => {
+  it("중첩 파일의 조상 디렉터리를 루트 제외 바깥→안 순서로 반환한다", () => {
+    expect(ancestorDirsOf("/ws", "/ws/AI/backend/n.md")).toEqual([
+      "/ws/AI",
+      "/ws/AI/backend",
+    ]);
+  });
+
+  it("루트 직속 파일은 빈 배열", () => {
+    expect(ancestorDirsOf("/ws", "/ws/n.md")).toEqual([]);
+  });
+
+  it("루트 밖 경로는 빈 배열", () => {
+    expect(ancestorDirsOf("/ws", "/other/n.md")).toEqual([]);
+    // prefix가 우연히 겹치는 형제 경로도 루트 밖이다
+    expect(ancestorDirsOf("/ws", "/ws2/n.md")).toEqual([]);
+  });
+
+  it("루트에 trailing slash가 있어도 동일하게 동작한다", () => {
+    expect(ancestorDirsOf("/ws/", "/ws/AI/n.md")).toEqual(["/ws/AI"]);
   });
 });
 
