@@ -1,0 +1,88 @@
+# main에서 CI가 성공하면(= PR이 CI를 통과하고 merge되면) 자동으로 릴리스한다.
+#
+# 동작:
+#   1. package.json의 버전이 이미 태그로 존재하면 patch 버전을 자동 증가
+#      (PR에서 직접 버전을 올렸다면 그 버전을 그대로 사용 — minor/major 릴리스 방법)
+#   2. 버전 파일(package.json, tauri.conf.json, Cargo.toml, Cargo.lock)을 갱신해 main에 커밋
+#   3. vX.Y.Z 태그를 푸시하고 Release (macOS) 워크플로를 dispatch
+#
+# 주의: GITHUB_TOKEN으로 푸시한 커밋/태그는 다른 워크플로를 트리거하지 않으므로
+#   (GitHub의 재귀 방지 정책) 태그 푸시 대신 workflow_dispatch로 릴리스를 실행하며,
+#   같은 이유로 버전 bump 커밋이 CI → 릴리스를 다시 트리거하는 루프도 생기지 않는다.
+name: Auto Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write # 버전 bump 커밋 + 태그 푸시
+  actions: write # Release (macOS) 워크플로 dispatch
+
+# 연속 merge 시 릴리스가 겹치지 않게 직렬화
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  tag-and-release:
+    # main 브랜치 push(= PR merge)로 돌았던 CI가 성공한 경우에만
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 # 태그 조회용
+
+      - name: 다음 버전 계산
+        id: version
+        run: |
+          set -euo pipefail
+          current=$(node -p "require('./package.json').version")
+          if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
+            next=$(node -p "const [a,b,c]='$current'.split('.'); [a,b,+c+1].join('.')")
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            # PR에서 이미 버전을 올림 — 그대로 릴리스
+            next=$current
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "릴리스 버전: v$next"
+
+      - name: 버전 파일 갱신 및 커밋
+        if: steps.version.outputs.bumped == 'true'
+        run: |
+          set -euo pipefail
+          v="${{ steps.version.outputs.next }}"
+          node -e "
+            const fs = require('fs');
+            for (const f of ['package.json', 'src-tauri/tauri.conf.json']) {
+              const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+              j.version = '$v';
+              fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
+            }
+          "
+          sed -i "0,/^version = \".*\"/s//version = \"$v\"/" src-tauri/Cargo.toml
+          # Cargo.lock의 synapse 항목도 맞춰둔다 (빌드 시 재생성되지만 diff 노이즈 방지)
+          sed -i "/^name = \"synapse\"$/{n;s/^version = \".*\"/version = \"$v\"/}" src-tauri/Cargo.lock
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): v$v"
+          git push origin main
+
+      - name: 태그 푸시 및 릴리스 실행
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v="v${{ steps.version.outputs.next }}"
+          git tag "$v"
+          git push origin "$v"
+          gh workflow run release-macos.yml --ref "$v"
+          echo "Release (macOS) 워크플로 실행됨: $v"

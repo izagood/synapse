@@ -6,12 +6,17 @@
 #   SYNAPSE_GITHUB_CLIENT_ID = GitHub OAuth App의 Client ID (Device Flow 활성화)
 #
 # 릴리스 방법:
-#   git tag v0.1.0 && git push origin v0.1.0
+#   - 자동: PR이 CI를 통과하고 main에 merge되면 auto-release.yml이 버전을 올리고
+#     태그를 만든 뒤 이 워크플로를 dispatch한다 (태그 ref로 실행됨)
+#   - 수동: git tag v0.1.0 && git push origin v0.1.0
 name: Release (macOS)
 
 on:
   push:
     tags: ["v*"]
+  # auto-release.yml이 태그 ref로 dispatch한다
+  # (GITHUB_TOKEN으로 푸시한 태그는 push 트리거를 발동시키지 않으므로)
+  workflow_dispatch:
 
 permissions:
   contents: write
