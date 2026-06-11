@@ -11,7 +11,7 @@ pub mod tree;
 
 pub use collab::CollabStore;
 pub use fs_io::{atomic_write, atomic_write_bytes, create_unique_note, ensure_writable_within};
-pub use git::{ConflictChoice, GitWorkspace, SyncState, SyncStatus};
+pub use git::{ConflictChoice, FileCommit, GitWorkspace, SyncState, SyncStatus};
 pub use paths::ensure_within;
 pub use registry::{recent_workspaces, record_opened};
 pub use search::{search_workspace, SearchHit, SearchMatch, SearchOptions};

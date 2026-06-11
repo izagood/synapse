@@ -8,6 +8,8 @@ import { SearchModal } from "./SearchModal";
 import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
 import { AgentPanel } from "../agent/AgentPanel";
+import { FileHistoryModal } from "../history/FileHistoryModal";
+import { useHistoryUi } from "../history/historyStore";
 import { PlusIcon, RefreshIcon } from "../../shared/Icons";
 import { useT } from "../../i18n";
 
@@ -35,6 +37,8 @@ export function WorkspaceView() {
   const [agentVisible, setAgentVisible] = useState(
     () => localStorage.getItem(AGENT_PANEL_KEY) === "1",
   );
+  const historyPath = useHistoryUi((s) => s.path);
+  const closeHistory = useHistoryUi((s) => s.close);
   const dragging = useRef(false);
   const t = useT();
 
@@ -151,6 +155,9 @@ export function WorkspaceView() {
       <SyncBar />
       {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
       {search && <SearchModal onClose={() => setSearch(false)} />}
+      {historyPath && (
+        <FileHistoryModal key={historyPath} path={historyPath} onClose={closeHistory} />
+      )}
     </div>
   );
 }
