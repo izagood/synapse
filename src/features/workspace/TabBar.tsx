@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isDirty, useWorkspace } from "../../stores/workspace";
+import { useHistoryUi } from "../history/historyStore";
 import { CloseIcon, CodeIcon, PlusIcon } from "../../shared/Icons";
 import { useT } from "../../i18n";
 
@@ -22,6 +23,7 @@ function TabContextMenu({
   const closeTabsToRight = useWorkspace((s) => s.closeTabsToRight);
   const closeAllTabs = useWorkspace((s) => s.closeAllTabs);
   const tabs = useWorkspace((s) => s.tabs);
+  const openHistory = useHistoryUi((s) => s.open);
   const t = useT();
 
   useEffect(() => {
@@ -61,6 +63,15 @@ function TabContextMenu({
       </button>
       <div className="context-sep" />
       <button onClick={() => run(closeAllTabs)}>{t("tabs.closeAll")}</button>
+      <div className="context-sep" />
+      <button
+        onClick={() => {
+          onClose();
+          openHistory(menu.path);
+        }}
+      >
+        {t("history.open")}
+      </button>
     </div>
   );
 }
