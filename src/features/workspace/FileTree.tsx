@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { FileNode } from "../../ipc/types";
 import { useWorkspace } from "../../stores/workspace";
 import { useSettings } from "../../stores/settings";
+import { useT } from "../../i18n";
 import { ChevronIcon, FileIcon, FileTextIcon, GlobeIcon } from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
 
@@ -105,6 +106,7 @@ function TreeContextMenu({
 }) {
   const createNote = useWorkspace((s) => s.createNote);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
+  const t = useT();
 
   useEffect(() => {
     const close = () => onClose();
@@ -149,22 +151,26 @@ function TreeContextMenu({
       onClick={(e) => e.stopPropagation()}
     >
       {node.kind === "dir" && (
-        <button onClick={() => run(() => void createNote(node.path))}>새 노트</button>
+        <button onClick={() => run(() => void createNote(node.path))}>
+          {t("fileTree.newNote")}
+        </button>
       )}
       {node.kind === "file" && (
-        <button onClick={() => run(() => void duplicateEntry(node))}>사본 만들기</button>
+        <button onClick={() => run(() => void duplicateEntry(node))}>
+          {t("fileTree.duplicate")}
+        </button>
       )}
       <button onClick={() => run(() => onDialog({ kind: "rename", node }))}>
-        이름 변경
+        {t("fileTree.rename")}
       </button>
       <button
         onClick={() => run(() => void navigator.clipboard?.writeText(node.path))}
       >
-        경로 복사
+        {t("fileTree.copyPath")}
       </button>
       <div className="context-sep" />
       <button className="context-danger" onClick={() => run(() => onDelete(node))}>
-        삭제
+        {t("fileTree.delete")}
       </button>
     </div>
   );
@@ -174,6 +180,7 @@ function RenameDialog({ node, onClose }: { node: FileNode; onClose: () => void }
   const renameEntry = useWorkspace((s) => s.renameEntry);
   const [name, setName] = useState(node.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const t = useT();
 
   useEffect(() => {
     // 파일명 선택 시 확장자 앞까지만 선택 (VS Code 동작)
@@ -195,7 +202,7 @@ function RenameDialog({ node, onClose }: { node: FileNode; onClose: () => void }
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal rename-dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>이름 변경</h2>
+        <h2>{t("fileTree.renameTitle")}</h2>
         <input
           ref={inputRef}
           value={name}
@@ -208,9 +215,9 @@ function RenameDialog({ node, onClose }: { node: FileNode; onClose: () => void }
         />
         <div className="modal-actions">
           <button className="primary-btn" onClick={submit}>
-            변경
+            {t("fileTree.renameSubmit")}
           </button>
-          <button onClick={onClose}>취소</button>
+          <button onClick={onClose}>{t("common.cancel")}</button>
         </div>
       </div>
     </div>
@@ -222,6 +229,7 @@ function DeleteDialog({ node, onClose }: { node: FileNode; onClose: () => void }
   const updateSettings = useSettings((s) => s.update);
   const [dontAskAgain, setDontAskAgain] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const t = useT();
 
   useEffect(() => {
     confirmRef.current?.focus();
@@ -255,15 +263,15 @@ function DeleteDialog({ node, onClose }: { node: FileNode; onClose: () => void }
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>삭제</h2>
+        <h2>{t("fileTree.deleteTitle")}</h2>
         <p>
-          <strong>{node.name}</strong>
-          {node.kind === "dir" ? " 폴더와 안의 모든 파일을" : "을(를)"} 삭제할까요?
+          <strong>
+            {node.kind === "dir"
+              ? t("fileTree.deleteFolderPrompt", { name: node.name })
+              : t("fileTree.deleteFilePrompt", { name: node.name })}
+          </strong>
           <br />
-          <span className="modal-hint">
-            이 작업은 되돌릴 수 없습니다 (GitHub에 동기화된 내용은 히스토리에 남습니다).
-            Enter 키로 바로 삭제할 수 있습니다.
-          </span>
+          <span className="modal-hint">{t("fileTree.deleteHint")}</span>
         </p>
         <label className="modal-check">
           <input
@@ -272,14 +280,15 @@ function DeleteDialog({ node, onClose }: { node: FileNode; onClose: () => void }
             onChange={(e) => setDontAskAgain(e.target.checked)}
           />
           <span>
-            다시 묻지 않고 바로 삭제 <span className="modal-hint">(설정에서 되돌릴 수 있음)</span>
+            {t("fileTree.dontAskDelete")}{" "}
+            <span className="modal-hint">{t("fileTree.canRestoreInSettings")}</span>
           </span>
         </label>
         <div className="modal-actions">
           <button ref={confirmRef} className="danger-btn" onClick={confirm}>
-            삭제
+            {t("common.delete")}
           </button>
-          <button onClick={onClose}>취소</button>
+          <button onClick={onClose}>{t("common.cancel")}</button>
         </div>
       </div>
     </div>
@@ -290,6 +299,7 @@ export function FileTree() {
   const tree = useWorkspace((s) => s.tree);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
+  const t = useT();
 
   // 컨텍스트 메뉴·단축키 공통 삭제 진입점 — 설정에 따라 확인 없이 바로 삭제
   const requestDelete = useCallback((node: FileNode) => {
@@ -328,7 +338,7 @@ export function FileTree() {
           <TreeNode key={child.path} node={child} depth={0} onMenu={setMenu} />
         ))
       ) : (
-        <p className="tree-empty">빈 폴더입니다</p>
+        <p className="tree-empty">{t("fileTree.emptyFolder")}</p>
       )}
       {menu && (
         <TreeContextMenu

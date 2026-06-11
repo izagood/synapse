@@ -12,6 +12,7 @@ import {
   LogOutIcon,
   RefreshIcon,
 } from "../../shared/Icons";
+import { useT } from "../../i18n";
 
 const STATUS_POLL_MS = 15_000;
 
@@ -21,11 +22,12 @@ function PublishForm({ root }: { root: string }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(root.split("/").pop() ?? "notes");
   const [isPrivate, setIsPrivate] = useState(true);
+  const t = useT();
 
   if (!open) {
     return (
-      <button className="statusbar-btn" onClick={() => setOpen(true)} title="이 폴더를 GitHub 리포지토리로 게시">
-        GitHub에 게시
+      <button className="statusbar-btn" onClick={() => setOpen(true)} title={t("sync.publishTitle")}>
+        {t("sync.publishToGitHub")}
       </button>
     );
   }
@@ -34,7 +36,7 @@ function PublishForm({ root }: { root: string }) {
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="리포지토리 이름"
+        placeholder={t("sync.repoNamePlaceholder")}
       />
       <label>
         <input
@@ -42,7 +44,7 @@ function PublishForm({ root }: { root: string }) {
           checked={isPrivate}
           onChange={(e) => setIsPrivate(e.target.checked)}
         />
-        비공개
+        {t("sync.private")}
       </label>
       <button
         disabled={syncing || !name.trim()}
@@ -53,9 +55,9 @@ function PublishForm({ root }: { root: string }) {
           )
         }
       >
-        게시
+        {t("sync.publish")}
       </button>
-      <button onClick={() => setOpen(false)}>취소</button>
+      <button onClick={() => setOpen(false)}>{t("common.cancel")}</button>
     </span>
   );
 }
@@ -64,24 +66,25 @@ function ConflictPanel({ root }: { root: string }) {
   const status = useSync((s) => s.status);
   const resolveConflict = useSync((s) => s.resolveConflict);
   const syncing = useSync((s) => s.syncing);
+  const t = useT();
 
   if (status?.state !== "conflict") return null;
 
   return (
     <div className="conflict-panel">
       <div>
-        <strong>다른 기기의 변경과 충돌했습니다.</strong>{" "}
+        <strong>{t("sync.conflictTitle")}</strong>{" "}
         <span className="conflict-files">{status.conflictFiles.join(", ")}</span>
       </div>
       <div className="conflict-actions">
         <button disabled={syncing} onClick={() => void resolveConflict(root, "keepMine")}>
-          내 버전 유지
+          {t("sync.keepMine")}
         </button>
         <button disabled={syncing} onClick={() => void resolveConflict(root, "keepRemote")}>
-          원격 버전 가져오기
+          {t("sync.keepRemote")}
         </button>
         <button disabled={syncing} onClick={() => void resolveConflict(root, "keepBoth")}>
-          둘 다 보존
+          {t("sync.keepBoth")}
         </button>
       </div>
     </div>
@@ -93,9 +96,10 @@ function SyncStateIndicator({ root }: { root: string }) {
   const syncing = useSync((s) => s.syncing);
   const syncNow = useSync((s) => s.syncNow);
   const badge = badgeOf(status);
+  const t = useT();
 
   if (status?.state === "noGit") {
-    return <span className="sync-state">git이 설치되어 있지 않습니다</span>;
+    return <span className="sync-state">{t("sync.noGit")}</span>;
   }
   if (badge === "none") return null;
 
@@ -105,7 +109,7 @@ function SyncStateIndicator({ root }: { root: string }) {
       className={`sync-indicator state-${syncing ? "syncing" : badge}`}
       onClick={() => void syncNow(root)}
       disabled={syncing}
-      title="지금 동기화"
+      title={t("sync.syncNow")}
     >
       <span className={`sync-icon${syncing ? " spin" : ""}`}>
         {syncing ? (
@@ -120,12 +124,12 @@ function SyncStateIndicator({ root }: { root: string }) {
       </span>
       <span className="sync-label">
         {syncing
-          ? "동기화 중…"
+          ? t("sync.syncing")
           : badge === "synced"
-            ? "동기화됨"
+            ? t("sync.synced")
             : badge === "conflict"
-              ? "충돌"
-              : "동기화 필요"}
+              ? t("sync.conflict")
+              : t("sync.pending")}
       </span>
     </button>
   );
@@ -136,6 +140,7 @@ export function SyncBar() {
   const { login, status, error, init, startLogin, logout, refreshStatus } = useSync();
   const autoSync = useSettings((s) => s.settings.sync.auto);
   const intervalMinutes = useSettings((s) => s.settings.sync.intervalMinutes);
+  const t = useT();
 
   useEffect(() => {
     void init();
@@ -182,16 +187,16 @@ export function SyncBar() {
           <UpdateBadge />
           {login ? (
             <>
-              <span className="sync-user" title="GitHub 계정">
+              <span className="sync-user" title={t("sync.accountTitle")}>
                 <GitHubIcon size={13} /> {login}
               </span>
-              <button className="statusbar-icon-btn" onClick={() => void logout()} title="로그아웃">
+              <button className="statusbar-icon-btn" onClick={() => void logout()} title={t("sync.logout")}>
                 <LogOutIcon size={13} />
               </button>
             </>
           ) : (
             <button className="statusbar-btn" onClick={() => void startLogin()}>
-              <GitHubIcon size={13} /> GitHub 로그인
+              <GitHubIcon size={13} /> {t("sync.login")}
             </button>
           )}
         </span>

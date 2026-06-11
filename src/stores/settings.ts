@@ -2,6 +2,14 @@ import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import { DEFAULT_SETTINGS, type Settings } from "../ipc/types";
 
+function normalizeSettings(settings: Settings): Settings {
+  const language = settings.appearance.language === "en" ? "en" : "ko";
+  return {
+    ...settings,
+    appearance: { ...settings.appearance, language },
+  };
+}
+
 interface SettingsState {
   settings: Settings;
   loaded: boolean;
@@ -21,14 +29,14 @@ export const useSettings = create<SettingsState>((set, get) => ({
 
   async init() {
     try {
-      set({ settings: await ipc.getSettings(), loaded: true });
+      set({ settings: normalizeSettings(await ipc.getSettings()), loaded: true });
     } catch {
       set({ loaded: true }); // 설정을 못 읽어도 기본값으로 동작
     }
   },
 
   async update(patch) {
-    const merged: Settings = {
+    const merged: Settings = normalizeSettings({
       ...get().settings,
       ...patch,
       appearance: { ...get().settings.appearance, ...patch.appearance },
@@ -36,7 +44,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
       sync: { ...get().settings.sync, ...patch.sync },
       htmlViewer: { ...get().settings.htmlViewer, ...patch.htmlViewer },
       files: { ...get().settings.files, ...patch.files },
-    };
+    });
     set({ settings: merged });
     await ipc.updateSettings(merged);
   },
