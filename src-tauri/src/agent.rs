@@ -164,8 +164,8 @@ pub fn agent_send(
 pub fn agent_stop(state: State<AgentState>) -> Result<(), String> {
     let mut run = state.0.lock().map_err(|_| "agent state poisoned")?;
     if let Some(child) = run.child.as_mut() {
-        run.aborted = true;
         let _ = child.kill();
+        run.aborted = true;
     }
     Ok(())
 }
