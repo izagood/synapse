@@ -151,6 +151,18 @@ export const ko = {
     placeholder:
       "내용을 입력하세요. '# ', '- ', '> ' 같은 마크다운 단축 입력을 지원합니다.",
     frontmatterPreserved: "frontmatter 보존됨 — 소스 모드에서 편집 가능",
+    properties: "속성",
+    propertiesShow: "속성 패널 펼치기",
+    propertiesHide: "속성 패널 접기",
+    propertyKeyPlaceholder: "키",
+    propertyValuePlaceholder: "값",
+    addProperty: "속성 추가",
+    removeProperty: "속성 삭제",
+    tagPlaceholder: "태그 입력 후 Enter",
+    addTag: "태그 추가",
+    removeTag: "태그 삭제",
+    propertyReadonly: "이 속성은 형식이 복잡해 소스 모드에서만 편집할 수 있습니다",
+    emptyProperties: "속성이 없습니다",
     lossyWarning:
       "이 문서에는 에디터가 완전히 보존하지 못하는 요소(HTML 등)가 있습니다. 편집하면 해당 부분이 손실될 수 있으니 소스 모드 사용을 권장합니다. (편집하지 않으면 파일은 변경되지 않습니다)",
     dismissWarning: "닫기",
