@@ -7,6 +7,7 @@ import {
   HomeIcon,
   NewWindowIcon,
   SearchIcon,
+  SearchTextIcon,
   SidebarIcon,
   SparkleIcon,
 } from "../../shared/Icons";
@@ -17,6 +18,7 @@ interface ActivityBarProps {
   sidebarVisible: boolean;
   onToggleSidebar: () => void;
   onQuickOpen: () => void;
+  onSearch: () => void;
   agentVisible: boolean;
   onToggleAgent: () => void;
 }
@@ -26,6 +28,7 @@ export function ActivityBar({
   sidebarVisible,
   onToggleSidebar,
   onQuickOpen,
+  onSearch,
   agentVisible,
   onToggleAgent,
 }: ActivityBarProps) {
@@ -33,6 +36,7 @@ export function ActivityBar({
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
   const openSettings = useSettings((s) => s.openSettings);
   const quickOpenShortcut = shortcutLabel(["Mod", "P"]);
+  const searchShortcut = shortcutLabel(["Shift", "Mod", "F"]);
   const agentShortcut = shortcutLabel(["Shift", "Mod", "A"]);
   const newWindowShortcut = shortcutLabel(["Shift", "Mod", "N"]);
   const settingsShortcut = shortcutLabel(["Mod", ","]);
@@ -50,6 +54,9 @@ export function ActivityBar({
         </button>
         <button onClick={onQuickOpen} title={t("activity.quickOpen", { shortcut: quickOpenShortcut })}>
           <SearchIcon size={18} />
+        </button>
+        <button onClick={onSearch} title={t("activity.search", { shortcut: searchShortcut })}>
+          <SearchTextIcon size={18} />
         </button>
         <button
           className={agentVisible ? "active" : ""}

@@ -19,6 +19,7 @@ export const en: LocaleShape<KoMessages> = {
   activity: {
     toggleSidebar: "Toggle Sidebar",
     quickOpen: "Quick Open ({shortcut})",
+    search: "Search ({shortcut})",
     agentPanel: "Claude Panel ({shortcut})",
     newWindow: "New Window ({shortcut}) - open another folder",
     openAnotherFolder: "Open Another Folder",
@@ -41,6 +42,10 @@ export const en: LocaleShape<KoMessages> = {
   },
   quickOpen: {
     placeholder: "Search files…",
+    empty: "No results",
+  },
+  search: {
+    placeholder: "Search in notes…",
     empty: "No results",
   },
   fileTree: {

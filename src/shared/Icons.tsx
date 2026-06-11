@@ -92,6 +92,15 @@ export const SearchIcon = (p: IconProps) => (
   </Svg>
 );
 
+// 전체 검색(Find in Files): 텍스트 줄 위의 돋보기
+export const SearchTextIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M2.5 3.5h11M2.5 6.5h7M2.5 9.5h4" />
+    <circle cx="9.5" cy="10.5" r="3" />
+    <path d="m11.7 12.7 2 2" />
+  </Svg>
+);
+
 export const CodeIcon = (p: IconProps) => (
   <Svg {...p}>
     <polyline points="5.5 5 2.5 8 5.5 11" />

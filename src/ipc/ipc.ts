@@ -14,6 +14,7 @@ import type {
   FileCommit,
   FileNode,
   PollResult,
+  SearchHit,
   Settings,
   SyncStatus,
   SynapseIpc,
@@ -29,6 +30,8 @@ const tauriIpc: SynapseIpc = {
     return typeof selected === "string" ? selected : null;
   },
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
+  searchWorkspace: (root, query) =>
+    invoke<SearchHit[]>("search_workspace", { root, query }),
   readFile: (root, path) => invoke<string>("read_file", { root, path }),
   writeFile: (root, path, content) =>
     invoke<void>("write_file", { root, path, content }),
