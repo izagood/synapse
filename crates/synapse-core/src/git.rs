@@ -169,7 +169,8 @@ impl GitWorkspace {
         cmd.env("GIT_EDITOR", "true");
         // 인증 실패 시 터미널/GUI 프롬프트 대신 즉시 에러가 나게 한다
         cmd.env("GIT_TERMINAL_PROMPT", "0");
-        cmd.env("GIT_ASKPASS", "true");
+        cmd.env("GCM_INTERACTIVE", "never");
+        cmd.env_remove("GIT_ASKPASS");
         // 인증 헤더는 원격 통신 명령에만 의미가 있지만 항상 끼워도 무해하다
         if let Some(header) = &self.auth_header {
             cmd.args(["-c", &format!("http.https://github.com/.extraheader={header}")]);
@@ -925,8 +926,7 @@ mod tests {
 
     #[test]
     fn run_command_kills_process_on_timeout() {
-        let mut cmd = Command::new("sleep");
-        cmd.arg("10");
+        let mut cmd = slow_command();
         let started = Instant::now();
         let err = run_command(cmd, Some(Duration::from_millis(200))).unwrap_err();
         assert!(err.contains("초 안에 끝나지 않아"), "예상 밖 에러: {err}");
@@ -935,8 +935,7 @@ mod tests {
 
     #[test]
     fn run_command_passes_output_within_timeout() {
-        let mut cmd = Command::new("echo");
-        cmd.arg("hello");
+        let mut cmd = echo_command("hello");
         let (ok, stdout, _) = run_command(cmd, Some(Duration::from_secs(10))).unwrap();
         assert!(ok);
         assert_eq!(String::from_utf8_lossy(&stdout).trim(), "hello");
@@ -953,7 +952,8 @@ mod tests {
 
     #[test]
     fn git_commands_block_credential_prompts() {
-        let git = GitWorkspace::new("/tmp", None);
+        let tmp = tempfile::tempdir().unwrap();
+        let git = GitWorkspace::new(tmp.path(), None);
         let cmd = git.base_cmd();
         let envs: Vec<(String, String)> = cmd
             .get_envs()
@@ -962,7 +962,38 @@ mod tests {
             })
             .collect();
         assert!(envs.contains(&("GIT_TERMINAL_PROMPT".into(), "0".into())));
-        assert!(envs.contains(&("GIT_ASKPASS".into(), "true".into())));
+        assert!(envs.contains(&("GCM_INTERACTIVE".into(), "never".into())));
+        assert!(cmd
+            .get_envs()
+            .any(|(k, v)| k.to_string_lossy() == "GIT_ASKPASS" && v.is_none()));
+    }
+
+    #[cfg(windows)]
+    fn slow_command() -> Command {
+        let mut cmd = Command::new("ping");
+        cmd.args(["-n", "10", "127.0.0.1"]);
+        cmd
+    }
+
+    #[cfg(not(windows))]
+    fn slow_command() -> Command {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("10");
+        cmd
+    }
+
+    #[cfg(windows)]
+    fn echo_command(text: &str) -> Command {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "echo", text]);
+        cmd
+    }
+
+    #[cfg(not(windows))]
+    fn echo_command(text: &str) -> Command {
+        let mut cmd = Command::new("printf");
+        cmd.arg(text);
+        cmd
     }
 
     // ----------------------------------------------------------------

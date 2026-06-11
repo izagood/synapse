@@ -76,7 +76,7 @@ pub async fn publish_workspace(
 #[tauri::command]
 pub async fn clone_repo(url: String, parent_dir: String, name: String) -> Result<String, String> {
     run_blocking(move || {
-        if name.contains('/') || name.contains("..") || name.is_empty() {
+        if name.contains('/') || name.contains('\\') || name.contains("..") || name.is_empty() {
             return Err("폴더 이름이 올바르지 않습니다".to_string());
         }
         let dest = Path::new(&parent_dir).join(&name);
