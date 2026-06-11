@@ -130,9 +130,22 @@ pub fn find_claude_binary(path_var: Option<&str>, home: Option<&Path>) -> Option
         dirs.push(home.join(".local").join("bin")); // 네이티브 설치 기본 위치
         dirs.push(home.join(".claude").join("local")); // claude migrate-installer
         dirs.push(home.join("bin"));
+        if cfg!(windows) {
+            dirs.push(home.join("AppData").join("Roaming").join("npm"));
+            dirs.push(home.join("AppData").join("Local").join("Programs").join("claude"));
+        }
     }
-    dirs.push(PathBuf::from("/usr/local/bin"));
-    dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    if cfg!(windows) {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            dirs.push(PathBuf::from(appdata).join("npm"));
+        }
+        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(localappdata).join("Programs").join("claude"));
+        }
+    } else {
+        dirs.push(PathBuf::from("/usr/local/bin"));
+        dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    }
 
     for dir in dirs {
         for name in names {
@@ -289,6 +302,18 @@ mod tests {
         // PATH에 없어도 ~/.local/bin fallback에서 찾는다 (GUI 앱 환경)
         let fallback = home.join(".local").join("bin").join(name);
         std::fs::write(&fallback, b"#!/bin/sh\n").unwrap();
+        assert_eq!(find_claude_binary(Some(""), Some(&home)), Some(fallback));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn finds_windows_npm_fallback() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let npm = home.join("AppData").join("Roaming").join("npm");
+        std::fs::create_dir_all(&npm).unwrap();
+        let fallback = npm.join("claude.cmd");
+        std::fs::write(&fallback, b"@echo off\r\n").unwrap();
         assert_eq!(find_claude_binary(Some(""), Some(&home)), Some(fallback));
     }
 }

@@ -4,7 +4,8 @@
 #   1. package.json의 버전이 이미 태그로 존재하면 patch 버전을 자동 증가
 #      (PR에서 직접 버전을 올렸다면 그 버전을 그대로 사용 — minor/major 릴리스 방법)
 #   2. 버전 파일(package.json, tauri.conf.json, Cargo.toml, Cargo.lock)을 갱신해 main에 커밋
-#   3. vX.Y.Z 태그를 푸시하고 Release (macOS) 워크플로를 dispatch
+#   3. vX.Y.Z 태그를 푸시하고 Release (Desktop) 워크플로를 dispatch
+#   4. 릴리스 빌드가 끝날 때까지 대기하고, 실패하면 1회 자동 재시도
 #
 # 주의: GITHUB_TOKEN으로 푸시한 커밋/태그는 다른 워크플로를 트리거하지 않으므로
 #   (GitHub의 재귀 방지 정책) 태그 푸시 대신 workflow_dispatch로 릴리스를 실행하며,
@@ -18,9 +19,11 @@ on:
 
 permissions:
   contents: write # 버전 bump 커밋 + 태그 푸시
-  actions: write # Release (macOS) 워크플로 dispatch
+  actions: write # Release (Desktop) 워크플로 dispatch + watch/rerun
 
-# 연속 merge 시 릴리스가 겹치지 않게 직렬화
+# 연속 merge 시 릴리스가 겹치지 않게 직렬화.
+# 이 잡이 릴리스 빌드 완료까지 대기하므로 Release (Desktop) 빌드도 함께 직렬화된다 —
+# 대기 중 들어온 merge들은 GitHub이 pending 런 하나로 합쳐 다음 릴리스에 배칭된다.
 concurrency:
   group: auto-release
   cancel-in-progress: false
@@ -33,6 +36,7 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    timeout-minutes: 90 # 릴리스 빌드 대기 + 1회 재시도까지 감안
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,7 +78,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(release): v$v"
-          git push origin main
+          # push 직전에 다른 PR이 merge되면 non-fast-forward로 실패한다 — rebase 후 재시도
+          for i in 1 2 3; do
+            if git push origin main; then
+              exit 0
+            fi
+            echo "push 실패 (시도 $i/3) — 새 커밋과 경합, rebase 후 재시도"
+            git pull --rebase origin main || {
+              git rebase --abort
+              echo "rebase 충돌 (경합한 merge도 버전 파일을 변경함) — 이번 릴리스는 건너뜀."
+              echo "경합한 merge의 CI가 성공하면 다음 Auto Release 런이 두 변경을 함께 릴리스한다."
+              exit 1
+            }
+          done
+          echo "push 3회 실패 — 다음 Auto Release 런이 처리한다"
+          exit 1
 
       - name: 태그 푸시 및 릴리스 실행
         env:
@@ -85,4 +103,28 @@ jobs:
           git tag "$v"
           git push origin "$v"
           gh workflow run release-macos.yml --ref "$v"
-          echo "Release (macOS) 워크플로 실행됨: $v"
+          echo "Release (Desktop) 워크플로 실행됨: $v"
+
+      - name: 릴리스 빌드 완료 대기 (실패 시 1회 재시도)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v="v${{ steps.version.outputs.next }}"
+          # dispatch한 런이 API에 등록될 때까지 폴링 (태그 ref 런의 head_branch는 태그 이름)
+          run_id=""
+          for _ in $(seq 1 30); do
+            sleep 5
+            run_id=$(gh run list --workflow release-macos.yml --branch "$v" \
+              --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$run_id" ] && break
+          done
+          [ -n "$run_id" ] || { echo "릴리스 런을 찾지 못함: $v"; exit 1; }
+          echo "릴리스 빌드 대기: run $run_id ($v)"
+          if gh run watch "$run_id" --interval 30 --exit-status; then
+            exit 0
+          fi
+          # 러너 일시 결함(예: 갓 빌드한 build script가 exec 불가)을 흡수하는 1회 재시도
+          echo "릴리스 빌드 실패 — 실패한 잡만 1회 재시도"
+          gh run rerun "$run_id" --failed
+          gh run watch "$run_id" --interval 30 --exit-status

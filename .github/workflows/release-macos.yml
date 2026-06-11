@@ -1,4 +1,4 @@
-# 태그(v*)를 푸시하면 macOS 유니버설(.dmg, Intel+Apple Silicon) 빌드를
+# 태그(v*)를 푸시하면 macOS 유니버설(.dmg, Intel+Apple Silicon)과 Windows MSI를
 # GitHub Releases에 자동 업로드한다.
 #
 # 사전 준비 (1회):
@@ -25,7 +25,7 @@
 #   - 자동: PR이 CI를 통과하고 main에 merge되면 auto-release.yml이 버전을 올리고
 #     태그를 만든 뒤 이 워크플로를 dispatch한다 (태그 ref로 실행됨)
 #   - 수동: git tag v0.1.0 && git push origin v0.1.0
-name: Release (macOS)
+name: Release (Desktop)
 
 on:
   push:
@@ -37,9 +37,30 @@ on:
 permissions:
   contents: write
 
+# 같은 태그에 대한 중복 실행 방지 (예: 수동 dispatch가 겹친 경우).
+# 빌드 전체의 직렬화는 auto-release.yml이 완료 대기로 담당한다 —
+# 전역 그룹으로 묶으면 GitHub이 초과 pending 런을 취소해 해당 태그의 릴리스가
+# 통째로 사라질 수 있으므로 여기서는 태그 단위로만 묶는다.
+concurrency:
+  group: release-macos-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  build-macos:
-    runs-on: macos-14
+  build:
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - os: macos-14
+            args: --target universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact_note: macOS용 설치 파일(.dmg)입니다. Intel/Apple Silicon 모두 지원합니다.
+          - os: windows-latest
+            args: ""
+            rust_targets: ""
+            artifact_note: Windows용 설치 파일(.msi)입니다.
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -49,8 +70,12 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        if: matrix.rust_targets != ''
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.rust_targets == ''
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -114,11 +139,36 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Synapse ${{ github.ref_name }}"
           releaseBody: |
-            macOS용 설치 파일(.dmg)입니다. Intel/Apple Silicon 모두 지원합니다.
+            Synapse 데스크톱 설치 파일입니다.
 
-            서명되지 않은 앱이므로 첫 실행 시 macOS가 차단할 수 있습니다 —
-            앱을 우클릭 → 열기, 또는 터미널에서
-            `xattr -cr /Applications/Synapse.app` 후 실행하세요.
+            - macOS: `.dmg` 파일을 받으세요. Intel/Apple Silicon 모두 지원합니다.
+            - Windows: `.msi` 파일을 받으세요.
+
+            서명되지 않은 빌드는 OS가 첫 실행을 차단할 수 있습니다. 자세한 내용은 패키징 가이드를 확인하세요.
           releaseDraft: false
           prerelease: false
-          args: --target universal-apple-darwin
+          args: ${{ matrix.args }}
+
+      # GitHub의 "latest" 릴리스는 생성 순서 기준이라, 빌드가 순서를 어겨 끝나면
+      # 구버전이 latest가 되어 업데이터(latest.json)가 구버전을 가리킬 수 있다.
+      # 이 태그가 semver 최고 버전일 때만 latest로 못 박아 순서 역전을 방지한다.
+  finalize:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: latest 릴리스 포인터 보정
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          highest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' | sort -V | tail -1)
+          if [ "$tag" = "$highest" ]; then
+            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              -f make_latest=true >/dev/null
+            echo "latest → $tag"
+          else
+            echo "최고 버전($highest)이 아니므로 latest는 그대로 둠"
+          fi

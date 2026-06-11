@@ -46,12 +46,43 @@ jobs:
       - run: cargo test
         working-directory: crates/synapse-core
 
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/synapse-core
+      - run: cargo test
+        working-directory: crates/synapse-core
+
   # PR이 릴리즈 가능한 상태인지 검증 — 릴리스 워크플로우(release-macos.yml)와
-  # 같은 macOS 번들 빌드를 업로드 없이 드라이런한다. cargo check만 할 때와 달리
+  # 같은 데스크톱 번들 빌드를 업로드 없이 드라이런한다. cargo check만 할 때와 달리
   # 번들링·업데이터 아티팩트 생성까지 검증된다.
-  # 시간 절약을 위해 universal 대신 러너 네이티브(arm64) 타깃만 빌드한다.
   release-dry-run:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            args: --target aarch64-apple-darwin
+            rust_targets: aarch64-apple-darwin
+          - os: windows-latest
+            args: ""
+            rust_targets: ""
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -59,6 +90,11 @@ jobs:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+        if: matrix.rust_targets != ''
+        with:
+          targets: ${{ matrix.rust_targets }}
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.rust_targets == ''
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -114,10 +150,11 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        shell: bash
         run: |
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            npx tauri build --target aarch64-apple-darwin \
+            npx tauri build ${{ matrix.args }} \
               --config '{"bundle":{"createUpdaterArtifacts":false}}'
           else
-            npx tauri build --target aarch64-apple-darwin
+            npx tauri build ${{ matrix.args }}
           fi
