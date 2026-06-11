@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use synapse_core::{build_tree, ensure_within, FileNode};
+use synapse_core::{build_tree, ensure_within, Backlink, FileNode};
 
 /// 전역 설정 디렉토리: ~/.config/synapse (OS별 표준 위치, FR-5.1)
 pub(crate) fn config_dir() -> Result<PathBuf, String> {
@@ -60,6 +60,16 @@ pub async fn save_doc(
         store
             .save_doc_file(&resolved, &content, &base)
             .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// 현재 노트(path)를 가리키는 다른 노트들의 백링크를 모은다 (FR-2.8 → FR-6.1).
+/// 워크스페이스 전체 순회가 무거울 수 있어 블로킹 풀에서 돈다.
+#[tauri::command]
+pub async fn backlinks(root: String, path: String) -> Result<Vec<Backlink>, String> {
+    crate::sync::run_blocking(move || {
+        synapse_core::backlinks_for(Path::new(&root), Path::new(&path)).map_err(|e| e.to_string())
     })
     .await
 }
