@@ -115,6 +115,9 @@ pub fn open_extra_window(app: &tauri::AppHandle, folder: Option<String>) -> Resu
         .title("Synapse")
         .inner_size(1280.0, 800.0)
         .min_inner_size(800.0, 500.0)
+        // Tauri의 네이티브 드롭 가로채기를 끄고 HTML5 드래그앤드롭 사용
+        // (메인 창의 dragDropEnabled: false와 동일해야 함)
+        .disable_drag_drop_handler()
         .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
