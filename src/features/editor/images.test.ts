@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { fileToBase64, pastedImageName } from "./images";
+import { fileToBase64, pastedImageName, safeImageName } from "./images";
 
 describe("editor images", () => {
+  it("safeImageName removes spaces that break md link destinations", () => {
+    expect(safeImageName("스크린샷 2026-06-11 오후 3.24.15.png")).toBe(
+      "스크린샷-2026-06-11-오후-3.24.15.png",
+    );
+    expect(safeImageName("  photo.png ")).toBe("photo.png");
+    expect(safeImageName("plain.png")).toBe("plain.png");
+  });
+
   it("pastedImageName generates a random name with the right extension", () => {
     expect(pastedImageName("image/png")).toMatch(/^image-[a-z0-9]+-[a-z0-9]+\.png$/);
     expect(pastedImageName("image/jpeg")).toMatch(/\.jpg$/);
