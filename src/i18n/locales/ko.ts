@@ -173,6 +173,14 @@ export const ko = {
   viewer: {
     preparing: "렌더링 준비 중…",
   },
+  backlinks: {
+    title: "백링크",
+    show: "백링크 보기",
+    hide: "백링크 숨기기",
+    empty: "이 노트를 가리키는 노트가 없습니다",
+    count: "{count}개 노트가 이 노트를 가리킵니다",
+    loading: "백링크 찾는 중…",
+  },
   history: {
     title: "파일 히스토리",
     open: "파일 히스토리",
