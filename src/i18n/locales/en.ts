@@ -163,4 +163,12 @@ export const en: LocaleShape<KoMessages> = {
   viewer: {
     preparing: "Preparing render…",
   },
+  backlinks: {
+    title: "Backlinks",
+    show: "Show backlinks",
+    hide: "Hide backlinks",
+    empty: "No notes link to this note",
+    count: "{count} notes link here",
+    loading: "Finding backlinks…",
+  },
 };

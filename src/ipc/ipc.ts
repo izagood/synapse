@@ -10,6 +10,7 @@ import { mockIpc } from "./mock";
 import type {
   AgentEventPayload,
   AgentStatus,
+  Backlink,
   DeviceCode,
   FileNode,
   PollResult,
@@ -34,6 +35,7 @@ const tauriIpc: SynapseIpc = {
   saveDoc: (root, path, content, base) =>
     invoke<string>("save_doc", { root, path, content, base }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
+  backlinks: (root, path) => invoke<Backlink[]>("backlinks", { root, path }),
   saveImage: (root, dir, desiredName, base64) =>
     invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
   newWindow: () => invoke<void>("new_window"),
