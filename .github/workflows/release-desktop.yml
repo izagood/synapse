@@ -176,17 +176,11 @@ jobs:
           set -euo pipefail
           tag="$RELEASE_TAG"
           version="${tag#v}"
-          # GET /releases/tags/{tag} 는 draft 릴리스를 반환하지 않는다(404). 이 단계는
-          # 아직 draft인 릴리스를 공개하는 게 목적이므로, draft까지 포함하는 목록
-          # 엔드포인트에서 tag_name 으로 찾는다.
-          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq "first(.[] | select(.tag_name == \"$tag\"))")
-          if [ -z "$release" ]; then
-            echo "::error::릴리스를 찾을 수 없음: $tag"
-            exit 1
-          fi
-          release_id=$(jq -r .id <<< "$release")
-          assets=$(jq -r '.assets[].name' <<< "$release")
+          # REST get-by-tag(GET /releases/tags/{tag})는 draft 릴리스를 반환하지
+          # 않아 404가 난다. 이 단계는 아직 draft인 릴리스를 공개하는 게 목적이므로
+          # draft도 조회하는 `gh release view`로 id/assets를 가져온다.
+          release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
+          assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
           expected=(
             "Synapse_${version}_universal.dmg"
             "Synapse_universal.app.tar.gz"
