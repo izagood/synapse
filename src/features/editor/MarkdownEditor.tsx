@@ -7,11 +7,7 @@ import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { resolveInternalLink } from "./internalLink";
 import { insertImages, isImageFile } from "./images";
 import { useT } from "../../i18n";
-
-/** 의미 비교용: 공백·이스케이프 차이를 무시하고 내용만 비교 */
-function essence(markdown: string): string {
-  return markdown.replace(/[\s\\]+/g, "");
-}
+import { hasRoundtripContentLoss } from "./roundtripSafety";
 
 // 활성 마크다운 문서의 WYSIWYG 에디터.
 // 탭 전환/모드 전환 시 key로 리마운트되어 항상 store의 content에서 출발한다.
@@ -49,7 +45,7 @@ export function MarkdownEditor({ path }: { path: string }) {
     onCreate({ editor }) {
       baseline.current = getMarkdown(editor);
       // 로드 직후 직렬화 결과에서 이미 내용이 사라졌다면 변환 손실 경고
-      setLossy(essence(baseline.current) !== essence(initial.body));
+      setLossy(hasRoundtripContentLoss(initial.body, baseline.current));
     },
     editorProps: {
       // 링크 클릭: 외부 링크는 시스템 브라우저로, vault 내 상대 경로 링크는
@@ -131,6 +127,8 @@ export function MarkdownEditor({ path }: { path: string }) {
     keepNlRef.current = /\n$/.test(split.body);
     setFrontmatter(split.frontmatter);
     baseline.current = getMarkdown(editor);
+    setLossy(hasRoundtripContentLoss(split.body, baseline.current));
+    setDismissedWarning(false);
   }, [editor, externalRev, path]);
 
   return (
