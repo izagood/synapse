@@ -1041,6 +1041,50 @@ select {
   font-size: 0.85rem;
 }
 
+/* 새 업데이트 알림 토스트 (하단 중앙) */
+.update-toast {
+  position: fixed;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 300;
+  animation: fade-in 0.25s ease;
+}
+
+.update-toast-text {
+  color: var(--fg);
+}
+
+.update-toast-error {
+  color: var(--error);
+  font-size: 0.8rem;
+}
+
+.update-toast-later {
+  padding: 5px 10px;
+  border-radius: 6px;
+  color: var(--fg-dim);
+}
+
+.update-toast-later:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.update-toast-install {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
 .setting-action-btn {
   padding: 4px 12px;
   border-radius: 6px;
