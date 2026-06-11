@@ -65,15 +65,30 @@ jobs:
       - run: npm ci
       # createUpdaterArtifacts: true 라서 서명 키가 필요하다.
       # 시크릿이 없는 환경(포크에서 온 PR)에서는 업데이터 아티팩트 생성을 끄고 빌드한다.
+      # macOS 코드 서명도 릴리스와 동일하게 드라이런한다
+      # (셀프사인 인증서 — release-macos.yml 상단 주석 참고. 없으면 ad-hoc)
+      # 주의: env에 직접 넣으면 시크릿 미등록 시 "빈 값으로 설정"되는데,
+      # tauri 번들러는 빈 값이어도 인증서 import를 시도하다 실패한다.
+      # 값이 있을 때만 GITHUB_ENV로 주입한다.
+      - name: macOS 코드 서명 시크릿 주입 (있을 때만)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            {
+              echo "APPLE_CERTIFICATE<<__CERT_EOF__"
+              echo "$APPLE_CERTIFICATE"
+              echo "__CERT_EOF__"
+              echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            } >> "$GITHUB_ENV"
+          fi
       - name: Tauri 번들 빌드 (드라이런)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-          # macOS 코드 서명도 릴리스와 동일하게 드라이런한다
-          # (셀프사인 인증서 — release-macos.yml 상단 주석 참고. 없으면 ad-hoc)
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             npx tauri build --target aarch64-apple-darwin \
