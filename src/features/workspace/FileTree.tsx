@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { FileNode } from "../../ipc/types";
 import { useWorkspace } from "../../stores/workspace";
 import { useSettings } from "../../stores/settings";
+import { useHistoryUi } from "../history/historyStore";
 import { useT } from "../../i18n";
 import { ChevronIcon, FileIcon, FileTextIcon, GlobeIcon } from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
@@ -106,6 +107,7 @@ function TreeContextMenu({
 }) {
   const createNote = useWorkspace((s) => s.createNote);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
+  const openHistory = useHistoryUi((s) => s.open);
   const t = useT();
 
   useEffect(() => {
@@ -168,6 +170,11 @@ function TreeContextMenu({
       >
         {t("fileTree.copyPath")}
       </button>
+      {node.kind === "file" && (
+        <button onClick={() => run(() => openHistory(node.path))}>
+          {t("history.open")}
+        </button>
+      )}
       <div className="context-sep" />
       <button className="context-danger" onClick={() => run(() => onDelete(node))}>
         {t("fileTree.delete")}

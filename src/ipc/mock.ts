@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentEventPayload,
+  FileCommit,
   FileNode,
   FileType,
   Settings,
@@ -91,6 +92,35 @@ function assertInside(root: string, path: string) {
   if (!path.startsWith(`${root}/`)) {
     throw new Error(`path escapes workspace root: ${path}`);
   }
+}
+
+/** 파일 경로로부터 결정적인(매번 동일한) 그럴듯한 더미 커밋 히스토리를 만든다 */
+function mockFileHistory(path: string): FileCommit[] {
+  // 경로 해시로 항목 수(2~4개)를 정해 파일마다 조금씩 다르게 보이게 한다
+  let seed = 0;
+  for (const ch of path) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const count = 2 + (seed % 3);
+  const authors = ["기은빈", "동료 A", "Synapse"];
+  const messages = [
+    "오타 수정",
+    "내용 추가 및 정리",
+    "초안 작성",
+    "구조 개편",
+  ];
+  const out: FileCommit[] = [];
+  for (let i = 0; i < count; i++) {
+    const ts = new Date(2026, 5, 11 - i, 10, 30 - i * 7, 0);
+    const hex = ((seed + i * 0x9e3779b1) >>> 0).toString(16).padStart(8, "0");
+    const hash = hex.repeat(5).slice(0, 40); // 40자 가짜 SHA-1
+    out.push({
+      hash,
+      shortHash: hex.slice(0, 7),
+      author: authors[(seed + i) % authors.length],
+      timestamp: ts.toISOString(),
+      message: messages[(seed + i) % messages.length],
+    });
+  }
+  return out; // 최신순(i=0이 가장 최신)
 }
 
 export const mockIpc: SynapseIpc = {
@@ -301,6 +331,22 @@ export const mockIpc: SynapseIpc = {
     if (!url.includes("github.com")) throw new Error(`클론 실패: ${url}`);
     sync.hasRemote = true;
     return `${parentDir}/${name}`;
+  },
+
+  async fileHistory(root, path) {
+    assertInside(root, path);
+    if (!files.has(path)) return [];
+    return mockFileHistory(path);
+  },
+  async fileAtRevision(root, path, rev) {
+    assertInside(root, path);
+    const history = mockFileHistory(path);
+    const idx = history.findIndex((c) => c.hash === rev);
+    if (idx === -1) throw new Error(`해당 버전을 불러올 수 없습니다: ${rev}`);
+    // 가장 최신(idx 0)은 현재 디스크 내용, 그 외는 그럴듯한 과거 버전을 합성
+    const current = files.get(path) ?? "";
+    if (idx === 0) return current;
+    return `${current}\n\n<!-- mock: ${history[idx].shortHash} 시점의 이전 내용 -->`;
   },
 
   async getSettings() {

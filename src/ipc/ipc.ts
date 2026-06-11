@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   Backlink,
   DeviceCode,
+  FileCommit,
   FileNode,
   PollResult,
   Settings,
@@ -71,6 +72,11 @@ const tauriIpc: SynapseIpc = {
     invoke<SyncStatus>("publish_workspace", { root, name, private: isPrivate }),
   cloneRepo: (url, parentDir, name) =>
     invoke<string>("clone_repo", { url, parentDir, name }),
+
+  fileHistory: (root, path) =>
+    invoke<FileCommit[]>("file_history", { root, path }),
+  fileAtRevision: (root, path, rev) =>
+    invoke<string>("file_at_revision", { root, path, rev }),
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
