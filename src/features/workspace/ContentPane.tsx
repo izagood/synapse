@@ -2,6 +2,7 @@ import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
 import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
 import { HtmlViewer } from "../html-viewer/HtmlViewer";
+import { BacklinksPanel } from "./BacklinksPanel";
 
 export function ContentPane() {
   const activePath = useWorkspace((s) => s.activePath);
@@ -38,10 +39,15 @@ export function ContentPane() {
 
   if (tab?.fileType === "markdown") {
     // key에 모드를 포함해 모드 전환 시 현재 content 기준으로 리마운트
-    return sourceMode ? (
-      <SourceEditor key={`${activePath}:src`} path={activePath} />
-    ) : (
-      <MarkdownEditor key={`${activePath}:wysiwyg`} path={activePath} />
+    return (
+      <div className="editor-with-backlinks">
+        {sourceMode ? (
+          <SourceEditor key={`${activePath}:src`} path={activePath} />
+        ) : (
+          <MarkdownEditor key={`${activePath}:wysiwyg`} path={activePath} />
+        )}
+        <BacklinksPanel />
+      </div>
     );
   }
 

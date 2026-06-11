@@ -101,6 +101,16 @@ export interface WorkspaceSession {
   activePath: string | null;
 }
 
+// Rust synapse-core::links::Backlink 와 1:1 대응 (FR-2.8 → FR-6.1)
+export interface Backlink {
+  /** 링크를 가진 소스 문서의 절대 경로 */
+  sourcePath: string;
+  /** 소스 문서 파일명 (표시용) */
+  sourceName: string;
+  /** 링크가 등장한 줄(문맥) 텍스트 */
+  snippet: string;
+}
+
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
@@ -118,6 +128,11 @@ export interface SynapseIpc {
   saveDoc(root: string, path: string, content: string, base: string): Promise<string>;
   /** dir 안에 "새 노트.md" 계열의 겹치지 않는 빈 노트 생성, 생성된 경로 반환 */
   createNote(root: string, dir: string): Promise<string>;
+  /**
+   * path(현재 노트)를 가리키는 다른 노트들의 백링크를 모은다 (FR-2.8 → FR-6.1).
+   * 표준 링크 `[t](rel.md)`와 위키링크 `[[basename]]`을 모두 인식한다.
+   */
+  backlinks(root: string, path: string): Promise<Backlink[]>;
   /**
    * 이미지 바이트(base64)를 dir에 저장. 같은 이름이 있으면 "이름 2.ext"로
    * 비켜 쓰고 실제 저장된 파일명을 반환 (드래그앤드롭/붙여넣기)
