@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import type { ConflictChoice, DeviceCode, SyncStatus } from "../ipc/types";
 import { syncCommitMessage } from "../features/sync/commitMessage";
+import { useWorkspace } from "./workspace";
 
 // FR-4.8: 엔진 상태는 세분화되어 있지만 UI는 3가지로 접는다
 export type SyncBadge = "synced" | "pending" | "conflict" | "none";
@@ -121,7 +122,11 @@ export const useSync = create<SyncStoreState>((set, get) => ({
     if (get().syncing) return;
     set({ syncing: true, error: null });
     try {
+      // 미저장 편집을 먼저 CRDT에 기록해 이번 커밋에 싣는다
+      await useWorkspace.getState().flushDirty();
       set({ status: await ipc.syncNow(root, syncCommitMessage()) });
+      // pull로 받은 원격 변경을 열린 에디터에 라이브 반영
+      await useWorkspace.getState().reloadAfterSync();
     } catch (e) {
       set({ error: String(e) });
     } finally {
@@ -133,6 +138,7 @@ export const useSync = create<SyncStoreState>((set, get) => ({
     set({ syncing: true, error: null });
     try {
       set({ status: await ipc.resolveConflict(root, choice) });
+      await useWorkspace.getState().reloadAfterSync();
     } catch (e) {
       set({ error: String(e) });
     } finally {

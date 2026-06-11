@@ -172,7 +172,9 @@ export function SyncBar() {
       ? setInterval(
           () => {
             const s = useSync.getState();
-            if (s.login && s.status?.state === "pending" && !s.syncing) {
+            // pending: 내 변경 push. synced: 원격 변경 pull(준실시간 협업).
+            const state = s.status?.state;
+            if (s.login && (state === "pending" || state === "synced") && !s.syncing) {
               void s.syncNow(root);
             }
           },

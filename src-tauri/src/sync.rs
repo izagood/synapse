@@ -3,13 +3,20 @@
 use std::path::Path;
 
 use synapse_core::github::{self, UreqHttp};
-use synapse_core::{ConflictChoice, GitWorkspace, SyncStatus};
+use synapse_core::{collab, CollabStore, ConflictChoice, GitWorkspace, SyncStatus};
 
 use crate::auth::stored_token;
 
 fn workspace(root: &str) -> GitWorkspace {
     let auth = stored_token().map(|t| GitWorkspace::auth_header_for_token(&t));
     GitWorkspace::new(root, auth)
+}
+
+/// 이 워크스페이스의 CRDT 저장 계층 (actor id는 설치본 단위)
+fn collab_store(root: &str) -> Result<CollabStore, String> {
+    let actor = collab::load_or_create_actor_id(&crate::commands::config_dir()?)
+        .map_err(|e| e.to_string())?;
+    Ok(CollabStore::new(root, actor))
 }
 
 #[tauri::command]
@@ -24,7 +31,12 @@ pub fn sync_now(root: String, message: String) -> Result<SyncStatus, String> {
     } else {
         message.trim()
     };
-    workspace(&root).sync(message)
+    // CRDT 충돌 자동 해결 포함. 저장 커맨드와 같은 락으로 직렬화한다.
+    let store = collab_store(&root).ok();
+    let _guard = collab::workspace_lock()
+        .lock()
+        .map_err(|_| "workspace lock poisoned".to_string())?;
+    workspace(&root).sync_with_collab(message, store.as_ref())
 }
 
 #[tauri::command]

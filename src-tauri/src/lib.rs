@@ -19,6 +19,7 @@ pub fn run() {
             commands::list_workspace,
             commands::read_file,
             commands::write_file,
+            commands::save_doc,
             commands::create_note,
             commands::recent_workspaces,
             commands::record_workspace_opened,

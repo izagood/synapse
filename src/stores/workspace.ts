@@ -12,8 +12,16 @@ export interface TabInfo {
 export interface DocState {
   /** 현재(편집 중) 전체 파일 텍스트 — frontmatter 포함 */
   content: string;
-  /** 마지막으로 디스크에 저장된 텍스트 */
+  /**
+   * 에디터가 마지막으로 본 디스크 텍스트 — CRDT 저장의 diff 기준(base).
+   * content는 항상 여기서 출발한 편집이어야 위치 변환 머지가 정확하다.
+   */
   savedContent: string;
+  /**
+   * 에디터 밖에서 content가 통째로 바뀐 횟수 (원격 머지 반영 등).
+   * 열려 있는 에디터는 이 값이 바뀌면 content를 다시 읽어 적용한다.
+   */
+  externalRev: number;
   loading: boolean;
   error: string | null;
 }
@@ -53,6 +61,10 @@ interface WorkspaceState {
   updateContent(path: string, content: string): void;
   saveDoc(path: string): Promise<void>;
   saveActive(): Promise<void>;
+  /** 미저장 문서를 전부 저장 (동기화 직전 호출) */
+  flushDirty(): Promise<void>;
+  /** sync 후 열린 문서에 원격 변경을 반영 — 깨끗하면 다시 읽고, 편집 중이면 CRDT 머지 저장 */
+  reloadAfterSync(): Promise<void>;
   createNote(dir?: string): Promise<void>;
   toggleSourceMode(): void;
 
@@ -175,7 +187,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((s) => ({
       docs: {
         ...s.docs,
-        [node.path]: { content: "", savedContent: "", loading: true, error: null },
+        [node.path]: { content: "", savedContent: "", externalRev: 0, loading: true, error: null },
       },
     }));
     try {
@@ -183,14 +195,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       set((s) => ({
         docs: {
           ...s.docs,
-          [node.path]: { content: text, savedContent: text, loading: false, error: null },
+          [node.path]: { content: text, savedContent: text, externalRev: 0, loading: false, error: null },
         },
       }));
     } catch (e) {
       set((s) => ({
         docs: {
           ...s.docs,
-          [node.path]: { content: "", savedContent: "", loading: false, error: String(e) },
+          [node.path]: { content: "", savedContent: "", externalRev: 0, loading: false, error: String(e) },
         },
       }));
     }
@@ -261,15 +273,38 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   async saveDoc(path) {
-    const { root } = get();
+    const { root, tabs } = get();
     const doc = get().docs[path];
     if (!root || !doc || doc.loading || doc.content === doc.savedContent) return;
     const snapshot = doc.content;
+    const isMarkdown = tabs.find((t) => t.path === path)?.fileType === "markdown";
     try {
-      await ipc.writeFile(root, path, snapshot);
+      // 마크다운은 CRDT 경로(save_doc)로 — 원격 머지·외부 편집이 합쳐진
+      // 최종 텍스트가 돌아온다. 그 외 파일은 단순 쓰기.
+      const merged = isMarkdown
+        ? await ipc.saveDoc(root, path, snapshot, doc.savedContent)
+        : (await ipc.writeFile(root, path, snapshot), snapshot);
       set((s) => {
         const current = s.docs[path];
         if (!current) return s; // 저장 중 탭이 닫힘
+        if (current.content === snapshot) {
+          // 저장 중 추가 입력 없음 — 합쳐진 결과를 에디터에 그대로 반영
+          return {
+            docs: {
+              ...s.docs,
+              [path]: {
+                ...current,
+                content: merged,
+                savedContent: merged,
+                externalRev:
+                  merged === snapshot ? current.externalRev : current.externalRev + 1,
+                error: null,
+              },
+            },
+          };
+        }
+        // 입력이 계속된 경우: base를 snapshot까지만 전진시킨다.
+        // (content는 snapshot에서 출발한 편집이므로 — 다음 저장이 3-way로 합친다)
         return {
           docs: { ...s.docs, [path]: { ...current, savedContent: snapshot, error: null } },
         };
@@ -286,6 +321,55 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   async saveActive() {
     const { activePath } = get();
     if (activePath) await get().saveDoc(activePath);
+  },
+
+  async flushDirty() {
+    for (const path of Object.keys(get().docs)) {
+      const timer = autosaveTimers.get(path);
+      if (timer) {
+        clearTimeout(timer);
+        autosaveTimers.delete(path);
+      }
+      if (isDirty(get().docs[path])) {
+        await get().saveDoc(path);
+      }
+    }
+  },
+
+  async reloadAfterSync() {
+    const { root } = get();
+    if (!root) return;
+    await get().refreshTree();
+    for (const path of Object.keys(get().docs)) {
+      const doc = get().docs[path];
+      if (!doc || doc.loading) continue;
+      if (isDirty(doc)) {
+        // 편집 중이면 저장 경로가 곧 머지 경로다 (CRDT 3-way)
+        await get().saveDoc(path);
+        continue;
+      }
+      try {
+        const text = await ipc.readFile(root, path);
+        set((s) => {
+          const current = s.docs[path];
+          // 읽는 사이 사용자가 입력했으면 건드리지 않는다 — 다음 저장이 합친다
+          if (!current || current.content !== doc.content || text === current.content) return s;
+          return {
+            docs: {
+              ...s.docs,
+              [path]: {
+                ...current,
+                content: text,
+                savedContent: text,
+                externalRev: current.externalRev + 1,
+              },
+            },
+          };
+        });
+      } catch {
+        // 파일이 원격에서 삭제되었을 수 있다 — 탭은 유지하고 다음 저장 시 재생성
+      }
+    }
   },
 
   async createNote(dir) {

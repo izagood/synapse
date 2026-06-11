@@ -67,7 +67,9 @@ describe("workspace store (mock ipc)", () => {
 
       await vi.advanceTimersByTimeAsync(1500);
       expect(isDirty(useWorkspace.getState().docs[path])).toBe(false);
-      expect(await ipc.readFile(MOCK_ROOT, path)).toBe("# 수정됨");
+      // 마크다운 저장은 CRDT 경로 — synapse_id가 주입된 채로 저장된다
+      expect(await ipc.readFile(MOCK_ROOT, path)).toContain("# 수정됨");
+      expect(await ipc.readFile(MOCK_ROOT, path)).toContain("synapse_id:");
     } finally {
       vi.useRealTimers();
     }
@@ -83,7 +85,7 @@ describe("workspace store (mock ipc)", () => {
     const s = useWorkspace.getState();
     expect(s.tabs).toHaveLength(1);
     expect(s.activePath).toContain("README.md");
-    expect(await ipc.readFile(MOCK_ROOT, closing)).toBe("닫기 전 수정");
+    expect(await ipc.readFile(MOCK_ROOT, closing)).toContain("닫기 전 수정");
   });
 
   it("createNote creates, refreshes the tree, and opens a markdown tab", async () => {
@@ -106,7 +108,7 @@ describe("workspace store (mock ipc)", () => {
     const s = useWorkspace.getState();
     expect(s.tabs.map((t) => t.path)).toEqual([keep]);
     expect(s.activePath).toBe(keep);
-    expect(await ipc.readFile(MOCK_ROOT, other)).toBe("닫히기 전 저장될 내용");
+    expect(await ipc.readFile(MOCK_ROOT, other)).toContain("닫히기 전 저장될 내용");
   });
 
   it("closeTabsToRight closes only tabs after the given one", async () => {
@@ -181,7 +183,7 @@ describe("workspace store (mock ipc)", () => {
     const s = useWorkspace.getState();
     expect(s.tabs.map((t) => t.name)).toEqual(["소개.md"]);
     expect(s.activePath).toContain("소개.md");
-    expect(await ipc.readFile(MOCK_ROOT, s.activePath!)).toBe("이름 바꾸기 전 내용");
+    expect(await ipc.readFile(MOCK_ROOT, s.activePath!)).toContain("이름 바꾸기 전 내용");
     expect(findNode("README.md")).toBeNull();
     // 정리: 다음 테스트를 위해 되돌린다
     await useWorkspace.getState().renameEntry(findNode("소개.md"), "README.md");
@@ -208,6 +210,47 @@ describe("workspace store (mock ipc)", () => {
       await ipc.readFile(MOCK_ROOT, readme.path),
     );
     await useWorkspace.getState().deleteEntry({ path: s.activePath!, kind: "file" });
+  });
+
+  it("markdown saveDoc injects synapse_id and bumps externalRev", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 협업 문서");
+
+    await useWorkspace.getState().saveDoc(path);
+    const doc = useWorkspace.getState().docs[path];
+    // 저장 결과(id 주입)가 에디터 content에 반영되고 rev가 올라 에디터가 다시 그린다
+    expect(doc.content).toContain("synapse_id:");
+    expect(doc.content).toContain("# 협업 문서");
+    expect(doc.externalRev).toBe(1);
+    expect(isDirty(doc)).toBe(false);
+  });
+
+  it("flushDirty saves every dirty doc before sync", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+    const [a, b] = useWorkspace.getState().tabs.map((t) => t.path);
+    useWorkspace.getState().updateContent(a, "A 수정");
+    useWorkspace.getState().updateContent(b, "B 수정");
+
+    await useWorkspace.getState().flushDirty();
+    expect(isDirty(useWorkspace.getState().docs[a])).toBe(false);
+    expect(isDirty(useWorkspace.getState().docs[b])).toBe(false);
+    expect(await ipc.readFile(MOCK_ROOT, a)).toContain("A 수정");
+    expect(await ipc.readFile(MOCK_ROOT, b)).toContain("B 수정");
+  });
+
+  it("reloadAfterSync applies remote changes to clean open docs", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    // 원격 pull로 디스크가 바뀐 상황을 모사
+    await ipc.writeFile(MOCK_ROOT, path, "# 원격에서 합쳐진 내용");
+
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.content).toBe("# 원격에서 합쳐진 내용");
+    expect(doc.savedContent).toBe("# 원격에서 합쳐진 내용");
+    expect(doc.externalRev).toBe(1);
   });
 
   it("surfaces errors for an invalid folder", async () => {
