@@ -146,12 +146,16 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
         run: |
           set -euo pipefail
-          # REST get-by-tag는 draft를 반환하지 않으므로(404) draft도 조회하는
-          # `gh release view`로 상태를 확인한다 — 안 그러면 실패한 draft가
-          # 정리되지 않고 영원히 남는다.
-          if [ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || echo false)" = "true" ]; then
-            echo "릴리스 빌드 실패 — 공개되지 않은 draft Release 정리: $RELEASE_TAG"
-            gh release delete "$RELEASE_TAG" --yes
+          # REST get-by-tag는 draft를 반환하지 않으므로(404) draft도 포함하는
+          # 목록 엔드포인트에서 찾는다. draft인 것만 골라 정리 — 안 그러면 빌드
+          # 실패로 남은 draft가 정리되지 않고 영원히 쌓인다.
+          # (이 잡은 checkout이 없어 git 저장소가 없으므로 repo를 명시하는
+          #  `gh api`만 쓸 수 있다. `gh release ...`는 git 리모트 추론에 실패한다.)
+          draft_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq "first(.[] | select(.tag_name == \"$RELEASE_TAG\" and .draft)) | .id")
+          if [ -n "$draft_id" ]; then
+            echo "릴리스 빌드 실패 — 공개되지 않은 draft Release 정리: $RELEASE_TAG (id=$draft_id)"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"
           else
             echo "공개된 릴리스이거나 릴리스를 찾지 못해 정리하지 않음: $RELEASE_TAG"
           fi
