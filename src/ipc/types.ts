@@ -68,6 +68,32 @@ export const DEFAULT_SETTINGS: Settings = {
   files: { confirmDelete: true },
 };
 
+// Rust synapse-core::agent::AgentEvent 와 1:1 대응 (PLAN-v0.4)
+export type AgentEvent =
+  | { kind: "started"; sessionId: string; model: string }
+  | { kind: "text"; text: string }
+  | { kind: "toolUse"; name: string; detail: string }
+  | {
+      kind: "completed";
+      ok: boolean;
+      result: string;
+      sessionId: string;
+      costUsd: number;
+      numTurns: number;
+    }
+  | { kind: "failed"; message: string }
+  | { kind: "aborted" };
+
+export interface AgentEventPayload {
+  runId: string;
+  event: AgentEvent;
+}
+
+export interface AgentStatus {
+  installed: boolean;
+  path: string | null;
+}
+
 export interface WorkspaceSession {
   openTabs: { path: string; name: string; fileType: FileType }[];
   activePath: string | null;
@@ -145,6 +171,20 @@ export interface SynapseIpc {
    * (srcdoc은 #앵커 이동·CSP 상속 문제가 있어 실제 URL로 렌더링한다, FR-3)
    */
   prepareHtmlView(cacheName: string, html: string): Promise<string>;
+
+  // ---- Claude 에이전트 (PLAN-v0.4 Phase 1) ----
+  /** claude CLI 설치 여부 (PATH + 표준 설치 경로 탐색) */
+  agentStatus(): Promise<AgentStatus>;
+  /**
+   * 헤드리스 claude 한 턴 실행 (cwd=root, 읽기 전용 도구만 허용).
+   * 응답은 onAgentEvent 스트림으로 runId와 함께 도착한다.
+   * sessionId를 주면 이전 대화를 이어간다(--resume).
+   */
+  agentSend(root: string, prompt: string, sessionId: string | null, runId: string): Promise<void>;
+  /** 실행 중인 에이전트 프로세스 중단 (aborted 이벤트로 마감됨) */
+  agentStop(): Promise<void>;
+  /** 에이전트 이벤트 구독. 해제 함수를 반환한다 */
+  onAgentEvent(handler: (payload: AgentEventPayload) => void): Promise<() => void>;
 
   // ---- 앱 업데이트 (F2) ----
   appVersion(): Promise<string>;

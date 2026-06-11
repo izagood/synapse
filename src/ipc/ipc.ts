@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -7,6 +8,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { mockIpc } from "./mock";
 import type {
+  AgentEventPayload,
+  AgentStatus,
   DeviceCode,
   FileNode,
   PollResult,
@@ -79,6 +82,13 @@ const tauriIpc: SynapseIpc = {
     });
     return convertFileSrc(path);
   },
+
+  agentStatus: () => invoke<AgentStatus>("agent_status"),
+  agentSend: (root, prompt, sessionId, runId) =>
+    invoke<void>("agent_send", { root, prompt, sessionId, runId }),
+  agentStop: () => invoke<void>("agent_stop"),
+  onAgentEvent: (handler) =>
+    listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),
 
   appVersion: () => getVersion(),
   async checkUpdate() {
