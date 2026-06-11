@@ -112,6 +112,7 @@ export const mockIpc: SynapseIpc = {
     sync.dirty = true;
   },
   async saveDoc(root, path, content, _base) {
+    void _base;
     assertInside(root, path);
     // Rust save_doc을 흉내: synapse_id가 없으면 frontmatter에 주입한다
     let final = content;

@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isDirty, useWorkspace } from "./workspace";
 import { ipc } from "../ipc/ipc";
 import { mockSessionControl } from "../ipc/mock";
+import type { FileNode } from "../ipc/types";
 
 // node 환경에서는 ipc가 자동으로 mockIpc로 동작한다 (src/ipc/ipc.ts의 isTauri 분기)
 const MOCK_ROOT = "/mock/notes";
 
-function findNode(name: string) {
-  const walk = (nodes: ReturnType<typeof useWorkspace.getState>["tree"][]): any => {
+function findMaybeNode(name: string): FileNode | null {
+  const walk = (nodes: Array<FileNode | null>): FileNode | null => {
     for (const n of nodes) {
       if (!n) continue;
       if (n.name === name) return n;
@@ -17,6 +18,14 @@ function findNode(name: string) {
     return null;
   };
   return walk([useWorkspace.getState().tree]);
+}
+
+function findNode(name: string): FileNode {
+  const node = findMaybeNode(name);
+  if (!node) {
+    throw new Error(`missing test node: ${name}`);
+  }
+  return node;
 }
 
 describe("workspace store (mock ipc)", () => {
@@ -205,7 +214,7 @@ describe("workspace store (mock ipc)", () => {
     expect(s.tabs.map((t) => t.name)).toEqual(["소개.md"]);
     expect(s.activePath).toContain("소개.md");
     expect(await ipc.readFile(MOCK_ROOT, s.activePath!)).toContain("이름 바꾸기 전 내용");
-    expect(findNode("README.md")).toBeNull();
+    expect(findMaybeNode("README.md")).toBeNull();
     // 정리: 다음 테스트를 위해 되돌린다
     await useWorkspace.getState().renameEntry(findNode("소개.md"), "README.md");
   });
@@ -218,7 +227,7 @@ describe("workspace store (mock ipc)", () => {
     await useWorkspace.getState().deleteEntry({ path: note.path, kind: "file" });
     const s = useWorkspace.getState();
     expect(s.tabs.find((t) => t.path === note.path)).toBeUndefined();
-    expect(findNode(note.name)).toBeNull();
+    expect(findMaybeNode(note.name)).toBeNull();
     await expect(ipc.readFile(MOCK_ROOT, note.path)).rejects.toThrow();
   });
 
