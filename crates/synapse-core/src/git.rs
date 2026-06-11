@@ -1347,14 +1347,10 @@ mod tests {
         assert_eq!(history.len(), 2);
 
         // 가장 오래된 커밋(v1)의 내용을 복원
-        let old = git
-            .file_at_revision("note.md", &history[1].hash)
-            .unwrap();
+        let old = git.file_at_revision("note.md", &history[1].hash).unwrap();
         assert_eq!(old, "원래 내용\n");
         // 최신 커밋은 현재 내용
-        let new = git
-            .file_at_revision("note.md", &history[0].hash)
-            .unwrap();
+        let new = git.file_at_revision("note.md", &history[0].hash).unwrap();
         assert_eq!(new, "수정된 내용\n");
     }
 

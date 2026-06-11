@@ -123,11 +123,7 @@ pub async fn file_history(root: String, path: String) -> Result<Vec<FileCommit>,
 
 /// 특정 리비전 시점의 파일 내용 (FR-4.7). 읽기 전용 미리보기·복원에 쓴다.
 #[tauri::command]
-pub async fn file_at_revision(
-    root: String,
-    path: String,
-    rev: String,
-) -> Result<String, String> {
+pub async fn file_at_revision(root: String, path: String, rev: String) -> Result<String, String> {
     run_blocking(move || {
         let rel = rel_path_within(&root, &path)?;
         workspace(&root).file_at_revision(&rel, &rev)
