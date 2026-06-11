@@ -207,7 +207,13 @@ fn make_snippet(line: &str, match_byte: usize, needle_len: usize, max_chars: usi
     if start > 0 {
         out.push('…');
     }
-    out.push_str(&chars[start..end].iter().collect::<String>().trim().to_string());
+    out.push_str(
+        &chars[start..end]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_string(),
+    );
     if end < chars.len() {
         out.push('…');
     }
