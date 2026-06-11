@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use synapse_core::{build_tree, ensure_within, FileNode};
 
 /// 전역 설정 디렉토리: ~/.config/synapse (OS별 표준 위치, FR-5.1)
-fn config_dir() -> Result<PathBuf, String> {
+pub(crate) fn config_dir() -> Result<PathBuf, String> {
     dirs::config_dir()
         .map(|d| d.join("synapse"))
         .ok_or_else(|| "cannot resolve OS config directory".to_string())
@@ -34,6 +34,30 @@ pub fn write_file(root: String, path: String, content: String) -> Result<(), Str
     let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
         .map_err(|e| e.to_string())?;
     synapse_core::atomic_write(&resolved, &content).map_err(|e| e.to_string())
+}
+
+/// 마크다운 문서 저장 (FR-6): frontmatter의 `synapse_id`를 보장하고 base→content
+/// 변경을 CRDT에 기록한 뒤, 합쳐진 최종 텍스트를 .md에 쓰고 돌려준다.
+/// 그 사이 원격 머지나 외부 편집이 있었다면 돌려준 텍스트에 합쳐져 있다.
+#[tauri::command]
+pub fn save_doc(
+    root: String,
+    path: String,
+    content: String,
+    base: String,
+) -> Result<String, String> {
+    use synapse_core::collab;
+
+    let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
+        .map_err(|e| e.to_string())?;
+    let _guard = collab::workspace_lock()
+        .lock()
+        .map_err(|_| "workspace lock poisoned".to_string())?;
+    let actor = collab::load_or_create_actor_id(&config_dir()?).map_err(|e| e.to_string())?;
+    let store = synapse_core::CollabStore::new(Path::new(&root), actor);
+    store
+        .save_doc_file(&resolved, &content, &base)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
