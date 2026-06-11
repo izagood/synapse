@@ -21,6 +21,14 @@ on:
 permissions:
   contents: write
 
+# 같은 태그에 대한 중복 실행 방지 (예: 수동 dispatch가 겹친 경우).
+# 빌드 전체의 직렬화는 auto-release.yml이 완료 대기로 담당한다 —
+# 전역 그룹으로 묶으면 GitHub이 초과 pending 런을 취소해 해당 태그의 릴리스가
+# 통째로 사라질 수 있으므로 여기서는 태그 단위로만 묶는다.
+concurrency:
+  group: release-macos-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   build-macos:
     runs-on: macos-14
@@ -61,3 +69,23 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target universal-apple-darwin
+
+      # GitHub의 "latest" 릴리스는 생성 순서 기준이라, 빌드가 순서를 어겨 끝나면
+      # 구버전이 latest가 되어 업데이터(latest.json)가 구버전을 가리킬 수 있다.
+      # 이 태그가 semver 최고 버전일 때만 latest로 못 박아 순서 역전을 방지한다.
+      - name: latest 릴리스 포인터 보정
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          highest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' | sort -V | tail -1)
+          if [ "$tag" = "$highest" ]; then
+            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              -f make_latest=true >/dev/null
+            echo "latest → $tag"
+          else
+            echo "최고 버전($highest)이 아니므로 latest는 그대로 둠"
+          fi
