@@ -37,6 +37,11 @@ const CASES: Record<string, { input: string; mustContain: string[] }> = {
     input: '```ts\nconst x: number = 1;\n```',
     mustContain: ["```ts", "const x: number = 1;"],
   },
+  // CodeBlockLowlight 도입 후에도 언어 태그와 내용이 보존되어야 한다
+  codeBlockRust: {
+    input: '```rust\nfn main() {\n    println!("{}", 1 + 1);\n}\n```',
+    mustContain: ["```rust", "fn main() {", 'println!("{}", 1 + 1);'],
+  },
   blockquoteAndHr: {
     input: "> 인용문입니다\n\n---\n\n다음 문단",
     mustContain: ["> 인용문입니다", "---", "다음 문단"],

@@ -15,6 +15,15 @@
   --warn: #e5b567;
   --ui-font: -apple-system, "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
   --mono-font: "JetBrains Mono", "D2Coding", ui-monospace, monospace;
+  /* 코드 블록 문법 하이라이트 토큰 색 (다크) */
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-comment: #7f848e;
+  --code-number: #d19a66;
+  --code-function: #61afef;
+  --code-type: #e5c07b;
+  --code-variable: #e06c75;
+  --code-builtin: #56b6c2;
   font-family: var(--ui-font);
   font-size: 13.5px;
   color-scheme: dark;
@@ -35,6 +44,15 @@
   --error: #d6453d;
   --ok: #1d9d6c;
   --warn: #b07d22;
+  /* 코드 블록 문법 하이라이트 토큰 색 (라이트) */
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-comment: #a0a1a7;
+  --code-number: #986801;
+  --code-function: #4078f2;
+  --code-type: #c18401;
+  --code-variable: #e45649;
+  --code-builtin: #0184bc;
   color-scheme: light;
 }
 
@@ -752,6 +770,61 @@ select {
   background: none;
   border: none;
   padding: 0;
+}
+
+/* 코드 블록 문법 하이라이팅 (lowlight/highlight.js 토큰) */
+.tiptap pre .hljs-keyword,
+.tiptap pre .hljs-literal,
+.tiptap pre .hljs-selector-tag,
+.tiptap pre .hljs-doctag {
+  color: var(--code-keyword);
+}
+
+.tiptap pre .hljs-string,
+.tiptap pre .hljs-regexp,
+.tiptap pre .hljs-char.escape_ {
+  color: var(--code-string);
+}
+
+.tiptap pre .hljs-comment,
+.tiptap pre .hljs-quote {
+  color: var(--code-comment);
+  font-style: italic;
+}
+
+.tiptap pre .hljs-number,
+.tiptap pre .hljs-symbol,
+.tiptap pre .hljs-link,
+.tiptap pre .hljs-meta {
+  color: var(--code-number);
+}
+
+.tiptap pre .hljs-title,
+.tiptap pre .hljs-title.function_,
+.tiptap pre .hljs-section {
+  color: var(--code-function);
+}
+
+.tiptap pre .hljs-title.class_,
+.tiptap pre .hljs-type,
+.tiptap pre .hljs-selector-class {
+  color: var(--code-type);
+}
+
+.tiptap pre .hljs-attr,
+.tiptap pre .hljs-attribute,
+.tiptap pre .hljs-property,
+.tiptap pre .hljs-variable,
+.tiptap pre .hljs-template-variable,
+.tiptap pre .hljs-selector-attr,
+.tiptap pre .hljs-name {
+  color: var(--code-variable);
+}
+
+.tiptap pre .hljs-built_in,
+.tiptap pre .hljs-builtin-name,
+.tiptap pre .hljs-bullet {
+  color: var(--code-builtin);
 }
 
 .tiptap hr {
