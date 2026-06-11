@@ -74,6 +74,7 @@ function buildMockTree(): FileNode {
 
 let recent: string[] = [];
 const MAX_RECENT = 10;
+let mockDocSeq = 0;
 
 const session = {
   lastWorkspace: null as string | null,
@@ -107,6 +108,22 @@ export const mockIpc: SynapseIpc = {
     assertInside(root, path);
     files.set(path, content);
     sync.dirty = true;
+  },
+  async saveDoc(root, path, content, _base) {
+    assertInside(root, path);
+    // Rust save_doc을 흉내: synapse_id가 없으면 frontmatter에 주입한다
+    let final = content;
+    if (!/^---\r?\n[\s\S]*?synapse_id:/m.test(content)) {
+      mockDocSeq += 1;
+      const id = `mock-doc-${String(mockDocSeq).padStart(8, "0")}`;
+      const fm = content.match(/^---\r?\n[\s\S]*?\r?\n---/);
+      final = fm
+        ? content.replace(/^---\r?\n/, `---\nsynapse_id: ${id}\n`)
+        : `---\nsynapse_id: ${id}\n---\n\n${content}`;
+    }
+    files.set(path, final);
+    sync.dirty = true;
+    return final;
   },
   async createNote(root, dir) {
     assertInside(root, `${dir === root ? root : dir}/x`);

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
@@ -22,10 +22,13 @@ export function MarkdownEditor({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
   const updateContent = useWorkspace((s) => s.updateContent);
 
-  // 마운트 시점의 원본 전문과 frontmatter를 고정 보존 (FR-2.9 1단계)
+  // 마운트 시점의 원본 전문과 frontmatter를 보존 (FR-2.9 1단계).
+  // 원격 머지가 반영되면(externalRev) 아래 effect가 이 기준들을 갱신한다.
   const original = useRef(doc?.content ?? "");
   const initial = useMemo(() => splitFrontmatter(original.current), [path]); // eslint-disable-line react-hooks/exhaustive-deps
-  const keepTrailingNewline = /\n$/.test(initial.body);
+  const [frontmatter, setFrontmatter] = useState(initial.frontmatter);
+  const fmRef = useRef(initial.frontmatter);
+  const keepNlRef = useRef(/\n$/.test(initial.body));
 
   // 편집 전 기준 직렬화 결과 — 여기서 변하지 않는 한 "편집 없음"으로 취급
   const baseline = useRef<string | null>(null);
@@ -88,18 +91,40 @@ export function MarkdownEditor({ path }: { path: string }) {
         updateContent(path, original.current);
         return;
       }
-      if (keepTrailingNewline && !markdown.endsWith("\n")) markdown += "\n";
-      updateContent(path, joinFrontmatter(initial.frontmatter, markdown));
+      if (keepNlRef.current && !markdown.endsWith("\n")) markdown += "\n";
+      updateContent(path, joinFrontmatter(fmRef.current, markdown));
     },
   });
 
   const editorRef = useRef(editor);
   editorRef.current = editor;
 
+  // 원격 머지/외부 편집 반영 (FR-6 라이브 머지): store의 content가 에디터 밖에서
+  // 바뀌면 새 내용을 적용하고 커서를 (범위 안으로) 복원한다. 저장 직후 돌아온
+  // 합쳐진 텍스트(synapse_id 주입 포함)도 같은 경로로 반영된다.
+  const externalRev = useWorkspace((s) => s.docs[path]?.externalRev ?? 0);
+  const appliedRev = useRef(externalRev);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || externalRev === appliedRev.current) return;
+    appliedRev.current = externalRev;
+    const text = useWorkspace.getState().docs[path]?.content ?? "";
+    if (text === original.current) return;
+    const split = splitFrontmatter(text);
+    const { from, to } = editor.state.selection;
+    editor.commands.setContent(split.body, { emitUpdate: false });
+    const max = editor.state.doc.content.size;
+    editor.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
+    original.current = text;
+    fmRef.current = split.frontmatter;
+    keepNlRef.current = /\n$/.test(split.body);
+    setFrontmatter(split.frontmatter);
+    baseline.current = getMarkdown(editor);
+  }, [editor, externalRev, path]);
+
   return (
     <div className="editor-wrap">
-      {initial.frontmatter && (
-        <div className="frontmatter-badge" title={initial.frontmatter}>
+      {frontmatter && (
+        <div className="frontmatter-badge" title={frontmatter}>
           frontmatter 보존됨 — 소스 모드에서 편집 가능
         </div>
       )}
