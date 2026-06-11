@@ -156,6 +156,18 @@ export const en: LocaleShape<KoMessages> = {
     placeholder:
       "Start writing. Markdown shortcuts like '# ', '- ', and '> ' are supported.",
     frontmatterPreserved: "Frontmatter preserved - edit it in source mode",
+    properties: "Properties",
+    propertiesShow: "Expand properties panel",
+    propertiesHide: "Collapse properties panel",
+    propertyKeyPlaceholder: "Key",
+    propertyValuePlaceholder: "Value",
+    addProperty: "Add property",
+    removeProperty: "Remove property",
+    tagPlaceholder: "Add a tag, then Enter",
+    addTag: "Add tag",
+    removeTag: "Remove tag",
+    propertyReadonly: "This property has a complex format and can only be edited in source mode",
+    emptyProperties: "No properties",
     lossyWarning:
       "This document contains elements the editor may not fully preserve, such as HTML. Use source mode to avoid losing those parts. The file will not change unless you edit it.",
     dismissWarning: "Dismiss",

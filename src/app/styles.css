@@ -650,11 +650,164 @@ select {
   flex-direction: column;
 }
 
-.frontmatter-badge {
-  font-size: 0.75rem;
-  color: var(--fg-faint);
-  padding: 6px 24px;
+/* frontmatter 속성 패널 (FR-2.9) */
+.frontmatter-panel {
   border-bottom: 1px dashed var(--border);
+  background: var(--bg-panel);
+}
+
+.frontmatter-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 24px;
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  text-align: left;
+}
+
+.frontmatter-panel-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.fm-caret {
+  display: inline-block;
+  transition: transform 0.12s ease;
+  font-size: 0.7rem;
+}
+
+.fm-caret.open {
+  transform: rotate(90deg);
+}
+
+.fm-count {
+  font-size: 0.7rem;
+  color: var(--fg-faint);
+  background: var(--bg-hover);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.frontmatter-panel-body {
+  padding: 4px 24px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fm-empty {
+  font-size: 0.78rem;
+  color: var(--fg-faint);
+  padding: 4px 0;
+}
+
+.fm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fm-row-readonly {
+  opacity: 0.7;
+}
+
+.fm-key,
+.fm-key-input {
+  flex: 0 0 30%;
+  max-width: 180px;
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  font-family: var(--ui-font);
+}
+
+.fm-key-input,
+.fm-scalar-input,
+.fm-tag-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+
+.fm-key-input:focus,
+.fm-scalar-input:focus,
+.fm-tag-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.fm-value {
+  flex: 1;
+  min-width: 0;
+}
+
+.fm-scalar-input {
+  width: 100%;
+}
+
+.fm-scalar-input:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-faint);
+}
+
+.fm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.fm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.75rem;
+  background: var(--accent-soft);
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.fm-tag-remove,
+.fm-remove {
+  color: var(--fg-faint);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.fm-tag-remove:hover,
+.fm-remove:hover {
+  color: var(--fg);
+}
+
+.fm-tag-input {
+  flex: 1;
+  min-width: 90px;
+  border: none;
+  background: transparent;
+  padding: 2px 2px;
+}
+
+.fm-bool {
+  accent-color: var(--accent);
+}
+
+.fm-add {
+  align-self: flex-start;
+  font-size: 0.78rem;
+  color: var(--accent);
+  padding: 2px 0;
+  margin-top: 2px;
+}
+
+.fm-remove:disabled {
+  opacity: 0;
+  cursor: default;
 }
 
 .lossy-banner {
