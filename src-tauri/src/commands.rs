@@ -115,6 +115,9 @@ pub fn open_extra_window(app: &tauri::AppHandle, folder: Option<String>) -> Resu
         .title("Synapse")
         .inner_size(1280.0, 800.0)
         .min_inner_size(800.0, 500.0)
+        // Tauri의 네이티브 드롭 가로채기를 끄고 HTML5 드래그앤드롭 사용
+        // (메인 창의 dragDropEnabled: false와 동일해야 함)
+        .disable_drag_drop_handler()
         .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
@@ -141,7 +144,8 @@ pub fn save_image(
     }
     let dir = ensure_within(Path::new(&root), Path::new(&dir)).map_err(|e| e.to_string())?;
     let bytes = synapse_core::fs_io::base64_decode(&data_base64)?;
-    synapse_core::fs_io::write_unique(&dir, &desired_name, &bytes).map_err(|e| e.to_string())
+    // md 링크 목적지에 공백이 못 들어가므로 충돌 회피 suffix도 "-"로
+    synapse_core::fs_io::write_unique(&dir, &desired_name, &bytes, "-").map_err(|e| e.to_string())
 }
 
 #[tauri::command]

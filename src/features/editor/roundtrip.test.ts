@@ -50,6 +50,11 @@ const CASES: Record<string, { input: string; mustContain: string[] }> = {
     input: "[Synapse](https://github.com/izagood/synapse) 링크",
     mustContain: ["[Synapse](https://github.com/izagood/synapse)"],
   },
+  // 붙여넣기가 기록하는 ASCII 랜덤 파일명 이미지 — 정확히 보존돼야 한다
+  image: {
+    input: "![diagram](image-mbz3k1-x4f2a.png)",
+    mustContain: ["![diagram](image-mbz3k1-x4f2a.png)"],
+  },
 };
 
 describe("markdown roundtrip (tiptap-markdown)", () => {
@@ -82,6 +87,25 @@ describe("markdown roundtrip (tiptap-markdown)", () => {
       "- [x] 완료",
     ].join("\n");
     expect(roundtrip(note)).toBe(note);
+  });
+
+  it("한글 파일명 이미지는 %인코딩될 수 있지만 같은 파일을 가리킨다", () => {
+    // markdown-it은 파싱 시 링크 목적지를 %인코딩한다(normalizeLink).
+    // 인코딩된 형태도 유효한 md이고, 표시 경로(displayImageSrc)가 디코드해
+    // 디스크의 실제 파일로 복원한다 — 디코드 결과가 원본 파일명과 같아야 한다.
+    const name = "스크린샷-2026-06-11-오후-3.24.15.png";
+    const once = roundtrip(`![shot](${name})`);
+    const dest = once.match(/!\[shot\]\(([^)]+)\)/)?.[1];
+    expect(dest).toBeDefined();
+    expect(decodeURIComponent(dest!)).toBe(name);
+    expect(roundtrip(once)).toBe(once);
+  });
+
+  it("공백 포함 이미지 목적지는 파싱되지 않는다 (safeImageName이 필요한 이유)", () => {
+    // CommonMark는 ![alt](목적지)의 목적지에 공백을 허용하지 않는다.
+    // 이 동작이 바뀌지 않는 한 드롭 시 파일명 공백 치환을 유지해야 한다.
+    const out = roundtrip("![shot](스크린샷 2026-06-11 오후 3.24.15.png)");
+    expect(out).not.toContain("![shot](스크린샷 2026-06-11");
   });
 
   for (const [name, { input, mustContain }] of Object.entries(CASES)) {
