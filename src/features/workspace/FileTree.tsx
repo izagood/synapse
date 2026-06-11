@@ -24,19 +24,66 @@ interface MenuState {
   y: number;
 }
 
-type DialogState =
-  | { kind: "rename"; node: FileNode }
-  | { kind: "delete"; node: FileNode }
-  | null;
+type DialogState = { kind: "delete"; node: FileNode } | null;
+
+// 사이드바에서 파일/폴더 이름을 인라인으로 직접 수정하는 입력 (모달 대신)
+function RenameInput({ node, onClose }: { node: FileNode; onClose: () => void }) {
+  const renameEntry = useWorkspace((s) => s.renameEntry);
+  const [name, setName] = useState(node.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Escape 취소와 blur 커밋이 겹쳐 두 번 처리되는 것을 막는 가드
+  const doneRef = useRef(false);
+
+  useEffect(() => {
+    // 확장자 앞까지만 선택 (VS Code 동작)
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    const dot = node.kind === "file" ? node.name.lastIndexOf(".") : -1;
+    input.setSelectionRange(0, dot > 0 ? dot : node.name.length);
+  }, [node]);
+
+  const finish = (commit: boolean) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    if (commit) {
+      const trimmed = name.trim();
+      if (trimmed && trimmed !== node.name) {
+        void renameEntry(node, trimmed);
+      }
+    }
+    onClose();
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      className="tree-rename-input"
+      value={name}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setName(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(true);
+        else if (e.key === "Escape") finish(false);
+      }}
+      onBlur={() => finish(true)}
+      spellCheck={false}
+    />
+  );
+}
 
 function TreeNode({
   node,
   depth,
   onMenu,
+  renaming,
+  onRenameClose,
 }: {
   node: FileNode;
   depth: number;
   onMenu: (menu: MenuState) => void;
+  renaming: string | null;
+  onRenameClose: () => void;
 }) {
   const expanded = useWorkspace((s) => !!s.expandedDirs[node.path]);
   const toggleDir = useWorkspace((s) => s.toggleDir);
@@ -49,24 +96,42 @@ function TreeNode({
     onMenu({ node, x: e.clientX, y: e.clientY });
   };
 
+  const isRenaming = renaming === node.path;
+
   if (node.kind === "dir") {
     return (
       <div className="tree-group">
-        <button
-          className="tree-row tree-dir"
-          onClick={() => toggleDir(node.path)}
-          onContextMenu={handleContextMenu}
-        >
-          <span className={`tree-caret${expanded ? " expanded" : ""}`}>
-            <ChevronIcon size={12} />
-          </span>
-          <span className="tree-name">{node.name}</span>
-        </button>
+        {isRenaming ? (
+          <div className="tree-row tree-dir">
+            <span className={`tree-caret${expanded ? " expanded" : ""}`}>
+              <ChevronIcon size={12} />
+            </span>
+            <RenameInput node={node} onClose={onRenameClose} />
+          </div>
+        ) : (
+          <button
+            className="tree-row tree-dir"
+            onClick={() => toggleDir(node.path)}
+            onContextMenu={handleContextMenu}
+          >
+            <span className={`tree-caret${expanded ? " expanded" : ""}`}>
+              <ChevronIcon size={12} />
+            </span>
+            <span className="tree-name">{node.name}</span>
+          </button>
+        )}
         {expanded && (
           // 옵시디언 스타일 인덴트 가이드: 자식 컨테이너의 왼쪽 세로선
           <div className="tree-children">
             {node.children?.map((child) => (
-              <TreeNode key={child.path} node={child} depth={depth + 1} onMenu={onMenu} />
+              <TreeNode
+                key={child.path}
+                node={child}
+                depth={depth + 1}
+                onMenu={onMenu}
+                renaming={renaming}
+                onRenameClose={onRenameClose}
+              />
             ))}
           </div>
         )}
@@ -75,6 +140,16 @@ function TreeNode({
   }
 
   const selected = activePath === node.path;
+  if (isRenaming) {
+    return (
+      <div className={`tree-row tree-file${selected ? " selected" : ""}`}>
+        <span className="tree-icon">
+          <FileTypeIcon node={node} />
+        </span>
+        <RenameInput node={node} onClose={onRenameClose} />
+      </div>
+    );
+  }
   return (
     <button
       // selected로 마운트/전환되는 순간 보이는 위치로 스크롤 (이미 보이면 no-op).
@@ -97,12 +172,12 @@ function TreeNode({
 function TreeContextMenu({
   menu,
   onClose,
-  onDialog,
+  onRename,
   onDelete,
 }: {
   menu: MenuState;
   onClose: () => void;
-  onDialog: (d: DialogState) => void;
+  onRename: (node: FileNode) => void;
   onDelete: (node: FileNode) => void;
 }) {
   const createNote = useWorkspace((s) => s.createNote);
@@ -162,7 +237,7 @@ function TreeContextMenu({
           {t("fileTree.duplicate")}
         </button>
       )}
-      <button onClick={() => run(() => onDialog({ kind: "rename", node }))}>
+      <button onClick={() => run(() => onRename(node))}>
         {t("fileTree.rename")}
       </button>
       <button
@@ -179,54 +254,6 @@ function TreeContextMenu({
       <button className="context-danger" onClick={() => run(() => onDelete(node))}>
         {t("fileTree.delete")}
       </button>
-    </div>
-  );
-}
-
-function RenameDialog({ node, onClose }: { node: FileNode; onClose: () => void }) {
-  const renameEntry = useWorkspace((s) => s.renameEntry);
-  const [name, setName] = useState(node.name);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const t = useT();
-
-  useEffect(() => {
-    // 파일명 선택 시 확장자 앞까지만 선택 (VS Code 동작)
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    const dot = node.kind === "file" ? node.name.lastIndexOf(".") : -1;
-    input.setSelectionRange(0, dot > 0 ? dot : node.name.length);
-  }, [node]);
-
-  const submit = () => {
-    const trimmed = name.trim();
-    if (trimmed && trimmed !== node.name) {
-      void renameEntry(node, trimmed);
-    }
-    onClose();
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal rename-dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>{t("fileTree.renameTitle")}</h2>
-        <input
-          ref={inputRef}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
-            if (e.key === "Escape") onClose();
-          }}
-          spellCheck={false}
-        />
-        <div className="modal-actions">
-          <button className="primary-btn" onClick={submit}>
-            {t("fileTree.renameSubmit")}
-          </button>
-          <button onClick={onClose}>{t("common.cancel")}</button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -306,6 +333,8 @@ export function FileTree() {
   const tree = useWorkspace((s) => s.tree);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
+  // 인라인 이름 변경 중인 노드 경로 (null이면 편집 안 함)
+  const [renaming, setRenaming] = useState<string | null>(null);
   const t = useT();
 
   // 컨텍스트 메뉴·단축키 공통 삭제 진입점 — 설정에 따라 확인 없이 바로 삭제
@@ -342,7 +371,14 @@ export function FileTree() {
     <nav className="file-tree">
       {tree.children?.length ? (
         tree.children.map((child) => (
-          <TreeNode key={child.path} node={child} depth={0} onMenu={setMenu} />
+          <TreeNode
+            key={child.path}
+            node={child}
+            depth={0}
+            onMenu={setMenu}
+            renaming={renaming}
+            onRenameClose={() => setRenaming(null)}
+          />
         ))
       ) : (
         <p className="tree-empty">{t("fileTree.emptyFolder")}</p>
@@ -351,12 +387,9 @@ export function FileTree() {
         <TreeContextMenu
           menu={menu}
           onClose={() => setMenu(null)}
-          onDialog={setDialog}
+          onRename={(node) => setRenaming(node.path)}
           onDelete={requestDelete}
         />
-      )}
-      {dialog?.kind === "rename" && (
-        <RenameDialog node={dialog.node} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === "delete" && (
         <DeleteDialog node={dialog.node} onClose={() => setDialog(null)} />
