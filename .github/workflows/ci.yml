@@ -84,6 +84,18 @@ jobs:
               echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
               echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
             } >> "$GITHUB_ENV"
+            # 셀프사인 인증서는 CI 러너에서 신뢰 앵커가 아니라
+            # `security find-identity -v`에 잡히지 않고, tauri가
+            # "failed to resolve signing identity"로 실패한다.
+            # 시스템 키체인에 신뢰 루트로 등록해 유효한 ID로 만든다.
+            echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/signing-cert.p12
+            openssl pkcs12 -in /tmp/signing-cert.p12 -clcerts -nokeys \
+              -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out /tmp/signing-cert.pem \
+              || openssl pkcs12 -legacy -in /tmp/signing-cert.p12 -clcerts -nokeys \
+                -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out /tmp/signing-cert.pem
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain /tmp/signing-cert.pem
+            rm -f /tmp/signing-cert.p12 /tmp/signing-cert.pem
           fi
       - name: Tauri 번들 빌드 (드라이런)
         env:
