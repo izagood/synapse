@@ -11,8 +11,10 @@ import type {
   AgentEventPayload,
   AgentStatus,
   DeviceCode,
+  FileCommit,
   FileNode,
   PollResult,
+  SearchHit,
   Settings,
   SyncStatus,
   SynapseIpc,
@@ -28,6 +30,8 @@ const tauriIpc: SynapseIpc = {
     return typeof selected === "string" ? selected : null;
   },
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
+  searchWorkspace: (root, query) =>
+    invoke<SearchHit[]>("search_workspace", { root, query }),
   readFile: (root, path) => invoke<string>("read_file", { root, path }),
   writeFile: (root, path, content) =>
     invoke<void>("write_file", { root, path, content }),
@@ -69,6 +73,11 @@ const tauriIpc: SynapseIpc = {
     invoke<SyncStatus>("publish_workspace", { root, name, private: isPrivate }),
   cloneRepo: (url, parentDir, name) =>
     invoke<string>("clone_repo", { url, parentDir, name }),
+
+  fileHistory: (root, path) =>
+    invoke<FileCommit[]>("file_history", { root, path }),
+  fileAtRevision: (root, path, rev) =>
+    invoke<string>("file_at_revision", { root, path, rev }),
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),

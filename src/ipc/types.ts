@@ -10,6 +10,19 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+// Rust synapse-core::search::{SearchHit, SearchMatch} 와 1:1 대응 (FR-1.5)
+export interface SearchMatch {
+  line: number;
+  snippet: string;
+}
+
+export interface SearchHit {
+  path: string;
+  name: string;
+  nameMatch: boolean;
+  matches: SearchMatch[];
+}
+
 // Rust synapse-core::git::SyncStatus 와 1:1 대응
 export type SyncState =
   | "noGit"
@@ -28,6 +41,16 @@ export interface SyncStatus {
 }
 
 export type ConflictChoice = "keepMine" | "keepRemote" | "keepBoth";
+
+// Rust synapse-core::git::FileCommit 와 1:1 대응 (FR-4.7)
+export interface FileCommit {
+  hash: string;
+  shortHash: string;
+  author: string;
+  /** ISO 8601 커밋 시각 */
+  timestamp: string;
+  message: string;
+}
 
 export interface DeviceCode {
   userCode: string;
@@ -106,6 +129,8 @@ export interface SynapseIpc {
   pickFolder(): Promise<string | null>;
   /** 폴더를 재귀 스캔해 파일 트리 반환 */
   listWorkspace(path: string): Promise<FileNode>;
+  /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */
+  searchWorkspace(root: string, query: string): Promise<SearchHit[]>;
   /** 워크스페이스 루트 내부 파일만 읽기 허용 */
   readFile(root: string, path: string): Promise<string>;
   /** 루트 내부 경로에만 원자적 쓰기 허용 (새 파일 생성 포함) */
@@ -160,6 +185,12 @@ export interface SynapseIpc {
   publishWorkspace(root: string, name: string, isPrivate: boolean): Promise<SyncStatus>;
   /** parentDir/name 으로 클론하고 새 워크스페이스 경로 반환 */
   cloneRepo(url: string, parentDir: string, name: string): Promise<string>;
+
+  // ---- 파일 히스토리 (FR-4.7) ----
+  /** 한 파일의 git 커밋 히스토리(최신순). 추적 안 됨/레포 아님이면 빈 배열 */
+  fileHistory(root: string, path: string): Promise<FileCommit[]>;
+  /** 특정 리비전 시점의 파일 내용 (읽기 전용 미리보기·복원용) */
+  fileAtRevision(root: string, path: string, rev: string): Promise<string>;
 
   // ---- 전역 설정 (FR-5) ----
   getSettings(): Promise<Settings>;

@@ -632,15 +632,19 @@ select {
   font-weight: 600;
 }
 
-.rename-dialog input {
-  width: 100%;
+/* 사이드바 인라인 이름 변경 입력 */
+.tree-rename-input {
+  flex: 1;
+  min-width: 0;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
   color: var(--fg);
-  padding: 8px 10px;
-  margin: 8px 0 16px;
-  font-size: 0.95rem;
+  padding: 0 4px;
+  margin: 0;
+  height: 22px;
+  font: inherit;
+  outline: none;
 }
 
 /* ===================== 에디터 ===================== */
@@ -650,11 +654,164 @@ select {
   flex-direction: column;
 }
 
-.frontmatter-badge {
-  font-size: 0.75rem;
-  color: var(--fg-faint);
-  padding: 6px 24px;
+/* frontmatter 속성 패널 (FR-2.9) */
+.frontmatter-panel {
   border-bottom: 1px dashed var(--border);
+  background: var(--bg-panel);
+}
+
+.frontmatter-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 24px;
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  text-align: left;
+}
+
+.frontmatter-panel-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.fm-caret {
+  display: inline-block;
+  transition: transform 0.12s ease;
+  font-size: 0.7rem;
+}
+
+.fm-caret.open {
+  transform: rotate(90deg);
+}
+
+.fm-count {
+  font-size: 0.7rem;
+  color: var(--fg-faint);
+  background: var(--bg-hover);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.frontmatter-panel-body {
+  padding: 4px 24px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fm-empty {
+  font-size: 0.78rem;
+  color: var(--fg-faint);
+  padding: 4px 0;
+}
+
+.fm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fm-row-readonly {
+  opacity: 0.7;
+}
+
+.fm-key,
+.fm-key-input {
+  flex: 0 0 30%;
+  max-width: 180px;
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  font-family: var(--ui-font);
+}
+
+.fm-key-input,
+.fm-scalar-input,
+.fm-tag-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+
+.fm-key-input:focus,
+.fm-scalar-input:focus,
+.fm-tag-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.fm-value {
+  flex: 1;
+  min-width: 0;
+}
+
+.fm-scalar-input {
+  width: 100%;
+}
+
+.fm-scalar-input:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-faint);
+}
+
+.fm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.fm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.75rem;
+  background: var(--accent-soft);
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.fm-tag-remove,
+.fm-remove {
+  color: var(--fg-faint);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.fm-tag-remove:hover,
+.fm-remove:hover {
+  color: var(--fg);
+}
+
+.fm-tag-input {
+  flex: 1;
+  min-width: 90px;
+  border: none;
+  background: transparent;
+  padding: 2px 2px;
+}
+
+.fm-bool {
+  accent-color: var(--accent);
+}
+
+.fm-add {
+  align-self: flex-start;
+  font-size: 0.78rem;
+  color: var(--accent);
+  padding: 2px 0;
+  margin-top: 2px;
+}
+
+.fm-remove:disabled {
+  opacity: 0;
+  cursor: default;
 }
 
 .lossy-banner {
@@ -1435,6 +1592,51 @@ select {
   padding: 10px 16px;
 }
 
+/* ---- 전체 검색 모달 (FR-1.5) ---- */
+
+.search-modal {
+  width: min(680px, 94vw);
+}
+
+.search-file {
+  padding-top: 2px;
+}
+
+.search-file-header:hover,
+.search-match:hover {
+  background: var(--accent-soft);
+}
+
+.search-match {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 3px 16px 3px 30px;
+  font-size: 0.82rem;
+}
+
+.search-line {
+  color: var(--fg-dim);
+  min-width: 2.4em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.search-snippet {
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-snippet mark {
+  background: var(--accent-soft);
+  color: var(--fg);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* ---- Claude 에이전트 패널 (PLAN-v0.4 Phase 1) ---- */
 
 .agent-panel {
@@ -1699,4 +1901,138 @@ select {
 .agent-send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ---- 파일 히스토리 모달 (FR-4.7) ---- */
+.history-modal {
+  width: min(860px, 94vw);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+
+.history-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.history-header h2 {
+  margin: 0;
+}
+
+.history-file {
+  color: var(--fg-dim);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 38%) 1fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 240px;
+  overflow: hidden;
+}
+
+.history-list {
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-item:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+}
+
+.history-item.selected {
+  background: var(--accent-soft, rgba(80, 120, 255, 0.18));
+}
+
+.history-item-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.history-current {
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.history-item-meta {
+  font-size: 0.74rem;
+  color: var(--fg-dim);
+}
+
+.history-item-meta code {
+  font-family: var(--mono-font);
+}
+
+.history-preview {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.history-preview-bar {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.history-readonly {
+  font-size: 0.74rem;
+  color: var(--fg-dim);
+}
+
+.history-preview-content {
+  flex: 1;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font-family: var(--mono-font);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.history-status {
+  color: var(--fg-dim);
+  font-size: 0.85rem;
+  padding: 12px;
+}
+
+.history-status.error {
+  color: var(--danger, #e5534b);
+}
+
+.history-modal .modal-actions {
+  justify-content: flex-end;
+  margin-top: 14px;
 }
