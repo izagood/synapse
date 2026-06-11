@@ -1,80 +1,285 @@
 # Synapse
 
-> 편집은 Notion처럼, 저장은 Markdown으로. GitHub이 곧 저장소.
+[![CI](https://github.com/izagood/synapse/actions/workflows/ci.yml/badge.svg)](https://github.com/izagood/synapse/actions/workflows/ci.yml)
+[![Release](https://github.com/izagood/synapse/actions/workflows/release-desktop.yml/badge.svg)](https://github.com/izagood/synapse/actions/workflows/release-desktop.yml)
 
-Synapse는 블록 기반 WYSIWYG 에디터로 작성하고 표준 `.md`로 저장하는 노트 앱입니다.
-AI가 정리해준 `.html` 문서를 안전하게 렌더링해서 보는 뷰어를 내장하고,
-GitHub 로그인 한 번으로 노트 폴더를 리포지토리와 동기화합니다.
+A desktop Markdown note app with Notion-style editing, safe HTML viewing, and
+GitHub-based sync.
 
-Obsidian과 달리 설정은 앱 전역 한 곳에만 두고, 폴더는 VSCode처럼
-"폴더 열기"로 아무 폴더나 즉시 엽니다 — 폴더에 설정 파일을 남기지 않습니다.
+Synapse lets you open any local folder, write notes in a WYSIWYG editor, and keep
+the underlying files as plain `.md` and `.html`. Your notes remain normal files
+on disk, so they can be read by GitHub, Obsidian, editors, scripts, and other
+Markdown tools.
 
-## 문서
+## Features
 
-- [요구사항 정의서](docs/REQUIREMENTS.md) — 비전, 기능/비기능 요구사항, MVP 범위
-- [아키텍처 설계서](docs/ARCHITECTURE.md) — 기술 스택, 구조, 핵심 설계, 마일스톤
+- Open any local folder as a workspace.
+- Keep notes as standard Markdown files.
+- Edit Markdown with a Tiptap/ProseMirror WYSIWYG editor.
+- Switch to raw Markdown source mode when needed.
+- Preserve YAML frontmatter while editing.
+- Paste or drop images into Markdown notes.
+- Open `.html` files in a sanitized, sandboxed viewer.
+- Sign in with GitHub Device Flow.
+- Publish a local workspace to a GitHub repository.
+- Clone an existing GitHub repository from the start screen.
+- Sync with GitHub using the system `git` CLI.
+- Resolve sync conflicts with keep-local, keep-remote, or keep-both actions.
+- Manage all app settings globally instead of writing app config into each
+  workspace.
+- Use Quick Open, tabs, themes, update checks, and an optional Claude CLI panel.
 
-## 기술 스택 / 플랫폼 (요약)
+## Screenshots
 
-Tauri 2 (Rust) · React 18 + TypeScript · Tiptap(ProseMirror) · remark/unified · 시스템 `git` CLI · GitHub OAuth Device Flow
+Screenshots are not included yet. When available, they should live under
+`docs/images/` and be embedded here.
 
-지원 플랫폼: macOS, Windows 10/11 x64. Linux는 개발 빌드는 가능하지만 배포 대상은 아직 아니다.
+## Installation
 
-## 개발
+Prebuilt desktop installers are produced by the release workflow for:
 
-요구 도구: Node.js 22+, Rust(stable), 플랫폼별 Tauri 빌드 의존성([공식 가이드](https://v2.tauri.app/start/prerequisites/)).
+- macOS: `.dmg`
+- Windows: `.msi`
+
+Unsigned builds may show a macOS Gatekeeper or Windows SmartScreen warning on
+first launch. See [Packaging](docs/PACKAGING.md) for details.
+
+If a release installer is not available, build from source.
+
+## Quick Start
+
+```bash
+git clone https://github.com/izagood/synapse.git
+cd synapse
+npm install
+npm run tauri dev
+```
+
+Then:
+
+1. Click **Open Folder**.
+2. Choose a folder for your notes.
+3. Create or open a `.md` file.
+4. Edit in WYSIWYG mode or switch to source mode.
+5. Optional: sign in to GitHub and publish or sync the workspace.
+
+## Usage
+
+### Workspaces
+
+A workspace is a normal folder on your computer. Synapse does not require a vault
+setup step and does not create a Synapse-specific config directory inside the
+workspace.
+
+Use the start screen to open a folder, reopen a recent folder, or clone an
+existing GitHub repository.
+
+### File Tree
+
+The left sidebar shows the workspace contents.
+
+- Click folders to expand or collapse them.
+- Click files to open them in tabs.
+- Use the sidebar plus button to create a new note.
+- Right-click files or folders to rename, duplicate files, copy paths, or delete.
+- Drag the sidebar edge to resize it.
+
+### Markdown Editing
+
+Markdown files open in the WYSIWYG editor by default. Synapse saves back to `.md`
+so the files remain portable.
+
+Supported content includes headings, paragraphs, ordered and unordered lists,
+task lists, block quotes, code blocks, horizontal rules, tables, links, images,
+and frontmatter preservation.
+
+Use source mode for raw Markdown editing, especially when working with
+frontmatter or Markdown constructs that the WYSIWYG editor may not fully
+preserve.
+
+### HTML Viewing
+
+HTML files open in Synapse's built-in viewer. The default mode sanitizes HTML and
+blocks document scripts. External resources and script execution can be changed
+in Settings for trusted documents.
+
+Switch to source mode while an HTML file is open to inspect the raw HTML.
+
+### GitHub Sync
+
+Synapse syncs through local Git and GitHub.
+
+1. Install Git.
+2. Open a workspace.
+3. Click **GitHub Login** in the status bar.
+4. Complete the GitHub Device Flow login.
+5. Publish the folder to a new GitHub repository or clone an existing repository.
+6. Click the sync indicator to sync immediately, or enable automatic sync.
+
+The status bar exposes simple states:
+
+- **Synced**: local and remote are up to date.
+- **Sync Needed**: local or remote changes need to be synchronized.
+- **Conflict**: incompatible changes need a decision.
+
+Conflict actions:
+
+- **Keep Mine** keeps the local version.
+- **Use Remote** takes the remote version.
+- **Keep Both** preserves both versions.
+
+### Settings
+
+Synapse has one global settings screen. Current settings include:
+
+- Theme: system, light, or dark.
+- Editor font, font size, and auto-save delay.
+- Delete confirmation behavior.
+- Automatic sync and sync interval.
+- HTML viewer network and script permissions.
+- Update checks and installation.
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl/Cmd+S` | Save the active file |
+| `Ctrl/Cmd+P` | Quick Open |
+| `Ctrl/Cmd+B` | Toggle the sidebar |
+| `Ctrl/Cmd+Shift+A` | Toggle the Claude panel |
+
+## Development
+
+Required tools:
+
+- Node.js 22+
+- Rust stable
+- Platform-specific Tauri dependencies from the
+  [Tauri prerequisites guide](https://v2.tauri.app/start/prerequisites/)
+
+Install dependencies:
 
 ```bash
 npm install
-
-npm run dev        # 브라우저 개발 모드 (Tauri 없이 mock IPC로 UI 개발)
-npm run tauri dev  # 데스크톱 앱 실행 (Tauri 빌드 의존성 필요)
-
-npm test           # 프론트엔드 테스트 (vitest)
-npm run typecheck  # TypeScript 타입체크
-cargo test         # crates/synapse-core 에서 실행 — GUI 의존성 없는 코어 로직 테스트
 ```
 
-### 코드 구성
+Run the browser UI with mock IPC:
 
-- `src/` — React 프론트엔드. `src/ipc/`가 Tauri IPC 경계이며, 브라우저에서는 자동으로 mock 구현으로 전환된다.
-- `src-tauri/` — Tauri 셸. 커맨드 글루만 담당하는 얇은 레이어.
-- `crates/synapse-core/` — 파일 트리, 워크스페이스 레지스트리, 경로 가드 등 핵심 로직. GUI 의존성이 없어 어디서든 `cargo test`로 검증 가능.
+```bash
+npm run dev
+```
 
-### GitHub 로그인 설정 (배포 전 1회)
+Run the desktop app:
 
-동기화 기능은 GitHub OAuth App이 필요합니다.
+```bash
+npm run tauri dev
+```
 
-1. GitHub → Settings → Developer settings → **OAuth Apps** → New OAuth App
-2. **Enable Device Flow** 체크 (callback URL은 아무 값이나 가능, Device Flow만 사용)
-3. 발급된 Client ID를 환경변수로 넣고 빌드:
+Run frontend checks:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Run GUI-independent Rust core checks:
+
+```bash
+cd crates/synapse-core
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+## Building
+
+Build a desktop bundle:
+
+```bash
+npm run tauri build
+```
+
+GitHub sync requires a GitHub OAuth App client ID at build time:
 
 ```bash
 SYNAPSE_GITHUB_CLIENT_ID=<client_id> npm run tauri build
 ```
 
-### 외부 도구
+Create the OAuth App in GitHub Developer settings and enable Device Flow. The
+callback URL can be any value because Synapse uses Device Flow.
 
-- 동기화는 시스템 `git`을 사용합니다. macOS는 Xcode Command Line Tools, Windows는 Git for Windows 설치를 권장합니다.
-- Claude 패널은 `claude` CLI가 설치되어 있고 로그인된 경우에만 활성화됩니다. Windows에서는 CLI 설치 후 앱을 재시작해야 PATH 변경이 반영될 수 있습니다.
+Release packaging and updater details are documented in
+[docs/PACKAGING.md](docs/PACKAGING.md).
 
-### 패키징
+## Project Structure
 
-```bash
-npm run tauri build   # 플랫폼별 설치 파일 생성 (deb/AppImage/msi/dmg)
+```text
+synapse/
+├── src/                  # React frontend
+├── src-tauri/            # Tauri desktop shell and command layer
+├── crates/synapse-core/  # GUI-independent Rust core logic
+├── docs/                 # Requirements, architecture, packaging, plans
+└── .github/workflows/    # CI and desktop release workflows
 ```
 
-macOS 설치 파일(.dmg), Windows 설치 파일(.msi), GitHub Releases 자동 배포는 **[패키징 가이드](docs/PACKAGING.md)** 참조 —
-`git tag v0.1.0 && git push origin v0.1.0` 한 번이면 데스크톱 설치 파일이 Releases에 올라옵니다.
-아이콘은 `src-tauri/icons/`에 포함되어 있고, `npx tauri icon <원본.png>`로 교체할 수 있습니다.
+Important frontend areas:
 
-### 마일스톤 현황
+- `src/ipc/` - typed IPC boundary and browser mock IPC.
+- `src/features/workspace/` - folder opening, file tree, tabs, Quick Open.
+- `src/features/editor/` - Markdown editor, source mode, frontmatter, links,
+  images.
+- `src/features/html-viewer/` - sanitized and sandboxed HTML rendering.
+- `src/features/sync/` - GitHub login, publishing, sync status, conflicts.
+- `src/features/settings/` - global settings UI.
 
-- [x] **M0 골격** — 폴더 열기, 파일 트리, 최근 폴더
-- [x] **M1 에디터** — Tiptap WYSIWYG, md 라운드트립, 자동 저장, 소스 모드, 탭
-- [x] **M2 뷰어** — HTML 정화 + 샌드박스 렌더링, 렌더/소스 전환
-- [x] **M3 동기화** — GitHub Device Flow 로그인, 게시/클론, 자동/수동 sync, 충돌 3택
-- [x] **M4 설정/마감** — 전역 설정 UI, 빠른 열기(Ctrl+P), 테마, 패키징 설정
+## Roadmap
 
-이후 계획(post-MVP)은 [요구사항 정의서의 FR-6](docs/REQUIREMENTS.md)을 참조: 전체 텍스트 검색,
-위키링크/백링크, HTML↔MD 변환, 파일 히스토리, 슬래시 커맨드 메뉴, AI 연동.
+Planned post-MVP work includes:
+
+- Full-text search.
+- Wiki links and backlinks.
+- File history.
+- HTML to Markdown import and Markdown to HTML export.
+- More advanced conflict review.
+- AI-assisted note workflows.
+- Plugin support.
+
+See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) and the plan documents in
+`docs/` for more detail.
+
+## Contributing
+
+Issues and pull requests are welcome.
+
+Before opening a pull request, run the relevant checks:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+For Rust core changes, also run:
+
+```bash
+cd crates/synapse-core
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+## Documentation
+
+- [Requirements](docs/REQUIREMENTS.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Packaging](docs/PACKAGING.md)
+- [Plan v0.2](docs/PLAN-v0.2.md)
+- [Plan v0.4](docs/PLAN-v0.4.md)
+
+## License
+
+No license file is included yet. Until a license is added, the project is not
+licensed for redistribution or reuse by default.
