@@ -1,3 +1,4 @@
+mod agent;
 mod auth;
 mod commands;
 mod dock;
@@ -15,6 +16,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(auth::AuthState::default())
+        .manage(agent::AgentState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             commands::read_file,
@@ -44,6 +46,9 @@ pub fn run() {
             sync::resolve_conflict,
             sync::publish_workspace,
             sync::clone_repo,
+            agent::agent_status,
+            agent::agent_send,
+            agent::agent_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running synapse");
