@@ -9,8 +9,11 @@
 //! 충돌 상태로 방치되지 않는다 — 해결은 `resolve_conflicts`의 3택으로 수행한다.
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -59,13 +62,92 @@ pub struct GitWorkspace {
     root: PathBuf,
     /// "AUTHORIZATION: basic …" 형태의 추가 헤더 (GitHub HTTPS 인증)
     auth_header: Option<String>,
+    /// CRDT·워킹트리를 만지는 로컬 구간에서만 잡는 락. 네트워크 구간
+    /// (fetch/push)에서는 풀어 두어 저장(save_doc)이 동기화에 막히지 않는다.
+    lock: &'static Mutex<()>,
+    /// fetch 직후(락이 풀린 네트워크 구간)에 호출되는 테스트 훅
+    #[cfg(test)]
+    after_fetch: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 type GitResult<T> = Result<T, String>;
 
+/// 원격 통신 명령이 네트워크 문제로 영원히 매달리지 않도록 하는 타임아웃.
+/// 로컬 명령(status, rebase 등)은 리포지토리 크기에 따라 오래 걸릴 수
+/// 있으므로 제한하지 않는다.
+fn network_timeout_for(args: &[&str]) -> Option<Duration> {
+    match args.first().copied() {
+        Some("fetch") | Some("push") | Some("ls-remote") => Some(Duration::from_secs(120)),
+        Some("clone") => Some(Duration::from_secs(600)),
+        _ => None,
+    }
+}
+
+/// 타임아웃이 있으면 프로세스를 폴링하다가 초과 시 kill 한다.
+/// stdout/stderr는 별도 스레드로 빨아들여 파이프 버퍼 교착을 막는다.
+fn run_command(
+    mut cmd: Command,
+    timeout: Option<Duration>,
+) -> Result<(bool, Vec<u8>, String), String> {
+    let Some(timeout) = timeout else {
+        let out = cmd
+            .output()
+            .map_err(|e| format!("git 실행 실패 (git이 설치되어 있나요?): {e}"))?;
+        return Ok((
+            out.status.success(),
+            out.stdout,
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        ));
+    };
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("git 실행 실패 (git이 설치되어 있나요?): {e}"))?;
+    let mut out_pipe = child.stdout.take().expect("piped stdout");
+    let mut err_pipe = child.stderr.take().expect("piped stderr");
+    let out_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let err_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = err_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "명령이 {}초 안에 끝나지 않아 중단했습니다 (네트워크 상태를 확인하세요)",
+                timeout.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let stdout = out_thread.join().unwrap_or_default();
+    let stderr = err_thread.join().unwrap_or_default();
+    Ok((status.success(), stdout, String::from_utf8_lossy(&stderr).into_owned()))
+}
+
 impl GitWorkspace {
     pub fn new(root: impl Into<PathBuf>, auth_header: Option<String>) -> Self {
-        GitWorkspace { root: root.into(), auth_header }
+        GitWorkspace {
+            root: root.into(),
+            auth_header,
+            lock: collab::workspace_lock(),
+            #[cfg(test)]
+            after_fetch: None,
+        }
+    }
+
+    fn lock_local(&self) -> GitResult<MutexGuard<'_, ()>> {
+        self.lock.lock().map_err(|_| "workspace lock poisoned".to_string())
     }
 
     /// GitHub 토큰으로 HTTPS 인증 헤더를 만든다 (actions/checkout과 같은 방식).
@@ -78,26 +160,29 @@ impl GitWorkspace {
         Ok((ok, String::from_utf8_lossy(&stdout).into_owned(), stderr))
     }
 
-    /// stdout을 바이트 그대로 돌려주는 변형 (`git show :N:경로`로 바이너리
-    /// 스테이지 내용을 읽을 때 손상되지 않도록)
-    fn run_bytes(&self, args: &[&str]) -> GitResult<(bool, Vec<u8>, String)> {
+    /// 모든 git 호출의 공통 설정. 토큰이 없거나 만료됐을 때 git이 자격증명
+    /// 입력을 기다리며 멈추지 않도록 프롬프트류를 전부 차단한다.
+    fn base_cmd(&self) -> Command {
         let mut cmd = Command::new("git");
         cmd.current_dir(&self.root);
         // rebase --continue 등이 에디터를 띄우지 않게 한다
         cmd.env("GIT_EDITOR", "true");
+        // 인증 실패 시 터미널/GUI 프롬프트 대신 즉시 에러가 나게 한다
+        cmd.env("GIT_TERMINAL_PROMPT", "0");
+        cmd.env("GIT_ASKPASS", "true");
         // 인증 헤더는 원격 통신 명령에만 의미가 있지만 항상 끼워도 무해하다
         if let Some(header) = &self.auth_header {
             cmd.args(["-c", &format!("http.https://github.com/.extraheader={header}")]);
         }
+        cmd
+    }
+
+    /// stdout을 바이트 그대로 돌려주는 변형 (`git show :N:경로`로 바이너리
+    /// 스테이지 내용을 읽을 때 손상되지 않도록)
+    fn run_bytes(&self, args: &[&str]) -> GitResult<(bool, Vec<u8>, String)> {
+        let mut cmd = self.base_cmd();
         cmd.args(args);
-        let out = cmd
-            .output()
-            .map_err(|e| format!("git 실행 실패 (git이 설치되어 있나요?): {e}"))?;
-        Ok((
-            out.status.success(),
-            out.stdout,
-            String::from_utf8_lossy(&out.stderr).into_owned(),
-        ))
+        run_command(cmd, network_timeout_for(args))
     }
 
     fn run_ok(&self, args: &[&str]) -> GitResult<String> {
@@ -255,36 +340,54 @@ impl GitWorkspace {
         if !self.has_remote() {
             return Ok(SyncStatus::simple(SyncState::NoRemote));
         }
-        if let Some(store) = collab {
-            self.absorb_workspace(store);
+        // 로컬 구간 1 (락): 외부 편집 흡수 + 커밋
+        {
+            let _guard = self.lock_local()?;
+            if let Some(store) = collab {
+                self.absorb_workspace(store);
+            }
+            self.commit_all(commit_message)?;
         }
-        self.commit_all(commit_message)?;
-        self.run_ok(&["fetch", "origin"])?;
 
-        let upstream = self.upstream()?;
-        let (upstream_exists, _, _) =
-            self.run(&["rev-parse", "--verify", &format!("{upstream}^{{commit}}")])?;
-        if upstream_exists {
-            let (_, behind) = self.ahead_behind()?;
-            if behind > 0 {
-                let (ok, _, _) = self.run(&["rebase", &upstream])?;
-                if !ok {
-                    let resolved =
-                        collab.is_some_and(|store| self.auto_resolve_rebase(store).is_ok());
-                    if !resolved {
-                        let files = self.conflicted_files()?;
-                        let _ = self.run(&["rebase", "--abort"]);
-                        return Ok(SyncStatus {
-                            state: SyncState::Conflict,
-                            ahead: 0,
-                            behind,
-                            conflict_files: files,
-                            message: None,
-                        });
+        // 네트워크 구간 (락 없음): fetch 동안 저장이 막히지 않는다
+        self.run_ok(&["fetch", "origin"])?;
+        #[cfg(test)]
+        if let Some(hook) = &self.after_fetch {
+            hook();
+        }
+
+        // 로컬 구간 2 (락): rebase + CRDT 자동 해결
+        {
+            let _guard = self.lock_local()?;
+            // fetch 동안 들어온 저장을 먼저 커밋해 rebase에 깨끗한 트리를 보장
+            self.commit_all(commit_message)?;
+            let upstream = self.upstream()?;
+            let (upstream_exists, _, _) =
+                self.run(&["rev-parse", "--verify", &format!("{upstream}^{{commit}}")])?;
+            if upstream_exists {
+                let (_, behind) = self.ahead_behind()?;
+                if behind > 0 {
+                    let (ok, _, _) = self.run(&["rebase", &upstream])?;
+                    if !ok {
+                        let resolved =
+                            collab.is_some_and(|store| self.auto_resolve_rebase(store).is_ok());
+                        if !resolved {
+                            let files = self.conflicted_files()?;
+                            let _ = self.run(&["rebase", "--abort"]);
+                            return Ok(SyncStatus {
+                                state: SyncState::Conflict,
+                                ahead: 0,
+                                behind,
+                                conflict_files: files,
+                                message: None,
+                            });
+                        }
                     }
                 }
             }
         }
+
+        // 네트워크 구간 (락 없음): push는 워킹트리를 만지지 않는다
         let branch = self.current_branch()?;
         self.run_ok(&["push", "-u", "origin", &branch])?;
         Ok(SyncStatus::simple(SyncState::Synced))
@@ -480,10 +583,14 @@ impl GitWorkspace {
 
     /// 충돌을 3택 전략으로 해소하고 push까지 마친다 (FR-4.5 MVP)
     pub fn resolve_conflicts(&self, choice: ConflictChoice) -> GitResult<SyncStatus> {
-        self.commit_all("synapse: 충돌 해결 전 저장")?;
+        {
+            let _guard = self.lock_local()?;
+            self.commit_all("synapse: 충돌 해결 전 저장")?;
+        }
         self.run_ok(&["fetch", "origin"])?;
         let upstream = self.upstream()?;
 
+        let guard = self.lock_local()?;
         match choice {
             ConflictChoice::KeepMine => {
                 // rebase에서 -Xtheirs는 "재생되는 커밋"(= 내 로컬 변경)을 우선한다
@@ -521,6 +628,7 @@ impl GitWorkspace {
                 self.commit_all("synapse: 충돌한 내 버전을 (conflict) 사본으로 보존")?;
             }
         }
+        drop(guard);
         let branch = self.current_branch()?;
         self.run_ok(&["push", "-u", "origin", &branch])?;
         Ok(SyncStatus::simple(SyncState::Synced))
@@ -809,6 +917,99 @@ mod tests {
         );
         // sync가 외부 편집을 CRDT로 흡수했어야 한다
         assert_eq!(store.doc_text(DOC_ID).unwrap(), external);
+    }
+
+    // ----------------------------------------------------------------
+    // 타임아웃·프롬프트 차단 (동기화 중 앱 멈춤 방지)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn run_command_kills_process_on_timeout() {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("10");
+        let started = Instant::now();
+        let err = run_command(cmd, Some(Duration::from_millis(200))).unwrap_err();
+        assert!(err.contains("초 안에 끝나지 않아"), "예상 밖 에러: {err}");
+        assert!(started.elapsed() < Duration::from_secs(5), "kill이 지연됨");
+    }
+
+    #[test]
+    fn run_command_passes_output_within_timeout() {
+        let mut cmd = Command::new("echo");
+        cmd.arg("hello");
+        let (ok, stdout, _) = run_command(cmd, Some(Duration::from_secs(10))).unwrap();
+        assert!(ok);
+        assert_eq!(String::from_utf8_lossy(&stdout).trim(), "hello");
+    }
+
+    #[test]
+    fn network_commands_get_timeout_local_commands_do_not() {
+        assert!(network_timeout_for(&["fetch", "origin"]).is_some());
+        assert!(network_timeout_for(&["push", "-u", "origin", "main"]).is_some());
+        assert!(network_timeout_for(&["clone", "url", "dest"]).is_some());
+        assert!(network_timeout_for(&["status", "--porcelain"]).is_none());
+        assert!(network_timeout_for(&["rebase", "origin/main"]).is_none());
+    }
+
+    #[test]
+    fn git_commands_block_credential_prompts() {
+        let git = GitWorkspace::new("/tmp", None);
+        let cmd = git.base_cmd();
+        let envs: Vec<(String, String)> = cmd
+            .get_envs()
+            .filter_map(|(k, v)| {
+                Some((k.to_string_lossy().into_owned(), v?.to_string_lossy().into_owned()))
+            })
+            .collect();
+        assert!(envs.contains(&("GIT_TERMINAL_PROMPT".into(), "0".into())));
+        assert!(envs.contains(&("GIT_ASKPASS".into(), "true".into())));
+    }
+
+    // ----------------------------------------------------------------
+    // 네트워크 구간에서 워크스페이스 락 해제 (동기화 중 저장 가능)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn lock_is_free_during_fetch_and_saves_made_then_still_sync() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let (tmp, remote, ws_a) = setup();
+        let git_a = GitWorkspace::new(&ws_a, None);
+        write(&ws_a, "a.md", "기준");
+        git_a.publish(&remote.display().to_string(), "init").unwrap();
+
+        let ws_b = tmp.path().join("clone-b");
+        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
+        let mut git_b = GitWorkspace::new(&ws_b, None);
+
+        // B를 behind 상태로 만들어 rebase 경로를 태운다
+        write(&ws_a, "a.md", "A의 수정");
+        git_a.sync("A").unwrap();
+        write(&ws_b, "b.md", "B의 새 노트");
+
+        // 다른 테스트와 간섭하지 않도록 이 워크스페이스 전용 락을 쓴다
+        let lock: &'static Mutex<()> = Box::leak(Box::new(Mutex::new(())));
+        git_b.lock = lock;
+        let fired = Arc::new(AtomicBool::new(false));
+        let fired_in_hook = Arc::clone(&fired);
+        let ws_b_in_hook = ws_b.clone();
+        git_b.after_fetch = Some(Box::new(move || {
+            // 네트워크 구간에서는 락이 풀려 있어 저장이 진행될 수 있어야 한다
+            assert!(lock.try_lock().is_ok(), "fetch 동안 락이 잡혀 있음");
+            // fetch 동안 들어온 저장을 모사 — 이후 rebase가 깨지면 안 된다
+            fs::write(ws_b_in_hook.join("during-fetch.md"), "동기화 중 저장").unwrap();
+            fired_in_hook.store(true, Ordering::SeqCst);
+        }));
+
+        let status = git_b.sync("B").unwrap();
+        assert!(fired.load(Ordering::SeqCst), "after_fetch 훅이 호출되지 않음");
+        assert_eq!(status.state, SyncState::Synced);
+        // fetch 동안 저장된 파일까지 커밋·push 되어 깨끗해야 한다
+        assert_eq!(git_b.status().state, SyncState::Synced);
+
+        git_a.sync("A pull").unwrap();
+        assert_eq!(read(&ws_a, "during-fetch.md"), "동기화 중 저장");
     }
 
     #[test]

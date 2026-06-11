@@ -121,9 +121,24 @@ pub struct UreqHttp;
 
 const USER_AGENT: &str = "synapse-app";
 
+/// 네트워크가 응답하지 않아도 요청이 영원히 매달리지 않도록 모든 GitHub
+/// 호출에 타임아웃을 둔다 (UI의 syncing 상태가 영구히 잠기는 것을 방지).
+fn agent() -> &'static ureq::Agent {
+    use std::sync::OnceLock;
+    use std::time::Duration;
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+    })
+}
+
 impl Http for UreqHttp {
     fn post_form(&self, url: &str, form: &[(&str, &str)]) -> Result<String, String> {
-        let req = ureq::post(url)
+        let req = agent()
+            .post(url)
             .set("Accept", "application/json")
             .set("User-Agent", USER_AGENT);
         match req.send_form(form) {
@@ -135,7 +150,8 @@ impl Http for UreqHttp {
     }
 
     fn get_json(&self, url: &str, token: &str) -> Result<String, String> {
-        ureq::get(url)
+        agent()
+            .get(url)
             .set("Accept", "application/vnd.github+json")
             .set("Authorization", &format!("Bearer {token}"))
             .set("User-Agent", USER_AGENT)
@@ -146,7 +162,8 @@ impl Http for UreqHttp {
     }
 
     fn post_json(&self, url: &str, token: &str, body: &Value) -> Result<String, String> {
-        let req = ureq::post(url)
+        let req = agent()
+            .post(url)
             .set("Accept", "application/vnd.github+json")
             .set("Authorization", &format!("Bearer {token}"))
             .set("User-Agent", USER_AGENT);

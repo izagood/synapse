@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import type { ConflictChoice, DeviceCode, SyncStatus } from "../ipc/types";
 import { syncCommitMessage } from "../features/sync/commitMessage";
+import { IPC_TIMEOUT_MS, withTimeout } from "../features/sync/guard";
 import { useWorkspace } from "./workspace";
 
 // FR-4.8: 엔진 상태는 세분화되어 있지만 UI는 3가지로 접는다
@@ -27,6 +28,10 @@ interface SyncStoreState {
   loginError: string | null;
   syncing: boolean;
   error: string | null;
+  /** 자동 동기화 백오프용: 연속 실패 횟수 (성공 시 0으로) */
+  failures: number;
+  /** 마지막 동기화 시도 시각 (epoch ms) */
+  lastAttemptAt: number | null;
 
   init(): Promise<void>;
   /** 워크스페이스 전환 시 이전 폴더의 상태·에러를 비운다 */
@@ -50,6 +55,8 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   loginError: null,
   syncing: false,
   error: null,
+  failures: 0,
+  lastAttemptAt: null,
 
   async init() {
     try {
@@ -60,7 +67,7 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   },
 
   resetWorkspace() {
-    set({ status: null, error: null, syncing: false });
+    set({ status: null, error: null, syncing: false, failures: 0, lastAttemptAt: null });
   },
 
   async startLogin() {
@@ -120,15 +127,23 @@ export const useSync = create<SyncStoreState>((set, get) => ({
 
   async syncNow(root) {
     if (get().syncing) return;
-    set({ syncing: true, error: null });
+    set({ syncing: true, error: null, lastAttemptAt: Date.now() });
     try {
       // 미저장 편집을 먼저 CRDT에 기록해 이번 커밋에 싣는다
       await useWorkspace.getState().flushDirty();
-      set({ status: await ipc.syncNow(root, syncCommitMessage()) });
+      // 워치독: 백엔드가 응답하지 못해도 syncing이 영구히 잠기지 않게 한다
+      set({
+        status: await withTimeout(
+          ipc.syncNow(root, syncCommitMessage()),
+          IPC_TIMEOUT_MS,
+          "동기화",
+        ),
+      });
       // pull로 받은 원격 변경을 열린 에디터에 라이브 반영
       await useWorkspace.getState().reloadAfterSync();
+      set({ failures: 0 });
     } catch (e) {
-      set({ error: String(e) });
+      set({ error: String(e), failures: get().failures + 1 });
     } finally {
       set({ syncing: false });
     }
@@ -137,7 +152,13 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   async resolveConflict(root, choice) {
     set({ syncing: true, error: null });
     try {
-      set({ status: await ipc.resolveConflict(root, choice) });
+      set({
+        status: await withTimeout(
+          ipc.resolveConflict(root, choice),
+          IPC_TIMEOUT_MS,
+          "충돌 해결",
+        ),
+      });
       await useWorkspace.getState().reloadAfterSync();
     } catch (e) {
       set({ error: String(e) });
@@ -149,7 +170,13 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   async publish(root, name, isPrivate) {
     set({ syncing: true, error: null });
     try {
-      set({ status: await ipc.publishWorkspace(root, name, isPrivate) });
+      set({
+        status: await withTimeout(
+          ipc.publishWorkspace(root, name, isPrivate),
+          IPC_TIMEOUT_MS,
+          "게시",
+        ),
+      });
     } catch (e) {
       set({ error: String(e) });
       throw e;

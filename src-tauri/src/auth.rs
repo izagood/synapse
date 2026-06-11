@@ -38,27 +38,38 @@ pub enum PollResult {
 }
 
 #[tauri::command]
-pub fn github_login_start(state: tauri::State<AuthState>) -> Result<DeviceCode, String> {
+pub async fn github_login_start(
+    state: tauri::State<'_, AuthState>,
+) -> Result<DeviceCode, String> {
     if CLIENT_ID.is_empty() {
         return Err(
             "GitHub OAuth client_id가 설정되지 않았습니다. SYNAPSE_GITHUB_CLIENT_ID로 빌드하세요."
                 .to_string(),
         );
     }
-    let code = github::start_device_flow(&UreqHttp, CLIENT_ID)?;
+    // 네트워크 호출은 메인 스레드 밖에서 — 커맨드가 메인 스레드를 점유하면
+    // 응답이 올 때까지 앱 UI가 멈춘다 (sync.rs 참고)
+    let code =
+        crate::sync::run_blocking(|| github::start_device_flow(&UreqHttp, CLIENT_ID)).await?;
     *state.pending_device_code.lock().unwrap() = Some(code.device_code.clone());
     Ok(code)
 }
 
 #[tauri::command]
-pub fn github_login_poll(state: tauri::State<AuthState>) -> Result<PollResult, String> {
+pub async fn github_login_poll(
+    state: tauri::State<'_, AuthState>,
+) -> Result<PollResult, String> {
     let device_code = state
         .pending_device_code
         .lock()
         .unwrap()
         .clone()
         .ok_or("진행 중인 로그인이 없습니다")?;
-    match github::poll_device_flow(&UreqHttp, CLIENT_ID, &device_code)? {
+    let outcome = crate::sync::run_blocking(move || {
+        github::poll_device_flow(&UreqHttp, CLIENT_ID, &device_code)
+    })
+    .await?;
+    match outcome {
         PollOutcome::Pending => Ok(PollResult::Pending),
         PollOutcome::SlowDown => Ok(PollResult::SlowDown),
         PollOutcome::Failed(message) => {
@@ -67,9 +78,13 @@ pub fn github_login_poll(state: tauri::State<AuthState>) -> Result<PollResult, S
         }
         PollOutcome::Token(token) => {
             *state.pending_device_code.lock().unwrap() = None;
-            let login = github::get_login(&UreqHttp, &token)?;
-            entry("github-token")?.set_password(&token).map_err(|e| e.to_string())?;
-            entry("github-login")?.set_password(&login).map_err(|e| e.to_string())?;
+            let login = crate::sync::run_blocking(move || {
+                let login = github::get_login(&UreqHttp, &token)?;
+                entry("github-token")?.set_password(&token).map_err(|e| e.to_string())?;
+                entry("github-login")?.set_password(&login).map_err(|e| e.to_string())?;
+                Ok(login)
+            })
+            .await?;
             Ok(PollResult::Ok { login })
         }
     }
