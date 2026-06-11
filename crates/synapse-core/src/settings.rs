@@ -62,6 +62,18 @@ pub struct HtmlViewerSettings {
     pub allow_network: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FilesSettings {
+    pub confirm_delete: bool,
+}
+
+impl Default for FilesSettings {
+    fn default() -> Self {
+        FilesSettings { confirm_delete: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -69,6 +81,7 @@ pub struct Settings {
     pub editor: EditorSettings,
     pub sync: SyncSettings,
     pub html_viewer: HtmlViewerSettings,
+    pub files: FilesSettings,
 }
 
 pub fn load_settings(config_dir: &Path) -> Settings {
@@ -128,5 +141,6 @@ mod tests {
         assert!(json.contains("\"fontFamily\""));
         assert!(json.contains("\"htmlViewer\""));
         assert!(json.contains("\"intervalMinutes\""));
+        assert!(json.contains("\"confirmDelete\""));
     }
 }

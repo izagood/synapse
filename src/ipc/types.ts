@@ -52,6 +52,7 @@ export interface Settings {
   };
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
+  files: { confirmDelete: boolean };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -64,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },
+  files: { confirmDelete: true },
 };
 
 export interface WorkspaceSession {
