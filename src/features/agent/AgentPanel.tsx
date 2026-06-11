@@ -3,6 +3,7 @@ import { useAgent } from "../../stores/agent";
 import { useWorkspace } from "../../stores/workspace";
 import { ipc } from "../../ipc/ipc";
 import { CloseIcon, PlusIcon, RefreshIcon, SendIcon, StopIcon } from "../../shared/Icons";
+import { shortcutLabel } from "../../shared/platform";
 
 const ROLE_LABEL: Record<string, string> = {
   user: "나",
@@ -18,6 +19,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   const running = useAgent((s) => s.running);
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const toggleShortcut = shortcutLabel(["Shift", "Mod", "A"]);
 
   useEffect(() => {
     if (root) void useAgent.getState().init(root);
@@ -55,7 +57,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
           >
             <PlusIcon size={15} />
           </button>
-          <button onClick={onClose} title="패널 닫기 (⇧⌘A)">
+          <button onClick={onClose} title={`패널 닫기 (${toggleShortcut})`}>
             <CloseIcon size={15} />
           </button>
         </span>
@@ -66,6 +68,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
           <p>
             claude CLI를 찾을 수 없습니다. Claude Code를 설치하고 터미널에서{" "}
             <code>claude</code>를 실행해 로그인하면 이 패널에서 바로 쓸 수
+            있습니다. Windows에서는 설치 후 새 터미널이나 앱 재시작이 필요할 수
             있습니다.
           </p>
           <div className="agent-setup-actions">

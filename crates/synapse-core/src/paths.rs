@@ -45,6 +45,7 @@ mod tests {
         assert!(ensure_within(&sub, &escape).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn rejects_symlink_escape() {
         let tmp = tempfile::tempdir().unwrap();
