@@ -3,7 +3,7 @@
 //! HTTP는 트레이트로 추상화해 네트워크 없이 테스트한다.
 //! 토큰 저장은 이 모듈 책임이 아니다 — 호출자(Tauri 셸)가 OS 키체인에 보관한다.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub trait Http {
@@ -35,6 +35,27 @@ pub enum PollOutcome {
 pub struct CreatedRepo {
     pub full_name: String,
     pub clone_url: String,
+}
+
+/// OS 키체인의 **한 항목**에 직렬화해 보관하는 GitHub 자격 증명.
+/// macOS는 키체인 항목마다 접근 허용을 따로 묻기 때문에,
+/// 토큰과 로그인명을 항목 두 개에 나눠 담으면 허용 다이얼로그도 두 번 뜬다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Credentials {
+    pub token: String,
+    /// 구버전 항목에서 마이그레이션할 때 로그인명이 없을 수 있다.
+    #[serde(default)]
+    pub login: String,
+}
+
+impl Credentials {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("Credentials는 항상 직렬화 가능")
+    }
+
+    pub fn from_json(s: &str) -> Result<Self, String> {
+        serde_json::from_str(s).map_err(|e| format!("키체인 자격 증명 파싱 실패: {e}"))
+    }
 }
 
 fn parse(body: &str) -> Result<Value, String> {
@@ -268,5 +289,23 @@ mod tests {
     fn get_login_extracts_username() {
         let http = FakeHttp::new(&[r#"{"login":"izagood","id":1}"#]);
         assert_eq!(get_login(&http, "tok").unwrap(), "izagood");
+    }
+
+    #[test]
+    fn credentials_roundtrip_json() {
+        let creds = Credentials { token: "ghp_abc".to_string(), login: "izagood".to_string() };
+        assert_eq!(Credentials::from_json(&creds.to_json()).unwrap(), creds);
+    }
+
+    #[test]
+    fn credentials_login_defaults_to_empty_when_missing() {
+        let creds = Credentials::from_json(r#"{"token":"ghp_abc"}"#).unwrap();
+        assert_eq!(creds.token, "ghp_abc");
+        assert_eq!(creds.login, "");
+    }
+
+    #[test]
+    fn credentials_from_invalid_json_is_error() {
+        assert!(Credentials::from_json("ghp_plain_token").is_err());
     }
 }
