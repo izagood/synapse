@@ -6,12 +6,14 @@ import { ContentPane } from "./ContentPane";
 import { QuickOpenModal } from "./QuickOpenModal";
 import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
+import { AgentPanel } from "../agent/AgentPanel";
 import { PlusIcon, RefreshIcon } from "../../shared/Icons";
 
 const SIDEBAR_DEFAULT = 260;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 520;
 const SIDEBAR_KEY = "synapse.sidebarWidth";
+const AGENT_PANEL_KEY = "synapse.agentPanelVisible";
 
 function loadSidebarWidth(): number {
   const saved = Number(localStorage.getItem(SIDEBAR_KEY));
@@ -27,14 +29,28 @@ export function WorkspaceView() {
   const [quickOpen, setQuickOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const [agentVisible, setAgentVisible] = useState(
+    () => localStorage.getItem(AGENT_PANEL_KEY) === "1",
+  );
   const dragging = useRef(false);
 
+  const toggleAgent = useCallback(() => {
+    setAgentVisible((v) => {
+      localStorage.setItem(AGENT_PANEL_KEY, v ? "0" : "1");
+      return !v;
+    });
+  }, []);
+
   // Ctrl/Cmd+S 저장 · Ctrl/Cmd+P 빠른 열기 · Ctrl/Cmd+B 사이드바 (VS Code)
+  // Ctrl/Cmd+Shift+A Claude 패널
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
-      if (key === "s") {
+      if (e.shiftKey && key === "a") {
+        e.preventDefault();
+        toggleAgent();
+      } else if (key === "s") {
         e.preventDefault();
         void saveActive();
       } else if (key === "p") {
@@ -47,7 +63,7 @@ export function WorkspaceView() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive]);
+  }, [saveActive, toggleAgent]);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -85,6 +101,8 @@ export function WorkspaceView() {
           sidebarVisible={sidebarVisible}
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
           onQuickOpen={() => setQuickOpen(true)}
+          agentVisible={agentVisible}
+          onToggleAgent={toggleAgent}
         />
         {sidebarVisible && (
           <>
@@ -120,6 +138,7 @@ export function WorkspaceView() {
             <ContentPane />
           </div>
         </main>
+        {agentVisible && <AgentPanel onClose={toggleAgent} />}
       </div>
       <SyncBar />
       {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
