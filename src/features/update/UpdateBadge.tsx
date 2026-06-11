@@ -1,14 +1,9 @@
-import { useEffect } from "react";
 import { useUpdate } from "../../stores/update";
 
 // 상태바 우측: 새 버전이 있을 때만 나타나는 원클릭 업데이트 버튼 (F2)
+// 자동 확인은 앱 전역의 UpdateToast가 담당한다.
 export function UpdateBadge() {
-  const { available, installing, check, install } = useUpdate();
-  const checked = useUpdate((s) => s.checked);
-
-  useEffect(() => {
-    if (!checked) void check();
-  }, [checked, check]);
+  const { available, installing, install } = useUpdate();
 
   if (!available) return null;
 
