@@ -53,7 +53,18 @@ export function editorExtensions({
 }: { withPlaceholder?: boolean; placeholder?: string } = {}): AnyExtension[] {
   return [
     StarterKit.configure({
-      link: { openOnClick: false },
+      link: {
+        openOnClick: false,
+        // 스킴 없는 상대경로 링크(advanced/01.md 등)는 그대로 허용한다.
+        // tiptap 기본 isAllowedUri의 정규식 [^a-z+.-:]에서 .-: 가 범위(./0-9:)로
+        // 해석돼 '/'를 포함하는 바람에, 첫 글자가 영문이고 중간에 '/'가 있으며
+        // './'로 시작하지 않는 상대경로가 파싱 시점에 링크 마크째로 버려진다.
+        // (md 라운드트립에서 [텍스트](advanced/x.md)가 평문으로 뭉개지는 원인)
+        // 스킴이 있으면(https:, javascript: 등) 기본 검증을 그대로 적용해
+        // 위험 스킴은 계속 차단한다.
+        isAllowedUri: (url, ctx) =>
+          /^[a-z][a-z0-9+.-]*:/i.test(url) ? ctx.defaultValidate(url) : true,
+      },
       codeBlock: false, // CodeBlockLowlight로 대체
     }),
     CodeBlockLowlight.configure({ lowlight }),
