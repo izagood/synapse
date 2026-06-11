@@ -175,4 +175,19 @@ export const en: LocaleShape<KoMessages> = {
   viewer: {
     preparing: "Preparing render…",
   },
+  history: {
+    title: "File history",
+    open: "File history",
+    empty: "No git history for this file yet. (It may not be synced or tracked.)",
+    loading: "Loading history…",
+    selectPrompt: "Select a version on the left to view its contents.",
+    previewLoading: "Loading this version…",
+    restore: "Restore this version",
+    restoring: "Restoring…",
+    restored: "Restored this version",
+    restoreFailed: "Restore failed",
+    readOnly: "Read-only preview",
+    currentBadge: "current",
+    needFile: "Open a note first to view its history",
+  },
 };

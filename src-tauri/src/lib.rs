@@ -46,6 +46,8 @@ pub fn run() {
             sync::resolve_conflict,
             sync::publish_workspace,
             sync::clone_repo,
+            sync::file_history,
+            sync::file_at_revision,
             agent::agent_status,
             agent::agent_send,
             agent::agent_stop,

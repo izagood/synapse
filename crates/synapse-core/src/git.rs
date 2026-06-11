@@ -53,6 +53,20 @@ impl SyncStatus {
     }
 }
 
+/// 파일 히스토리 한 항목 (FR-4.7). git log 한 커밋에 대응한다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileCommit {
+    /// 전체 커밋 해시 (`git show <hash>:<path>`에 그대로 쓴다)
+    pub hash: String,
+    /// 짧은 해시 (UI 표시용)
+    pub short_hash: String,
+    pub author: String,
+    /// 커밋 시각 (ISO 8601, 예: 2026-06-11T10:30:00+09:00)
+    pub timestamp: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConflictChoice {
@@ -676,6 +690,80 @@ impl GitWorkspace {
         self.run_ok(&["push", "-u", "origin", &branch])?;
         Ok(SyncStatus::simple(SyncState::Synced))
     }
+
+    /// 한 파일의 git 커밋 히스토리 (최신순). 레포가 아니거나 추적되지 않는
+    /// 파일이면 빈 목록을 돌려준다 — 앱이 죽지 않게 우아하게 처리한다 (FR-4.7).
+    ///
+    /// `rel_path`는 워크스페이스 루트 기준 상대 경로(git pathspec)다.
+    pub fn file_history(&self, rel_path: &str) -> GitResult<Vec<FileCommit>> {
+        if !Self::git_available() || !self.is_repo() {
+            return Ok(vec![]);
+        }
+        // 레코드/필드 구분자로 잘 안 쓰이는 제어문자를 써서 메시지에 개행이
+        // 있어도 안전하게 파싱한다. %x1e=레코드, %x1f=필드.
+        // 이름이 바뀐 이력까지 따라가도록 --follow.
+        let (ok, out, _) = self.run(&[
+            "log",
+            "--follow",
+            "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%B%x1e",
+            "--",
+            rel_path,
+        ])?;
+        if !ok {
+            // pathspec이 매치 안 되는 등(추적 안 됨) — 빈 히스토리로 본다
+            return Ok(vec![]);
+        }
+        Ok(parse_file_history(&out))
+    }
+
+    /// 특정 리비전 시점의 파일 내용. `git show <rev>:<path>` 류.
+    /// 해당 리비전에 파일이 없으면 에러를 돌려준다.
+    pub fn file_at_revision(&self, rel_path: &str, rev: &str) -> GitResult<String> {
+        if !Self::git_available() {
+            return Err("git이 설치되어 있지 않습니다".to_string());
+        }
+        if !self.is_repo() {
+            return Err("git 리포지토리가 아닙니다".to_string());
+        }
+        // rev에 ':'가 섞여 들어와 pathspec을 교란하지 못하도록 분리 인자로 넘긴다.
+        let spec = format!("{rev}:{rel_path}");
+        let (ok, out, err) = self.run(&["show", &spec])?;
+        if ok {
+            Ok(out)
+        } else {
+            Err(format!("해당 버전을 불러올 수 없습니다: {}", err.trim()))
+        }
+    }
+}
+
+/// `git log` 출력을 FileCommit 목록으로 파싱한다 (순수 함수 — 단위 테스트 대상).
+fn parse_file_history(raw: &str) -> Vec<FileCommit> {
+    raw.split('\u{1e}')
+        .filter_map(|rec| {
+            let rec = rec.trim_matches(|c: char| c == '\n' || c == '\r');
+            if rec.is_empty() {
+                return None;
+            }
+            let mut fields = rec.split('\u{1f}');
+            let hash = fields.next()?.trim().to_string();
+            let short_hash = fields.next()?.trim().to_string();
+            let author = fields.next()?.trim().to_string();
+            let timestamp = fields.next()?.trim().to_string();
+            // 메시지는 %B(개행 포함 본문) — 마지막 필드라 안쪽 줄바꿈은 보존하고
+            // 양끝 공백만 다듬는다.
+            let message = fields.next().unwrap_or("").trim().to_string();
+            if hash.is_empty() {
+                return None;
+            }
+            Some(FileCommit {
+                hash,
+                short_hash,
+                author,
+                timestamp,
+                message,
+            })
+        })
+        .collect()
 }
 
 /// "dir/note.md" → "dir/note (conflict).md"
@@ -1162,6 +1250,141 @@ mod tests {
     fn conflict_copy_naming() {
         assert_eq!(conflict_copy_name("a/b/note.md"), "a/b/note (conflict).md");
         assert_eq!(conflict_copy_name("README"), "README (conflict)");
+    }
+
+    // ----------------------------------------------------------------
+    // 파일 히스토리 (FR-4.7)
+    // ----------------------------------------------------------------
+
+    /// 로컬 커밋만 있는 워크스페이스 git 레포를 만든다 (원격 없음)
+    fn init_local_repo(ws: &Path) {
+        let run = |args: &[&str]| {
+            let out = Command::new("git")
+                .current_dir(ws)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?} 실패");
+        };
+        run(&["init", "-b", "main"]);
+        run(&["config", "user.name", "Tester"]);
+        run(&["config", "user.email", "tester@example.com"]);
+    }
+
+    fn commit_all(ws: &Path, message: &str) {
+        let add = Command::new("git")
+            .current_dir(ws)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        assert!(add.status.success());
+        let commit = Command::new("git")
+            .current_dir(ws)
+            .args(["commit", "-m", message])
+            .output()
+            .unwrap();
+        assert!(commit.status.success(), "commit 실패: {message}");
+    }
+
+    #[test]
+    fn parse_file_history_splits_records_and_fields() {
+        let raw = "h1\u{1f}s1\u{1f}Alice\u{1f}2026-06-11T10:00:00+09:00\u{1f}첫 커밋\u{1e}\n\
+                   h2\u{1f}s2\u{1f}Bob\u{1f}2026-06-11T11:00:00+09:00\u{1f}둘째 커밋\u{1e}\n";
+        let commits = parse_file_history(raw);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].hash, "h1");
+        assert_eq!(commits[0].short_hash, "s1");
+        assert_eq!(commits[0].author, "Alice");
+        assert_eq!(commits[0].timestamp, "2026-06-11T10:00:00+09:00");
+        assert_eq!(commits[0].message, "첫 커밋");
+        assert_eq!(commits[1].author, "Bob");
+        assert_eq!(commits[1].message, "둘째 커밋");
+        // 빈 출력은 빈 목록
+        assert!(parse_file_history("").is_empty());
+        assert!(parse_file_history("\n").is_empty());
+    }
+
+    #[test]
+    fn file_history_lists_commits_newest_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path();
+        init_local_repo(ws);
+
+        write(ws, "note.md", "v1");
+        commit_all(ws, "첫 버전");
+        write(ws, "note.md", "v2");
+        commit_all(ws, "둘째 버전");
+        write(ws, "note.md", "v3");
+        commit_all(ws, "셋째 버전");
+
+        let git = GitWorkspace::new(ws, None);
+        let history = git.file_history("note.md").unwrap();
+        assert_eq!(history.len(), 3);
+        // 최신순
+        assert_eq!(history[0].message, "셋째 버전");
+        assert_eq!(history[1].message, "둘째 버전");
+        assert_eq!(history[2].message, "첫 버전");
+        // 해시·시각이 채워져 있다
+        assert!(!history[0].hash.is_empty());
+        assert!(!history[0].short_hash.is_empty());
+        assert!(history[0].timestamp.contains('T'));
+        assert_eq!(history[0].author, "Tester");
+    }
+
+    #[test]
+    fn file_at_revision_returns_old_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path();
+        init_local_repo(ws);
+
+        write(ws, "note.md", "원래 내용\n");
+        commit_all(ws, "v1");
+        write(ws, "note.md", "수정된 내용\n");
+        commit_all(ws, "v2");
+
+        let git = GitWorkspace::new(ws, None);
+        let history = git.file_history("note.md").unwrap();
+        assert_eq!(history.len(), 2);
+
+        // 가장 오래된 커밋(v1)의 내용을 복원
+        let old = git.file_at_revision("note.md", &history[1].hash).unwrap();
+        assert_eq!(old, "원래 내용\n");
+        // 최신 커밋은 현재 내용
+        let new = git.file_at_revision("note.md", &history[0].hash).unwrap();
+        assert_eq!(new, "수정된 내용\n");
+    }
+
+    #[test]
+    fn file_at_revision_errors_for_missing_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path();
+        init_local_repo(ws);
+        write(ws, "note.md", "x");
+        commit_all(ws, "v1");
+
+        let git = GitWorkspace::new(ws, None);
+        let head = git.file_history("note.md").unwrap()[0].hash.clone();
+        // 존재하지 않는 파일은 에러 (앱이 죽지 않고 우아하게 보고)
+        assert!(git.file_at_revision("nope.md", &head).is_err());
+    }
+
+    #[test]
+    fn file_history_empty_for_untracked_and_non_repo() {
+        // git 레포지만 추적되지 않는 파일
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path();
+        init_local_repo(ws);
+        write(ws, "tracked.md", "x");
+        commit_all(ws, "v1");
+        write(ws, "untracked.md", "y"); // 커밋 안 함
+        let git = GitWorkspace::new(ws, None);
+        assert!(git.file_history("untracked.md").unwrap().is_empty());
+
+        // git 레포가 아닌 폴더
+        let plain = tempfile::tempdir().unwrap();
+        write(plain.path(), "note.md", "x");
+        let git2 = GitWorkspace::new(plain.path(), None);
+        assert!(git2.file_history("note.md").unwrap().is_empty());
     }
 
     #[test]
