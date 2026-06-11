@@ -50,7 +50,7 @@ const WorkspaceImage = Image.extend({
 export function editorExtensions({
   withPlaceholder = true,
   placeholder = ko.editor.placeholder,
-} = {}): AnyExtension[] {
+}: { withPlaceholder?: boolean; placeholder?: string } = {}): AnyExtension[] {
   return [
     StarterKit.configure({
       link: { openOnClick: false },

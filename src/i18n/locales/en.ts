@@ -1,6 +1,9 @@
 type KoMessages = typeof import("./ko").ko;
+type LocaleShape<T> = {
+  readonly [K in keyof T]: T[K] extends string ? string : LocaleShape<T[K]>;
+};
 
-export const en: KoMessages = {
+export const en: LocaleShape<KoMessages> = {
   common: {
     cancel: "Cancel",
     close: "Close",
