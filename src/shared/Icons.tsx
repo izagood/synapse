@@ -142,6 +142,25 @@ export const NewWindowIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const SparkleIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M8 1.8 9.6 6.4 14.2 8 9.6 9.6 8 14.2 6.4 9.6 1.8 8 6.4 6.4z" />
+  </Svg>
+);
+
+export const SendIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M14 2 7.3 8.7" />
+    <path d="M14 2 9.7 14l-2.4-5.3L2 6.3z" />
+  </Svg>
+);
+
+export const StopIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 export const GitHubIcon = (p: IconProps) => (
   <Svg {...p}>
     <path

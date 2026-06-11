@@ -8,16 +8,25 @@ import {
   NewWindowIcon,
   SearchIcon,
   SidebarIcon,
+  SparkleIcon,
 } from "../../shared/Icons";
 
 interface ActivityBarProps {
   sidebarVisible: boolean;
   onToggleSidebar: () => void;
   onQuickOpen: () => void;
+  agentVisible: boolean;
+  onToggleAgent: () => void;
 }
 
 // VS Code 액티비티 바: 상단 내비게이션 / 하단 폴더·설정
-export function ActivityBar({ sidebarVisible, onToggleSidebar, onQuickOpen }: ActivityBarProps) {
+export function ActivityBar({
+  sidebarVisible,
+  onToggleSidebar,
+  onQuickOpen,
+  agentVisible,
+  onToggleAgent,
+}: ActivityBarProps) {
   const openFolder = useWorkspace((s) => s.openFolder);
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
   const openSettings = useSettings((s) => s.openSettings);
@@ -34,6 +43,13 @@ export function ActivityBar({ sidebarVisible, onToggleSidebar, onQuickOpen }: Ac
         </button>
         <button onClick={onQuickOpen} title="빠른 열기 (⌘P)">
           <SearchIcon size={18} />
+        </button>
+        <button
+          className={agentVisible ? "active" : ""}
+          onClick={onToggleAgent}
+          title="Claude 패널 (⇧⌘A)"
+        >
+          <SparkleIcon size={18} />
         </button>
       </div>
       <div className="activity-bottom">

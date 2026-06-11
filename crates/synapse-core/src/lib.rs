@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod collab;
 pub mod fs_io;
 pub mod git;

@@ -1,6 +1,6 @@
 [package]
 name = "synapse"
-version = "0.3.8"
+version = "0.4.0"
 edition = "2021"
 description = "Synapse — Notion-style note app that saves plain Markdown, synced via GitHub"
 
