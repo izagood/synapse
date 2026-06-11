@@ -45,6 +45,11 @@ const CASES: Record<string, { input: string; mustContain: string[] }> = {
     input: "[Synapse](https://github.com/izagood/synapse) 링크",
     mustContain: ["[Synapse](https://github.com/izagood/synapse)"],
   },
+  // 드래그앤드롭/붙여넣기가 기록하는 상대 경로 이미지 (safeImageName 산출 형태)
+  image: {
+    input: "![스크린샷-2026-06-11-오후-3.24.15](스크린샷-2026-06-11-오후-3.24.15.png)",
+    mustContain: ["![스크린샷-2026-06-11-오후-3.24.15](스크린샷-2026-06-11-오후-3.24.15.png)"],
+  },
 };
 
 describe("markdown roundtrip (tiptap-markdown)", () => {
@@ -77,6 +82,13 @@ describe("markdown roundtrip (tiptap-markdown)", () => {
       "- [x] 완료",
     ].join("\n");
     expect(roundtrip(note)).toBe(note);
+  });
+
+  it("공백 포함 이미지 목적지는 파싱되지 않는다 (safeImageName이 필요한 이유)", () => {
+    // CommonMark는 ![alt](목적지)의 목적지에 공백을 허용하지 않는다.
+    // 이 동작이 바뀌지 않는 한 드롭 시 파일명 공백 치환을 유지해야 한다.
+    const out = roundtrip("![shot](스크린샷 2026-06-11 오후 3.24.15.png)");
+    expect(out).not.toContain("![shot](스크린샷 2026-06-11");
   });
 
   for (const [name, { input, mustContain }] of Object.entries(CASES)) {
