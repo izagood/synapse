@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FileNode } from "../../ipc/types";
 import { useWorkspace } from "../../stores/workspace";
+import { useSettings } from "../../stores/settings";
 import { ChevronIcon, FileIcon, FileTextIcon, GlobeIcon } from "../../shared/Icons";
+import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
 
 function FileTypeIcon({ node }: { node: FileNode }) {
   const size = 14;
@@ -85,10 +87,12 @@ function TreeContextMenu({
   menu,
   onClose,
   onDialog,
+  onDelete,
 }: {
   menu: MenuState;
   onClose: () => void;
   onDialog: (d: DialogState) => void;
+  onDelete: (node: FileNode) => void;
 }) {
   const createNote = useWorkspace((s) => s.createNote);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
@@ -103,6 +107,25 @@ function TreeContextMenu({
     };
   }, [onClose]);
 
+  // 메뉴가 창 밖으로 넘치면 안쪽으로 밀어 넣는다 (하단에서 '삭제'가 짤리던 문제)
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: menu.x, y: menu.y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPos(
+      clampMenuPosition(
+        menu.x,
+        menu.y,
+        rect.width,
+        rect.height,
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    );
+  }, [menu]);
+
   const { node } = menu;
   const run = (action: () => void) => {
     onClose();
@@ -111,8 +134,9 @@ function TreeContextMenu({
 
   return (
     <div
+      ref={ref}
       className="context-menu"
-      style={{ left: menu.x, top: menu.y }}
+      style={{ left: pos.x, top: pos.y }}
       onClick={(e) => e.stopPropagation()}
     >
       {node.kind === "dir" && (
@@ -130,10 +154,7 @@ function TreeContextMenu({
         경로 복사
       </button>
       <div className="context-sep" />
-      <button
-        className="context-danger"
-        onClick={() => run(() => onDialog({ kind: "delete", node }))}
-      >
+      <button className="context-danger" onClick={() => run(() => onDelete(node))}>
         삭제
       </button>
     </div>
@@ -189,6 +210,38 @@ function RenameDialog({ node, onClose }: { node: FileNode; onClose: () => void }
 
 function DeleteDialog({ node, onClose }: { node: FileNode; onClose: () => void }) {
   const deleteEntry = useWorkspace((s) => s.deleteEntry);
+  const updateSettings = useSettings((s) => s.update);
+  const [dontAskAgain, setDontAskAgain] = useState(false);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    confirmRef.current?.focus();
+  }, []);
+
+  const confirm = () => {
+    if (dontAskAgain) {
+      const files = useSettings.getState().settings.files;
+      void updateSettings({ files: { ...files, confirmDelete: false } });
+    }
+    void deleteEntry(node);
+    onClose();
+  };
+
+  // Enter = 삭제, Escape = 취소 (포커스 위치와 무관하게 동작)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        confirm();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -200,16 +253,21 @@ function DeleteDialog({ node, onClose }: { node: FileNode; onClose: () => void }
           <br />
           <span className="modal-hint">
             이 작업은 되돌릴 수 없습니다 (GitHub에 동기화된 내용은 히스토리에 남습니다).
+            Enter 키로 바로 삭제할 수 있습니다.
           </span>
         </p>
+        <label className="modal-check">
+          <input
+            type="checkbox"
+            checked={dontAskAgain}
+            onChange={(e) => setDontAskAgain(e.target.checked)}
+          />
+          <span>
+            다시 묻지 않고 바로 삭제 <span className="modal-hint">(설정에서 되돌릴 수 있음)</span>
+          </span>
+        </label>
         <div className="modal-actions">
-          <button
-            className="danger-btn"
-            onClick={() => {
-              void deleteEntry(node);
-              onClose();
-            }}
-          >
+          <button ref={confirmRef} className="danger-btn" onClick={confirm}>
             삭제
           </button>
           <button onClick={onClose}>취소</button>
@@ -223,6 +281,34 @@ export function FileTree() {
   const tree = useWorkspace((s) => s.tree);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
+
+  // 컨텍스트 메뉴·단축키 공통 삭제 진입점 — 설정에 따라 확인 없이 바로 삭제
+  const requestDelete = useCallback((node: FileNode) => {
+    if (useSettings.getState().settings.files.confirmDelete) {
+      setDialog({ kind: "delete", node });
+    } else {
+      void useWorkspace.getState().deleteEntry(node);
+    }
+  }, []);
+
+  // Cmd/Ctrl+Backspace(또는 Delete)로 선택된 파일 삭제
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isDeleteShortcut(e)) return;
+      // 에디터·입력창에 포커스가 있을 땐 글자 삭제 동작을 방해하지 않는다
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable=\"true\"]")) return;
+      if (dialog) return; // 다이얼로그가 떠 있으면 중복 트리거 방지
+      const { tree, activePath } = useWorkspace.getState();
+      if (!tree || !activePath) return;
+      const node = findNode(tree, activePath);
+      if (!node) return;
+      e.preventDefault();
+      requestDelete(node);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dialog, requestDelete]);
 
   if (!tree) return null;
 
@@ -240,6 +326,7 @@ export function FileTree() {
           menu={menu}
           onClose={() => setMenu(null)}
           onDialog={setDialog}
+          onDelete={requestDelete}
         />
       )}
       {dialog?.kind === "rename" && (
