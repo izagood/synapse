@@ -5,7 +5,7 @@ import { ipc } from "../../ipc/ipc";
 import { CloseIcon, PlusIcon, RefreshIcon, SendIcon, StopIcon } from "../../shared/Icons";
 import { shortcutLabel } from "../../shared/platform";
 import { useT } from "../../i18n";
-import { Markdown } from "./Markdown";
+import { Markdown } from "./MarkdownView";
 
 // PLAN-v0.4 Phase 1: 워크스페이스를 컨텍스트로 claude와 대화하는 우측 패널.
 // 읽기 전용 도구만 허용된 헤드리스 CLI 한 턴씩 실행한다.
