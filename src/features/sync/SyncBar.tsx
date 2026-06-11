@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { badgeOf, useSync } from "../../stores/sync";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
+import { shouldAutoSync } from "./guard";
 import { LoginModal } from "./LoginModal";
 import { UpdateBadge } from "../update/UpdateBadge";
 import {
@@ -168,18 +169,17 @@ export function SyncBar() {
     useSync.getState().resetWorkspace();
     void refreshStatus(root);
     const statusTimer = setInterval(() => void refreshStatus(root), STATUS_POLL_MS);
+    const autoIntervalMs = Math.max(intervalMinutes, 1) * 60_000;
     const autoTimer = autoSync
-      ? setInterval(
-          () => {
-            const s = useSync.getState();
-            // pending: 내 변경 push. synced: 원격 변경 pull(준실시간 협업).
-            const state = s.status?.state;
-            if (s.login && (state === "pending" || state === "synced") && !s.syncing) {
-              void s.syncNow(root);
-            }
-          },
-          Math.max(intervalMinutes, 1) * 60_000,
-        )
+      ? setInterval(() => {
+          const s = useSync.getState();
+          // pending: 내 변경 push. synced: 원격 변경 pull(준실시간 협업).
+          const state = s.status?.state;
+          if (!s.login || s.syncing || !(state === "pending" || state === "synced")) return;
+          // 연속 실패 시 지수 백오프 — 네트워크가 나쁠 때 매 틱 재시도하지 않는다
+          if (!shouldAutoSync(Date.now(), s.lastAttemptAt, autoIntervalMs, s.failures)) return;
+          void s.syncNow(root);
+        }, autoIntervalMs)
       : undefined;
     return () => {
       clearInterval(statusTimer);

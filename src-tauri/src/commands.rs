@@ -40,24 +40,28 @@ pub fn write_file(root: String, path: String, content: String) -> Result<(), Str
 /// 변경을 CRDT에 기록한 뒤, 합쳐진 최종 텍스트를 .md에 쓰고 돌려준다.
 /// 그 사이 원격 머지나 외부 편집이 있었다면 돌려준 텍스트에 합쳐져 있다.
 #[tauri::command]
-pub fn save_doc(
+pub async fn save_doc(
     root: String,
     path: String,
     content: String,
     base: String,
 ) -> Result<String, String> {
-    use synapse_core::collab;
+    // 디스크 I/O와 락 대기(동기화의 로컬 구간과 경합)를 메인 스레드 밖에서
+    crate::sync::run_blocking(move || {
+        use synapse_core::collab;
 
-    let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
-        .map_err(|e| e.to_string())?;
-    let _guard = collab::workspace_lock()
-        .lock()
-        .map_err(|_| "workspace lock poisoned".to_string())?;
-    let actor = collab::load_or_create_actor_id(&config_dir()?).map_err(|e| e.to_string())?;
-    let store = synapse_core::CollabStore::new(Path::new(&root), actor);
-    store
-        .save_doc_file(&resolved, &content, &base)
-        .map_err(|e| e.to_string())
+        let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
+            .map_err(|e| e.to_string())?;
+        let _guard = collab::workspace_lock()
+            .lock()
+            .map_err(|_| "workspace lock poisoned".to_string())?;
+        let actor = collab::load_or_create_actor_id(&config_dir()?).map_err(|e| e.to_string())?;
+        let store = synapse_core::CollabStore::new(Path::new(&root), actor);
+        store
+            .save_doc_file(&resolved, &content, &base)
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
