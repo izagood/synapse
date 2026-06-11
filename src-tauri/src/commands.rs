@@ -164,6 +164,20 @@ pub fn rename_path(root: String, path: String, new_name: String) -> Result<Strin
         .map_err(|e| e.to_string())
 }
 
+/// 워크스페이스 전체 텍스트 검색 (FR-1.5). 디스크 순회가 메인 스레드를 막지
+/// 않도록 스레드 풀에서 돈다.
+#[tauri::command]
+pub async fn search_workspace(
+    root: String,
+    query: String,
+) -> Result<Vec<synapse_core::SearchHit>, String> {
+    crate::sync::run_blocking(move || {
+        let opts = synapse_core::SearchOptions::default();
+        Ok(synapse_core::search_workspace(Path::new(&root), &query, &opts))
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn delete_path(root: String, path: String) -> Result<(), String> {
     let resolved =

@@ -14,6 +14,7 @@ export const ko = {
   activity: {
     toggleSidebar: "사이드바 토글",
     quickOpen: "빠른 열기 ({shortcut})",
+    search: "전체 검색 ({shortcut})",
     agentPanel: "Claude 패널 ({shortcut})",
     newWindow: "새 창 ({shortcut}) - 다른 폴더를 동시에",
     openAnotherFolder: "다른 폴더 열기",
@@ -36,6 +37,10 @@ export const ko = {
   },
   quickOpen: {
     placeholder: "파일 이름 검색…",
+    empty: "결과 없음",
+  },
+  search: {
+    placeholder: "노트 내용 검색…",
     empty: "결과 없음",
   },
   fileTree: {

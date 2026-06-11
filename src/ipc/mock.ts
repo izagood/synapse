@@ -3,6 +3,7 @@ import type {
   AgentEventPayload,
   FileNode,
   FileType,
+  SearchHit,
   Settings,
   SyncStatus,
   SynapseIpc,
@@ -74,6 +75,32 @@ function buildMockTree(): FileNode {
   return root;
 }
 
+const TEXT_EXTS = new Set(["md", "markdown", "mdx", "txt", "html", "htm"]);
+
+// Rust search_workspace 시맨틱을 흉내 (대소문자 무시, 파일명+내용 매칭).
+function mockSearch(query: string): SearchHit[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const hits: SearchHit[] = [];
+  for (const [path, content] of [...files.entries()].sort()) {
+    const name = path.split("/").pop()!;
+    const nameMatch = name.toLowerCase().includes(needle);
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    const matches: { line: number; snippet: string }[] = [];
+    if (TEXT_EXTS.has(ext)) {
+      content.split("\n").forEach((line, i) => {
+        if (matches.length < 20 && line.toLowerCase().includes(needle)) {
+          matches.push({ line: i + 1, snippet: line.trim().slice(0, 200) });
+        }
+      });
+    }
+    if (nameMatch || matches.length > 0) {
+      hits.push({ path, name, nameMatch, matches });
+    }
+  }
+  return hits;
+}
+
 let recent: string[] = [];
 const MAX_RECENT = 10;
 let mockDocSeq = 0;
@@ -99,6 +126,9 @@ export const mockIpc: SynapseIpc = {
   async listWorkspace(path) {
     if (path !== MOCK_ROOT) throw new Error(`not a directory: ${path}`);
     return buildMockTree();
+  },
+  async searchWorkspace(_root, query) {
+    return mockSearch(query);
   },
   async readFile(root, path) {
     assertInside(root, path);

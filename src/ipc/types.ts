@@ -10,6 +10,19 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+// Rust synapse-core::search::{SearchHit, SearchMatch} 와 1:1 대응 (FR-1.5)
+export interface SearchMatch {
+  line: number;
+  snippet: string;
+}
+
+export interface SearchHit {
+  path: string;
+  name: string;
+  nameMatch: boolean;
+  matches: SearchMatch[];
+}
+
 // Rust synapse-core::git::SyncStatus 와 1:1 대응
 export type SyncState =
   | "noGit"
@@ -106,6 +119,8 @@ export interface SynapseIpc {
   pickFolder(): Promise<string | null>;
   /** 폴더를 재귀 스캔해 파일 트리 반환 */
   listWorkspace(path: string): Promise<FileNode>;
+  /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */
+  searchWorkspace(root: string, query: string): Promise<SearchHit[]>;
   /** 워크스페이스 루트 내부 파일만 읽기 허용 */
   readFile(root: string, path: string): Promise<string>;
   /** 루트 내부 경로에만 원자적 쓰기 허용 (새 파일 생성 포함) */

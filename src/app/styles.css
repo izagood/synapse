@@ -1334,6 +1334,51 @@ select {
   padding: 10px 16px;
 }
 
+/* ---- 전체 검색 모달 (FR-1.5) ---- */
+
+.search-modal {
+  width: min(680px, 94vw);
+}
+
+.search-file {
+  padding-top: 2px;
+}
+
+.search-file-header:hover,
+.search-match:hover {
+  background: var(--accent-soft);
+}
+
+.search-match {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 3px 16px 3px 30px;
+  font-size: 0.82rem;
+}
+
+.search-line {
+  color: var(--fg-dim);
+  min-width: 2.4em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.search-snippet {
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-snippet mark {
+  background: var(--accent-soft);
+  color: var(--fg);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* ---- Claude 에이전트 패널 (PLAN-v0.4 Phase 1) ---- */
 
 .agent-panel {
