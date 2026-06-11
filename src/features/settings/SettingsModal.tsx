@@ -174,6 +174,25 @@ export function SettingsModal() {
         </section>
 
         <section>
+          <h3>파일</h3>
+          <label className="setting-row">
+            <span>삭제 전에 확인 창 표시</span>
+            <input
+              type="checkbox"
+              checked={settings.files.confirmDelete}
+              onChange={(e) =>
+                void update({ files: { confirmDelete: e.target.checked } })
+              }
+            />
+          </label>
+          {!settings.files.confirmDelete && (
+            <p className="setting-hint">
+              확인 없이 바로 삭제됩니다. 삭제는 되돌릴 수 없으니 주의하세요.
+            </p>
+          )}
+        </section>
+
+        <section>
           <h3>동기화</h3>
           <label className="setting-row">
             <span>자동 동기화</span>

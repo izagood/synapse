@@ -1145,6 +1145,17 @@ select {
   margin-bottom: 0;
 }
 
+/* 삭제 다이얼로그의 "다시 묻지 않기" 체크박스 */
+.modal-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 0.86rem;
+  margin: 4px 0 16px;
+  cursor: pointer;
+}
+
 /* 설정 모달 */
 .settings-modal {
   text-align: left;

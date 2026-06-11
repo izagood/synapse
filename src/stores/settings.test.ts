@@ -33,6 +33,18 @@ describe("settings store (mock ipc)", () => {
     expect(persisted.sync.auto).toBe(true);
   });
 
+  it("files.confirmDelete 갱신이 다른 섹션을 건드리지 않고 저장된다", async () => {
+    expect(useSettings.getState().settings.files.confirmDelete).toBe(true);
+    await useSettings.getState().update({ files: { confirmDelete: false } });
+
+    const s = useSettings.getState().settings;
+    expect(s.files.confirmDelete).toBe(false);
+    expect(s.editor.fontSize).toBe(16);
+
+    const persisted = await ipc.getSettings();
+    expect(persisted.files.confirmDelete).toBe(false);
+  });
+
   it("nested patch only touches given fields", async () => {
     await useSettings.getState().update({
       editor: { ...useSettings.getState().settings.editor, fontSize: 20 },
