@@ -7,7 +7,9 @@
 use std::path::Path;
 
 use synapse_core::github::{self, UreqHttp};
-use synapse_core::{collab, CollabStore, ConflictChoice, GitWorkspace, SyncStatus};
+use synapse_core::{
+    collab, ensure_within, CollabStore, ConflictChoice, FileCommit, GitWorkspace, SyncStatus,
+};
 
 use crate::auth::stored_token;
 
@@ -86,6 +88,49 @@ pub async fn clone_repo(url: String, parent_dir: String, name: String) -> Result
         let auth = stored_token().map(|t| GitWorkspace::auth_header_for_token(&t));
         let path = GitWorkspace::clone(&url, &dest, auth)?;
         Ok(path.display().to_string())
+    })
+    .await
+}
+
+/// 프론트가 넘긴 절대 경로를 워크스페이스 루트 내부로 검증하고, git pathspec용
+/// 상대 경로(슬래시 구분)를 돌려준다. 루트를 벗어나면 에러.
+fn rel_path_within(root: &str, path: &str) -> Result<String, String> {
+    let root_abs = ensure_within(Path::new(root), Path::new(path)).map_err(|e| e.to_string())?;
+    let root_canon = Path::new(root).canonicalize().map_err(|e| e.to_string())?;
+    let rel = root_abs
+        .strip_prefix(&root_canon)
+        .map_err(|_| "경로가 워크스페이스 루트를 벗어났습니다".to_string())?;
+    let rel = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    if rel.is_empty() {
+        return Err("파일 경로가 비어 있습니다".to_string());
+    }
+    Ok(rel)
+}
+
+/// 한 파일의 git 커밋 히스토리 (FR-4.7). 추적되지 않거나 레포가 아니면 빈 목록.
+#[tauri::command]
+pub async fn file_history(root: String, path: String) -> Result<Vec<FileCommit>, String> {
+    run_blocking(move || {
+        let rel = rel_path_within(&root, &path)?;
+        workspace(&root).file_history(&rel)
+    })
+    .await
+}
+
+/// 특정 리비전 시점의 파일 내용 (FR-4.7). 읽기 전용 미리보기·복원에 쓴다.
+#[tauri::command]
+pub async fn file_at_revision(
+    root: String,
+    path: String,
+    rev: String,
+) -> Result<String, String> {
+    run_blocking(move || {
+        let rel = rel_path_within(&root, &path)?;
+        workspace(&root).file_at_revision(&rel, &rev)
     })
     .await
 }

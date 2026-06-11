@@ -158,4 +158,19 @@ export const ko = {
   viewer: {
     preparing: "렌더링 준비 중…",
   },
+  history: {
+    title: "파일 히스토리",
+    open: "파일 히스토리",
+    empty: "이 파일의 git 히스토리가 없습니다. (아직 동기화되지 않았거나 추적되지 않는 파일입니다)",
+    loading: "히스토리 불러오는 중…",
+    selectPrompt: "왼쪽에서 버전을 선택하면 그 시점의 내용을 볼 수 있습니다.",
+    previewLoading: "이 버전 내용을 불러오는 중…",
+    restore: "이 버전으로 복원",
+    restoring: "복원 중…",
+    restored: "이 버전으로 복원했습니다",
+    restoreFailed: "복원 실패",
+    readOnly: "읽기 전용 미리보기",
+    currentBadge: "현재",
+    needFile: "히스토리를 보려면 노트를 먼저 여세요",
+  },
 } as const;
