@@ -131,27 +131,6 @@ function SyncStateIndicator({ root }: { root: string }) {
   );
 }
 
-function AutoSyncToggle() {
-  const settings = useSettings((s) => s.settings);
-  const update = useSettings((s) => s.update);
-
-  return (
-    <label className="auto-sync-toggle" title="변경 사항을 주기적으로 자동 commit/push">
-      <span>자동 동기화</span>
-      <span className={`switch${settings.sync.auto ? " on" : ""}`}>
-        <input
-          type="checkbox"
-          checked={settings.sync.auto}
-          onChange={(e) =>
-            void update({ sync: { ...settings.sync, auto: e.target.checked } })
-          }
-        />
-        <span className="switch-knob" />
-      </span>
-    </label>
-  );
-}
-
 export function SyncBar() {
   const root = useWorkspace((s) => s.root);
   const { login, status, error, init, startLogin, logout, refreshStatus } = useSync();
@@ -195,12 +174,11 @@ export function SyncBar() {
       <ConflictPanel root={root} />
       <footer className="status-bar">
         <span className="status-left">
-          {login && !needsSetup && <SyncStateIndicator root={root} />}
           {login && needsSetup && <PublishForm root={root} />}
-          {login && !needsSetup && status?.state !== "noGit" && <AutoSyncToggle />}
           {error && <span className="error status-error">{error}</span>}
         </span>
         <span className="status-right">
+          {login && !needsSetup && <SyncStateIndicator root={root} />}
           <UpdateBadge />
           {login ? (
             <>
