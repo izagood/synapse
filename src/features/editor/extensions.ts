@@ -4,6 +4,8 @@ import TaskList from "@tiptap/extension-task-list";
 import { TableKit } from "@tiptap/extension-table";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { common, createLowlight } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import type { AnyExtension, Editor } from "@tiptap/core";
 import { resolveAssetUrl } from "../../ipc/ipc";
@@ -19,6 +21,10 @@ function displayImageSrc(src: string): string {
   if (/^(https?:|data:|asset:|blob:)/i.test(src) || !imageBaseDir) return src;
   return resolveAssetUrl(`${imageBaseDir}/${src.replace(/^\.\//, "")}`);
 }
+
+// 코드 블록 문법 하이라이팅 — lowlight common 세트(37개 언어: rust, ts, python 등).
+// 노드 이름(codeBlock)과 language 속성은 기본 CodeBlock과 동일해 md 직렬화에 영향 없음.
+export const lowlight = createLowlight(common);
 
 const WorkspaceImage = Image.extend({
   renderHTML({ HTMLAttributes }) {
@@ -36,7 +42,9 @@ export function editorExtensions({ withPlaceholder = true } = {}): AnyExtension[
   return [
     StarterKit.configure({
       link: { openOnClick: false },
+      codeBlock: false, // CodeBlockLowlight로 대체
     }),
+    CodeBlockLowlight.configure({ lowlight }),
     TaskList,
     TaskItem.configure({ nested: true }),
     // 표 보존 (FR-2.1) — 없으면 md 표가 텍스트로 뭉개진다
