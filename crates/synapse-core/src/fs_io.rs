@@ -5,6 +5,11 @@ use std::path::{Path, PathBuf};
 /// 같은 디렉토리에 임시 파일을 쓴 뒤 rename 하여 원자적으로 저장한다 (NFR-2).
 /// 크래시가 나도 기존 파일은 온전하거나 새 내용으로 완전히 교체된 상태만 남는다.
 pub fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
+    atomic_write_bytes(path, content.as_bytes())
+}
+
+/// `atomic_write`의 바이너리 버전 (CRDT 스냅샷 등)
+pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "path has no parent directory")
     })?;
