@@ -325,7 +325,9 @@ fn stem(path: &Path) -> Option<String> {
 pub fn backlinks_for(root: &Path, target: &Path) -> io::Result<Vec<Backlink>> {
     let root = root.canonicalize()?;
     // target은 아직 없을 수도 있지만, 보통 존재하는 노트다. canonicalize 실패 시 원본 사용.
-    let target_abs = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
+    let target_abs = target
+        .canonicalize()
+        .unwrap_or_else(|_| target.to_path_buf());
     let target_stem = stem(&target_abs);
 
     let mut md_files = Vec::new();
@@ -495,10 +497,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         write(&root.join("target.md"), "# 대상 노트");
-        write(
-            &root.join("a.md"),
-            "표준 링크: [대상](target.md) 입니다",
-        );
+        write(&root.join("a.md"), "표준 링크: [대상](target.md) 입니다");
         write(
             &root.join("sub/b.md"),
             "상대 경로 [t](../target.md) 와 위키 [[target]]",
