@@ -5,6 +5,7 @@ import { effectiveTheme, useSettings } from "../stores/settings";
 import { StartScreen } from "../features/workspace/StartScreen";
 import { WorkspaceView } from "../features/workspace/WorkspaceView";
 import { SettingsModal } from "../features/settings/SettingsModal";
+import { UpdateToast } from "../features/update/UpdateToast";
 
 export default function App() {
   const root = useWorkspace((s) => s.root);
@@ -60,6 +61,7 @@ export default function App() {
     <>
       {root ? <WorkspaceView /> : <StartScreen />}
       <SettingsModal />
+      <UpdateToast />
     </>
   );
 }
