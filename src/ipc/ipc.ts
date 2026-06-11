@@ -10,6 +10,7 @@ import { mockIpc } from "./mock";
 import type {
   AgentEventPayload,
   AgentStatus,
+  ConfigSyncStatus,
   Backlink,
   DeviceCode,
   FileCommit,
@@ -83,6 +84,13 @@ const tauriIpc: SynapseIpc = {
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
+
+  configSyncStatus: () => invoke<ConfigSyncStatus>("config_sync_status"),
+  linkConfigRepo: (name, create) =>
+    invoke<ConfigSyncStatus>("link_config_repo", { name, create }),
+  unlinkConfigRepo: (keepLocal) =>
+    invoke<ConfigSyncStatus>("unlink_config_repo", { keepLocal }),
+  configSyncNow: () => invoke<ConfigSyncStatus>("config_sync_now"),
 
   setWindowTheme: (theme) => getCurrentWindow().setTheme(theme),
 

@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod collab;
+pub mod config_sync;
 pub mod fs_io;
 pub mod git;
 pub mod github;
@@ -11,6 +12,7 @@ pub mod settings;
 pub mod tree;
 
 pub use collab::CollabStore;
+pub use config_sync::ConfigSyncState;
 pub use fs_io::{atomic_write, atomic_write_bytes, create_unique_note, ensure_writable_within};
 pub use git::{ConflictChoice, FileCommit, GitWorkspace, SyncState, SyncStatus};
 pub use links::{backlinks_for, Backlink};

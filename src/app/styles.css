@@ -1353,6 +1353,11 @@ select {
   background: var(--bg-hover);
 }
 
+.setting-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .setting-hint {
   font-size: 0.8rem;
   color: var(--fg-dim);
