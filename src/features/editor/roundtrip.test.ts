@@ -50,6 +50,12 @@ const CASES: Record<string, { input: string; mustContain: string[] }> = {
     input: "[Synapse](https://github.com/izagood/synapse) 링크",
     mustContain: ["[Synapse](https://github.com/izagood/synapse)"],
   },
+  // 상대경로 파일 링크 — tiptap 기본 isAllowedUri가 '/'를 포함한 상대경로를
+  // 파싱 시점에 버려 평문으로 뭉개지던 회귀(README 동기화 시 표 링크 소실).
+  relativeLink: {
+    input: "[소유권](advanced/01-ownership-borrowing.md) 링크",
+    mustContain: ["[소유권](advanced/01-ownership-borrowing.md)"],
+  },
   // 붙여넣기가 기록하는 ASCII 랜덤 파일명 이미지 — 정확히 보존돼야 한다
   image: {
     input: "![diagram](image-mbz3k1-x4f2a.png)",
@@ -66,6 +72,23 @@ describe("markdown roundtrip (tiptap-markdown)", () => {
     expect(out).toContain("| a | 1 |");
     expect(out).toContain("| b | 2 |");
     expect(roundtrip(out)).toBe(out);
+  });
+
+  it("표 셀 안의 상대경로 링크를 보존한다 (README 동기화 회귀 케이스)", () => {
+    const table =
+      "| 주제 | 문서 |\n| --- | --- |\n| 소유권 | [보기](advanced/01-ownership-borrowing.md) |";
+    const out = roundtrip(table);
+    expect(out).toContain("[보기](advanced/01-ownership-borrowing.md)");
+    expect(roundtrip(out)).toBe(out);
+  });
+
+  it("위험 스킴(javascript:)은 활성 링크로 직렬화되지 않는다", () => {
+    // isAllowedUri 오버라이드는 '스킴 없는 상대경로'만 허용하고,
+    // 스킴이 있으면 tiptap 기본 검증으로 떨어뜨려 위험 스킴을 차단한다.
+    const out = roundtrip("[클릭](javascript:alert(1))");
+    // 링크 마크가 떨어져 브래킷이 이스케이프된 평문으로 남는다(활성 링크 아님).
+    expect(out).not.toContain("[클릭](javascript:");
+    expect(out).toContain("\\[클릭\\]");
   });
 
   it("keeps task lists tight (항목 사이 빈 줄 삽입 금지)", () => {

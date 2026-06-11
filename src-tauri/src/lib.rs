@@ -51,6 +51,8 @@ pub fn run() {
             config_sync::link_config_repo,
             config_sync::unlink_config_repo,
             config_sync::config_sync_now,
+            sync::file_history,
+            sync::file_at_revision,
             agent::agent_status,
             agent::agent_send,
             agent::agent_stop,
