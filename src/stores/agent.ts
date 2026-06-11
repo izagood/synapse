@@ -3,6 +3,8 @@ import { ipc } from "../ipc/ipc";
 import type { AgentEvent, AgentStatus } from "../ipc/types";
 import { translate } from "../i18n";
 import { useSettings } from "./settings";
+import { useWorkspace } from "./workspace";
+import { buildAgentPrompt } from "./agentContext";
 
 // PLAN-v0.4 Phase 1: 워크스페이스를 cwd로 claude CLI 한 턴씩 실행하는 채팅.
 // 대화 내역은 메모리에만 두고, 세션 ID만 워크스페이스별로 localStorage에
@@ -96,6 +98,14 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
     if (get().running) return;
     const runId = newRunId();
     const sessionId = get().sessionId;
+    // 채팅에는 사용자가 입력한 원본만 보여주고, CLI에는 현재 열린 노트
+    // 컨텍스트를 앞에 덧붙인 프롬프트를 보낸다 (읽기 전용 — 경로만 알려줌).
+    const ws = useWorkspace.getState();
+    const augmented = buildAgentPrompt(prompt, {
+      root: ws.root,
+      activePath: ws.activePath,
+      openPaths: ws.tabs.map((t) => t.path),
+    });
     set((s) => ({
       root,
       runId,
@@ -103,7 +113,7 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
       items: [...s.items, { id: nextItemId++, role: "user", text: prompt }],
     }));
     try {
-      await ipc.agentSend(root, prompt, sessionId, runId);
+      await ipc.agentSend(root, augmented, sessionId, runId);
     } catch (e) {
       set((s) => ({
         running: false,
