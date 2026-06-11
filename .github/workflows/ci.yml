@@ -109,6 +109,8 @@ jobs:
       # 구성은 여기서 직접 하고, tauri에는 APPLE_SIGNING_IDENTITY만 넘겨
       # `codesign -s <이름>`이 키체인 검색 목록에서 인증서를 찾게 한다.
       - name: macOS 코드 서명 키체인 구성 (시크릿 있을 때만)
+        if: runner.os == 'macOS'
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
