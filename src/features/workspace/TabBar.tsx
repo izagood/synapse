@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isDirty, useWorkspace } from "../../stores/workspace";
 import { CloseIcon, CodeIcon, PlusIcon } from "../../shared/Icons";
 
@@ -73,12 +73,27 @@ export function TabBar() {
   const createNote = useWorkspace((s) => s.createNote);
   const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   const activeTab = tabs.find((t) => t.path === activePath);
 
+  // 활성 탭이 스크롤 영역 밖에 있으면 보이는 위치로 따라간다 (VS Code)
+  useEffect(() => {
+    tabsRef.current
+      ?.querySelector(".tab.active")
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [activePath]);
+
   return (
     <div className="tab-bar" role="tablist">
-      <div className="tabs">
+      <div
+        className="tabs"
+        ref={tabsRef}
+        onWheel={(e) => {
+          // 세로 휠을 가로 스크롤로 변환 (스크롤바가 숨겨져 있어 마우스 사용자 배려)
+          if (e.deltaY && !e.deltaX) e.currentTarget.scrollLeft += e.deltaY;
+        }}
+      >
         {tabs.map((tab) => {
           const dirty = isDirty(docs[tab.path]);
           return (
