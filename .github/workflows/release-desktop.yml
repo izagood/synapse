@@ -23,15 +23,21 @@
 #
 # 릴리스 방법:
 #   - 자동: PR이 CI를 통과하고 main에 merge되면 auto-release.yml이 버전을 올리고
-#     태그를 만든 뒤 이 워크플로를 dispatch한다 (태그 ref로 실행됨)
+#     태그를 만든 뒤 이 워크플로를 같은 run 안에서 호출한다
 #   - 수동: git tag v0.1.0 && git push origin v0.1.0
 name: Release (Desktop)
 
 on:
   push:
     tags: ["v*"]
-  # auto-release.yml이 태그 ref로 dispatch한다
+  # auto-release.yml이 태그 ref로 호출한다
   # (GITHUB_TOKEN으로 푸시한 태그는 push 트리거를 발동시키지 않으므로)
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "빌드하고 업로드할 릴리스 태그 (예: v0.4.7)"
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -42,7 +48,7 @@ permissions:
 # 전역 그룹으로 묶으면 GitHub이 초과 pending 런을 취소해 해당 태그의 릴리스가
 # 통째로 사라질 수 있으므로 여기서는 태그 단위로만 묶는다.
 concurrency:
-  group: release-macos-${{ github.ref_name }}
+  group: release-desktop-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -63,6 +69,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref_name }}
 
       - uses: actions/setup-node@v6
         with:
@@ -132,14 +140,14 @@ jobs:
 
       - uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           SYNAPSE_GITHUB_CLIENT_ID: ${{ secrets.SYNAPSE_GITHUB_CLIENT_ID }}
           # 원클릭 업데이트 아티팩트 서명 (tauri signer로 생성한 키)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Synapse ${{ github.ref_name }}"
+          tagName: ${{ inputs.release_tag || github.ref_name }}
+          releaseName: "Synapse ${{ inputs.release_tag || github.ref_name }}"
           releaseBody: |
             Synapse 데스크톱 설치 파일입니다.
 
@@ -147,10 +155,12 @@ jobs:
             - Windows: `.msi` 파일을 받으세요.
 
             서명되지 않은 빌드는 OS가 첫 실행을 차단할 수 있습니다. 자세한 내용은 패키징 가이드를 확인하세요.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
+          retryAttempts: 1
           args: ${{ matrix.args }}
 
+      # 모든 플랫폼 산출물이 draft에 업로드된 뒤에만 공개한다.
       # GitHub의 "latest" 릴리스는 생성 순서 기준이라, 빌드가 순서를 어겨 끝나면
       # 구버전이 latest가 되어 업데이터(latest.json)가 구버전을 가리킬 수 있다.
       # 이 태그가 semver 최고 버전일 때만 latest로 못 박아 순서 역전을 방지한다.
@@ -158,16 +168,42 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: latest 릴리스 포인터 보정
+      - name: 산출물 검증 후 릴리스 공개
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
+          tag="$RELEASE_TAG"
+          version="${tag#v}"
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
+          assets=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.assets[].name')
+          expected=(
+            "Synapse_${version}_universal.dmg"
+            "Synapse_universal.app.tar.gz"
+            "Synapse_universal.app.tar.gz.sig"
+            "Synapse_${version}_x64-setup.exe"
+            "Synapse_${version}_x64-setup.exe.sig"
+            "Synapse_${version}_x64_en-US.msi"
+            "Synapse_${version}_x64_en-US.msi.sig"
+            "latest.json"
+          )
+          for asset in "${expected[@]}"; do
+            if ! grep -Fxq "$asset" <<< "$assets"; then
+              echo "::error::필수 릴리스 asset 누락: $asset"
+              echo "현재 asset 목록:"
+              printf '%s\n' "$assets"
+              exit 1
+            fi
+          done
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F draft=false \
+            -F prerelease=false >/dev/null
+          echo "릴리스 공개 완료: $tag"
+
           highest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' | sort -V | tail -1)
           if [ "$tag" = "$highest" ]; then
-            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
               -f make_latest=true >/dev/null
             echo "latest → $tag"
