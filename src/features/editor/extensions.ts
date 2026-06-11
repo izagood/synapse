@@ -17,7 +17,15 @@ export function setImageBaseDir(dir: string) {
 
 function displayImageSrc(src: string): string {
   if (/^(https?:|data:|asset:|blob:)/i.test(src) || !imageBaseDir) return src;
-  return resolveAssetUrl(`${imageBaseDir}/${src.replace(/^\.\//, "")}`);
+  let rel = src.replace(/^\.\//, "");
+  // markdown-it이 파싱 시 목적지를 %인코딩하므로(한글 파일명 등),
+  // 디스크의 실제 파일명으로 되돌려 asset URL을 만든다.
+  try {
+    rel = decodeURIComponent(rel);
+  } catch {
+    // %가 인코딩이 아닌 파일명 — 그대로 사용
+  }
+  return resolveAssetUrl(`${imageBaseDir}/${rel}`);
 }
 
 const WorkspaceImage = Image.extend({
