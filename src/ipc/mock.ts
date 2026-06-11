@@ -309,7 +309,7 @@ export const mockIpc: SynapseIpc = {
   async configSyncStatus() {
     return structuredClone(mockConfigSync);
   },
-  async linkConfigRepo(name, _create) {
+  async linkConfigRepo(name) {
     const [owner, repo] = name.includes("/") ? name.split("/") : ["me", name];
     mockConfigSync = {
       linked: true,
@@ -318,7 +318,7 @@ export const mockIpc: SynapseIpc = {
     };
     return structuredClone(mockConfigSync);
   },
-  async unlinkConfigRepo(_keepLocal) {
+  async unlinkConfigRepo() {
     mockConfigSync = { linked: false, repoName: null, sync: null };
     return structuredClone(mockConfigSync);
   },
