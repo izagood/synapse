@@ -75,8 +75,10 @@ pub fn create_unique_note(dir: &Path) -> io::Result<PathBuf> {
 }
 
 /// `dir` 안에 `desired_name`으로 바이너리를 쓴다. 같은 이름이 이미 있으면
-/// "이름 2.ext", "이름 3.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
-pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8]) -> io::Result<String> {
+/// "이름{sep}2.ext", "이름{sep}3.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
+/// sep: 사본 만들기는 Finder식 " ", 이미지는 md 링크 목적지에 공백이
+/// 들어갈 수 없으므로 "-"를 쓴다.
+pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8], sep: &str) -> io::Result<String> {
     let (stem, ext) = match desired_name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_string(), Some(e.to_string())),
         _ => (desired_name.to_string(), None),
@@ -84,9 +86,9 @@ pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8]) -> io::Result<
     for i in 1..1000 {
         let name = match (&ext, i) {
             (Some(e), 1) => format!("{stem}.{e}"),
-            (Some(e), n) => format!("{stem} {n}.{e}"),
+            (Some(e), n) => format!("{stem}{sep}{n}.{e}"),
             (None, 1) => stem.clone(),
-            (None, n) => format!("{stem} {n}"),
+            (None, n) => format!("{stem}{sep}{n}"),
         };
         match fs::OpenOptions::new().write(true).create_new(true).open(dir.join(&name)) {
             Ok(mut f) => {
@@ -136,7 +138,7 @@ pub fn duplicate_file(path: &Path) -> io::Result<String> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?
         .to_string_lossy();
     let bytes = fs::read(path)?;
-    write_unique(parent, &name, &bytes)
+    write_unique(parent, &name, &bytes, " ")
 }
 
 /// base64 표준 알파벳 디코더 (이미지 붙여넣기용 — 의존성 없이)
@@ -211,12 +213,21 @@ mod tests {
     #[test]
     fn write_unique_keeps_original_name_then_suffixes() {
         let tmp = tempfile::tempdir().unwrap();
-        let first = write_unique(tmp.path(), "diagram.png", b"v1").unwrap();
-        let second = write_unique(tmp.path(), "diagram.png", b"v2").unwrap();
+        let first = write_unique(tmp.path(), "diagram.png", b"v1", " ").unwrap();
+        let second = write_unique(tmp.path(), "diagram.png", b"v2", " ").unwrap();
         assert_eq!(first, "diagram.png");
         assert_eq!(second, "diagram 2.png");
         assert_eq!(fs::read(tmp.path().join("diagram.png")).unwrap(), b"v1");
         assert_eq!(fs::read(tmp.path().join("diagram 2.png")).unwrap(), b"v2");
+    }
+
+    #[test]
+    fn write_unique_dash_separator_keeps_md_safe_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let first = write_unique(tmp.path(), "shot.png", b"v1", "-").unwrap();
+        let second = write_unique(tmp.path(), "shot.png", b"v2", "-").unwrap();
+        assert_eq!(first, "shot.png");
+        assert_eq!(second, "shot-2.png");
     }
 
     #[test]

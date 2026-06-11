@@ -144,7 +144,8 @@ pub fn save_image(
     }
     let dir = ensure_within(Path::new(&root), Path::new(&dir)).map_err(|e| e.to_string())?;
     let bytes = synapse_core::fs_io::base64_decode(&data_base64)?;
-    synapse_core::fs_io::write_unique(&dir, &desired_name, &bytes).map_err(|e| e.to_string())
+    // md 링크 목적지에 공백이 못 들어가므로 충돌 회피 suffix도 "-"로
+    synapse_core::fs_io::write_unique(&dir, &desired_name, &bytes, "-").map_err(|e| e.to_string())
 }
 
 #[tauri::command]

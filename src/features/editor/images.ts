@@ -25,8 +25,17 @@ export function isImageFile(file: File): boolean {
 }
 
 /**
+ * CommonMark는 `![alt](목적지)`의 목적지에 공백을 허용하지 않으므로
+ * (macOS 스크린샷 기본 이름 "스크린샷 2026-… 오후 3.24.15.png" 등)
+ * 공백을 -로 치환해 재오픈 시 이미지가 텍스트로 깨지는 것을 막는다.
+ */
+export function safeImageName(name: string): string {
+  return name.trim().replace(/\s+/g, "-");
+}
+
+/**
  * 이미지 파일들을 노트와 같은 폴더에 저장하고 에디터의 지정 위치에 삽입한다.
- * - 드래그앤드롭: 원본 파일명 유지 (충돌 시 "이름 2.ext")
+ * - 드래그앤드롭: 원본 파일명 유지 (공백은 -로 치환, 충돌 시 "이름 2.ext")
  * - 붙여넣기: 랜덤 파일명
  * 문서에는 상대 경로(파일명)로 기록되어 다른 도구와 호환된다 (NFR-3).
  */
@@ -42,9 +51,9 @@ export async function insertImages(
 
   let insertAt = position ?? editor.state.selection.to;
   for (const file of files) {
-    const desired = file.name && file.name !== "image.png"
-      ? file.name
-      : pastedImageName(file.type);
+    const desired = safeImageName(
+      file.name && file.name !== "image.png" ? file.name : pastedImageName(file.type),
+    );
     const base64 = await fileToBase64(file);
     const savedName = await ipc.saveImage(root, noteDir, desired, base64);
     const alt = savedName.replace(/\.[^.]+$/, "");
