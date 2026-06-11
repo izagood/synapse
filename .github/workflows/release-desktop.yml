@@ -48,7 +48,7 @@ permissions:
 # 전역 그룹으로 묶으면 GitHub이 초과 pending 런을 취소해 해당 태그의 릴리스가
 # 통째로 사라질 수 있으므로 여기서는 태그 단위로만 묶는다.
 concurrency:
-  group: release-macos-${{ inputs.release_tag || github.ref_name }}
+  group: release-desktop-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:

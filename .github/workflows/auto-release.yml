@@ -130,7 +130,7 @@ jobs:
     if: needs.prepare-release.outputs.release_tag != ''
     permissions:
       contents: write
-    uses: ./.github/workflows/release-macos.yml
+    uses: ./.github/workflows/release-desktop.yml
     with:
       release_tag: ${{ needs.prepare-release.outputs.release_tag }}
     secrets: inherit
