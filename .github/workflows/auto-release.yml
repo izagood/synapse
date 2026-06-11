@@ -4,7 +4,7 @@
 #   1. package.json의 버전이 이미 태그로 존재하면 patch 버전을 자동 증가
 #      (PR에서 직접 버전을 올렸다면 그 버전을 그대로 사용 — minor/major 릴리스 방법)
 #   2. 버전 파일(package.json, tauri.conf.json, Cargo.toml, Cargo.lock)을 갱신해 main에 커밋
-#   3. vX.Y.Z 태그를 푸시하고 Release (macOS) 워크플로를 dispatch
+#   3. vX.Y.Z 태그를 푸시하고 Release (Desktop) 워크플로를 dispatch
 #   4. 릴리스 빌드가 끝날 때까지 대기하고, 실패하면 1회 자동 재시도
 #
 # 주의: GITHUB_TOKEN으로 푸시한 커밋/태그는 다른 워크플로를 트리거하지 않으므로
@@ -19,10 +19,10 @@ on:
 
 permissions:
   contents: write # 버전 bump 커밋 + 태그 푸시
-  actions: write # Release (macOS) 워크플로 dispatch + watch/rerun
+  actions: write # Release (Desktop) 워크플로 dispatch + watch/rerun
 
 # 연속 merge 시 릴리스가 겹치지 않게 직렬화.
-# 이 잡이 릴리스 빌드 완료까지 대기하므로 Release (macOS) 빌드도 함께 직렬화된다 —
+# 이 잡이 릴리스 빌드 완료까지 대기하므로 Release (Desktop) 빌드도 함께 직렬화된다 —
 # 대기 중 들어온 merge들은 GitHub이 pending 런 하나로 합쳐 다음 릴리스에 배칭된다.
 concurrency:
   group: auto-release
@@ -103,7 +103,7 @@ jobs:
           git tag "$v"
           git push origin "$v"
           gh workflow run release-macos.yml --ref "$v"
-          echo "Release (macOS) 워크플로 실행됨: $v"
+          echo "Release (Desktop) 워크플로 실행됨: $v"
 
       - name: 릴리스 빌드 완료 대기 (실패 시 1회 재시도)
         env:

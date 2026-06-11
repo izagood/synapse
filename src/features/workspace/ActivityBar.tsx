@@ -10,6 +10,7 @@ import {
   SidebarIcon,
   SparkleIcon,
 } from "../../shared/Icons";
+import { shortcutLabel } from "../../shared/platform";
 
 interface ActivityBarProps {
   sidebarVisible: boolean;
@@ -30,6 +31,10 @@ export function ActivityBar({
   const openFolder = useWorkspace((s) => s.openFolder);
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
   const openSettings = useSettings((s) => s.openSettings);
+  const quickOpenShortcut = shortcutLabel(["Mod", "P"]);
+  const agentShortcut = shortcutLabel(["Shift", "Mod", "A"]);
+  const newWindowShortcut = shortcutLabel(["Shift", "Mod", "N"]);
+  const settingsShortcut = shortcutLabel(["Mod", ","]);
 
   return (
     <nav className="activity-bar">
@@ -41,19 +46,22 @@ export function ActivityBar({
         >
           <SidebarIcon size={18} />
         </button>
-        <button onClick={onQuickOpen} title="빠른 열기 (⌘P)">
+        <button onClick={onQuickOpen} title={`빠른 열기 (${quickOpenShortcut})`}>
           <SearchIcon size={18} />
         </button>
         <button
           className={agentVisible ? "active" : ""}
           onClick={onToggleAgent}
-          title="Claude 패널 (⇧⌘A)"
+          title={`Claude 패널 (${agentShortcut})`}
         >
           <SparkleIcon size={18} />
         </button>
       </div>
       <div className="activity-bottom">
-        <button onClick={() => void ipc.newWindow()} title="새 창 (⇧⌘N) — 다른 폴더를 동시에">
+        <button
+          onClick={() => void ipc.newWindow()}
+          title={`새 창 (${newWindowShortcut}) - 다른 폴더를 동시에`}
+        >
           <NewWindowIcon size={18} />
         </button>
         <button onClick={() => void openFolder()} title="다른 폴더 열기">
@@ -62,7 +70,7 @@ export function ActivityBar({
         <button onClick={closeWorkspace} title="시작 화면으로">
           <HomeIcon size={18} />
         </button>
-        <button onClick={openSettings} title="설정 (⌘,)">
+        <button onClick={openSettings} title={`설정 (${settingsShortcut})`}>
           <GearIcon size={18} />
         </button>
       </div>

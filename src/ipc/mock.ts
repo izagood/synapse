@@ -160,7 +160,13 @@ export const mockIpc: SynapseIpc = {
 
   async renamePath(root, path, newName) {
     assertInside(root, path);
-    if (!newName || newName.includes("/") || newName === "." || newName === "..") {
+    if (
+      !newName ||
+      newName.includes("/") ||
+      newName.includes("\\") ||
+      newName === "." ||
+      newName === ".."
+    ) {
       throw new Error("invalid name");
     }
     const parent = path.slice(0, path.lastIndexOf("/"));
