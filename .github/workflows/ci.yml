@@ -75,7 +75,7 @@ jobs:
       - run: cargo test
         working-directory: crates/synapse-core
 
-  # PR이 릴리즈 가능한 상태인지 검증 — 릴리스 워크플로우(release-macos.yml)와
+  # PR이 릴리즈 가능한 상태인지 검증 — 릴리스 워크플로우(release-desktop.yml)와
   # 같은 데스크톱 번들 빌드를 업로드 없이 드라이런한다. cargo check만 할 때와 달리
   # 번들링·업데이터 아티팩트 생성까지 검증된다.
   release-dry-run:
@@ -109,7 +109,7 @@ jobs:
       # createUpdaterArtifacts: true 라서 서명 키가 필요하다.
       # 시크릿이 없는 환경(포크에서 온 PR)에서는 업데이터 아티팩트 생성을 끄고 빌드한다.
       # macOS 코드 서명도 릴리스와 동일하게 드라이런한다
-      # (셀프사인 인증서 — release-macos.yml 상단 주석 참고. 없으면 ad-hoc)
+      # (셀프사인 인증서 — release-desktop.yml 상단 주석 참고. 없으면 ad-hoc)
       # 주의: tauri의 APPLE_CERTIFICATE 자동 import는 Apple 발급 인증서
       # 이름("Developer ID Application:" 등)만 인식해 셀프사인 인증서로는
       # "failed to resolve signing identity"로 실패한다. 그래서 키체인
