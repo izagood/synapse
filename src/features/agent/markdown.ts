@@ -119,7 +119,7 @@ export function parseMarkdown(input: string): Block[] {
     buf.length = 0;
   };
 
-  let paragraph: string[] = [];
+  const paragraph: string[] = [];
 
   while (i < lines.length) {
     const line = lines[i];
