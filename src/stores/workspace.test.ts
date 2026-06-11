@@ -45,6 +45,27 @@ describe("workspace store (mock ipc)", () => {
     expect(isDirty(s.docs[s.activePath!])).toBe(false);
   });
 
+  it("openFileAt opens a file in the tree by absolute path (internal link)", async () => {
+    const opened = await useWorkspace.getState().openFileAt(`${MOCK_ROOT}/daily/2026-06-10.md`);
+    expect(opened).toBe(true);
+    const s = useWorkspace.getState();
+    expect(s.activePath).toBe(`${MOCK_ROOT}/daily/2026-06-10.md`);
+    expect(s.tabs.map((t) => t.name)).toEqual(["2026-06-10.md"]);
+    expect(s.tabs[0].fileType).toBe("markdown");
+  });
+
+  it("openFileAt falls back to the .md extension for extension-less links", async () => {
+    const opened = await useWorkspace.getState().openFileAt(`${MOCK_ROOT}/README`);
+    expect(opened).toBe(true);
+    expect(useWorkspace.getState().activePath).toBe(`${MOCK_ROOT}/README.md`);
+  });
+
+  it("openFileAt returns false for paths missing from the tree", async () => {
+    const opened = await useWorkspace.getState().openFileAt(`${MOCK_ROOT}/없는 파일.md`);
+    expect(opened).toBe(false);
+    expect(useWorkspace.getState().tabs).toEqual([]);
+  });
+
   it("keeps multiple tabs and switches active", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     await useWorkspace.getState().openFile(findNode("2026-06-10.md"));

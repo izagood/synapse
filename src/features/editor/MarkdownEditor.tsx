@@ -4,6 +4,7 @@ import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
 import { editorExtensions, getMarkdown, setImageBaseDir } from "./extensions";
 import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
+import { resolveInternalLink } from "./internalLink";
 import { insertImages, isImageFile } from "./images";
 
 /** 의미 비교용: 공백·이스케이프 차이를 무시하고 내용만 비교 */
@@ -48,12 +49,20 @@ export function MarkdownEditor({ path }: { path: string }) {
       setLossy(essence(baseline.current) !== essence(initial.body));
     },
     editorProps: {
-      // 링크 클릭 시 시스템 브라우저로 연다 (커서는 CSS에서 pointer)
+      // 링크 클릭: 외부 링크는 시스템 브라우저로, vault 내 상대 경로 링크는
+      // 해당 노트를 탭으로 연다 (커서는 CSS에서 pointer)
       handleClick(_view, _pos, event) {
         const anchor = (event.target as HTMLElement).closest?.("a");
         const href = anchor?.getAttribute("href");
-        if (href && /^https?:\/\//i.test(href)) {
+        if (!href) return false;
+        if (/^https?:\/\//i.test(href)) {
           void ipc.openExternal(href);
+          return true;
+        }
+        const ws = useWorkspace.getState();
+        const target = ws.root ? resolveInternalLink(href, path, ws.root) : null;
+        if (target) {
+          void ws.openFileAt(target);
           return true;
         }
         return false;
