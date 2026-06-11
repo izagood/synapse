@@ -43,7 +43,13 @@ pub struct SyncStatus {
 
 impl SyncStatus {
     fn simple(state: SyncState) -> Self {
-        SyncStatus { state, ahead: 0, behind: 0, conflict_files: vec![], message: None }
+        SyncStatus {
+            state,
+            ahead: 0,
+            behind: 0,
+            conflict_files: vec![],
+            message: None,
+        }
     }
 }
 
@@ -99,7 +105,9 @@ fn run_command(
             String::from_utf8_lossy(&out.stderr).into_owned(),
         ));
     };
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("git 실행 실패 (git이 설치되어 있나요?): {e}"))?;
@@ -132,7 +140,11 @@ fn run_command(
     };
     let stdout = out_thread.join().unwrap_or_default();
     let stderr = err_thread.join().unwrap_or_default();
-    Ok((status.success(), stdout, String::from_utf8_lossy(&stderr).into_owned()))
+    Ok((
+        status.success(),
+        stdout,
+        String::from_utf8_lossy(&stderr).into_owned(),
+    ))
 }
 
 impl GitWorkspace {
@@ -147,12 +159,17 @@ impl GitWorkspace {
     }
 
     fn lock_local(&self) -> GitResult<MutexGuard<'_, ()>> {
-        self.lock.lock().map_err(|_| "workspace lock poisoned".to_string())
+        self.lock
+            .lock()
+            .map_err(|_| "workspace lock poisoned".to_string())
     }
 
     /// GitHub 토큰으로 HTTPS 인증 헤더를 만든다 (actions/checkout과 같은 방식).
     pub fn auth_header_for_token(token: &str) -> String {
-        format!("AUTHORIZATION: basic {}", base64(format!("x-access-token:{token}").as_bytes()))
+        format!(
+            "AUTHORIZATION: basic {}",
+            base64(format!("x-access-token:{token}").as_bytes())
+        )
     }
 
     fn run(&self, args: &[&str]) -> GitResult<(bool, String, String)> {
@@ -173,7 +190,10 @@ impl GitWorkspace {
         cmd.env_remove("GIT_ASKPASS");
         // 인증 헤더는 원격 통신 명령에만 의미가 있지만 항상 끼워도 무해하다
         if let Some(header) = &self.auth_header {
-            cmd.args(["-c", &format!("http.https://github.com/.extraheader={header}")]);
+            cmd.args([
+                "-c",
+                &format!("http.https://github.com/.extraheader={header}"),
+            ]);
         }
         cmd
     }
@@ -191,7 +211,11 @@ impl GitWorkspace {
         if ok {
             Ok(stdout)
         } else {
-            Err(format!("git {} 실패: {}", args.first().unwrap_or(&""), stderr.trim()))
+            Err(format!(
+                "git {} 실패: {}",
+                args.first().unwrap_or(&""),
+                stderr.trim()
+            ))
         }
     }
 
@@ -212,7 +236,10 @@ impl GitWorkspace {
     }
 
     fn current_branch(&self) -> GitResult<String> {
-        Ok(self.run_ok(&["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string())
+        Ok(self
+            .run_ok(&["rev-parse", "--abbrev-ref", "HEAD"])?
+            .trim()
+            .to_string())
     }
 
     fn is_dirty(&self) -> GitResult<bool> {
@@ -305,8 +332,12 @@ impl GitWorkspace {
 
     fn ahead_behind(&self) -> GitResult<(u32, u32)> {
         let upstream = self.upstream()?;
-        let (ok, out, _) =
-            self.run(&["rev-list", "--left-right", "--count", &format!("HEAD...{upstream}")])?;
+        let (ok, out, _) = self.run(&[
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("HEAD...{upstream}"),
+        ])?;
         if !ok {
             return Ok((0, 0)); // 업스트림 없음 (첫 push 전)
         }
@@ -398,7 +429,9 @@ impl GitWorkspace {
     /// 다른 에디터 등)을 결정적으로 흡수한다. 개별 파일 실패는 무시한다.
     fn absorb_workspace(&self, store: &CollabStore) {
         fn walk(dir: &Path, store: &CollabStore) {
-            let Ok(entries) = fs::read_dir(dir) else { return };
+            let Ok(entries) = fs::read_dir(dir) else {
+                return;
+            };
             for entry in entries.filter_map(Result::ok) {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if name.starts_with('.') {
@@ -517,7 +550,13 @@ impl GitWorkspace {
         // 두 클라이언트가 같은 파일에 서로 다른 id를 동시에 발급했다면
         // 사전순으로 작은 id를 채택한다 (양쪽 모두 같은 결론에 도달)
         let target = match (&id2, &id3) {
-            (Some(a), Some(b)) => if a <= b { a.clone() } else { b.clone() },
+            (Some(a), Some(b)) => {
+                if a <= b {
+                    a.clone()
+                } else {
+                    b.clone()
+                }
+            }
             (Some(a), None) => a.clone(),
             (None, Some(b)) => b.clone(),
             (None, None) => return Err(format!("synapse_id가 없어 자동 해결 불가: {path}")),
@@ -540,8 +579,11 @@ impl GitWorkspace {
                 if let (Some(a), Some(b)) = (&id2, &id3) {
                     if a != b {
                         // 다른 id 밑에 저장된 쪽의 편집을 target 문서로 흡수한다
-                        let (other, side_md) =
-                            if *a == target { (b, &side3) } else { (a, &side2) };
+                        let (other, side_md) = if *a == target {
+                            (b, &side3)
+                        } else {
+                            (a, &side2)
+                        };
                         let side = store
                             .doc_text(other)
                             .map(|t| collab::inject_doc_id(&t, &target))
@@ -648,12 +690,24 @@ fn base64(input: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         out.push(TABLE[(n >> 18) as usize & 63] as char);
         out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -667,7 +721,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let remote = tmp.path().join("remote.git");
         let out = Command::new("git")
-            .args(["init", "--bare", "-b", "main", &remote.display().to_string()])
+            .args([
+                "init",
+                "--bare",
+                "-b",
+                "main",
+                &remote.display().to_string(),
+            ])
             .output()
             .unwrap();
         assert!(out.status.success());
@@ -695,7 +755,9 @@ mod tests {
         let git = GitWorkspace::new(&ws, None);
         assert_eq!(git.status().state, SyncState::NoRepo);
 
-        let status = git.publish(&remote.display().to_string(), "synapse: 초기 게시").unwrap();
+        let status = git
+            .publish(&remote.display().to_string(), "synapse: 초기 게시")
+            .unwrap();
         assert_eq!(status.state, SyncState::Synced);
         assert_eq!(git.status().state, SyncState::Synced);
     }
@@ -708,7 +770,10 @@ mod tests {
 
         write(&ws, "note.md", "수정");
         assert_eq!(git.status().state, SyncState::Pending);
-        assert_eq!(git.sync("synapse: update").unwrap().state, SyncState::Synced);
+        assert_eq!(
+            git.sync("synapse: update").unwrap().state,
+            SyncState::Synced
+        );
         assert_eq!(git.status().state, SyncState::Synced);
     }
 
@@ -717,7 +782,9 @@ mod tests {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
         write(&ws_a, "shared.md", "A의 첫 내용");
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -735,7 +802,9 @@ mod tests {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
         write(&ws_a, "shared.md", "기준 내용");
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -757,7 +826,9 @@ mod tests {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
         write(&ws_a, "shared.md", "기준");
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -768,7 +839,13 @@ mod tests {
         write(&ws_b, "shared.md", "B의 수정");
         assert_eq!(git_b.sync("B").unwrap().state, SyncState::Conflict);
 
-        assert_eq!(git_b.resolve_conflicts(ConflictChoice::KeepMine).unwrap().state, SyncState::Synced);
+        assert_eq!(
+            git_b
+                .resolve_conflicts(ConflictChoice::KeepMine)
+                .unwrap()
+                .state,
+            SyncState::Synced
+        );
         git_a.sync("A pull").unwrap();
         assert_eq!(read(&ws_a, "shared.md"), "B의 수정");
     }
@@ -778,7 +855,9 @@ mod tests {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
         write(&ws_a, "shared.md", "기준");
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -798,7 +877,9 @@ mod tests {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
         write(&ws_a, "shared.md", "기준");
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -842,7 +923,9 @@ mod tests {
 
         let base = doc_text("# 회의록\n\n- 안건 하나\n");
         save_via_store(&store_a, &ws_a, "note.md", "", &base);
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -865,13 +948,22 @@ mod tests {
             SyncState::Synced
         );
         assert_eq!(
-            git_a.sync_with_collab("A pull", Some(&store_a)).unwrap().state,
+            git_a
+                .sync_with_collab("A pull", Some(&store_a))
+                .unwrap()
+                .state,
             SyncState::Synced
         );
 
         let merged_b = read(&ws_b, "note.md");
-        assert!(merged_b.contains("(A 제목 수정)"), "A의 편집 유실: {merged_b}");
-        assert!(merged_b.contains("B가 추가한 안건"), "B의 편집 유실: {merged_b}");
+        assert!(
+            merged_b.contains("(A 제목 수정)"),
+            "A의 편집 유실: {merged_b}"
+        );
+        assert!(
+            merged_b.contains("B가 추가한 안건"),
+            "B의 편집 유실: {merged_b}"
+        );
         assert_eq!(
             normalize_newlines(&read(&ws_a, "note.md")),
             normalize_newlines(&merged_b)
@@ -893,7 +985,9 @@ mod tests {
         let git_a = GitWorkspace::new(&ws_a, None);
         let store_a = CollabStore::new(&ws_a, "actor-aaaa-1111".to_string());
         write(&ws_a, "data.txt", "기준");
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -971,7 +1065,10 @@ mod tests {
         let envs: Vec<(String, String)> = cmd
             .get_envs()
             .filter_map(|(k, v)| {
-                Some((k.to_string_lossy().into_owned(), v?.to_string_lossy().into_owned()))
+                Some((
+                    k.to_string_lossy().into_owned(),
+                    v?.to_string_lossy().into_owned(),
+                ))
             })
             .collect();
         assert!(envs.contains(&("GIT_TERMINAL_PROMPT".into(), "0".into())));
@@ -1021,7 +1118,9 @@ mod tests {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
         write(&ws_a, "a.md", "기준");
-        git_a.publish(&remote.display().to_string(), "init").unwrap();
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
 
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
@@ -1047,7 +1146,10 @@ mod tests {
         }));
 
         let status = git_b.sync("B").unwrap();
-        assert!(fired.load(Ordering::SeqCst), "after_fetch 훅이 호출되지 않음");
+        assert!(
+            fired.load(Ordering::SeqCst),
+            "after_fetch 훅이 호출되지 않음"
+        );
         assert_eq!(status.state, SyncState::Synced);
         // fetch 동안 저장된 파일까지 커밋·push 되어 깨끗해야 한다
         assert_eq!(git_b.status().state, SyncState::Synced);

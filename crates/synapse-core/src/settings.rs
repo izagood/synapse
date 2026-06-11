@@ -12,13 +12,16 @@ const SETTINGS_FILE: &str = "settings.json";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Appearance {
-    pub theme: String,   // "system" | "light" | "dark"
+    pub theme: String, // "system" | "light" | "dark"
     pub language: String,
 }
 
 impl Default for Appearance {
     fn default() -> Self {
-        Appearance { theme: "system".into(), language: "ko".into() }
+        Appearance {
+            theme: "system".into(),
+            language: "ko".into(),
+        }
     }
 }
 
@@ -51,7 +54,10 @@ pub struct SyncSettings {
 
 impl Default for SyncSettings {
     fn default() -> Self {
-        SyncSettings { auto: true, interval_minutes: 5 }
+        SyncSettings {
+            auto: true,
+            interval_minutes: 5,
+        }
     }
 }
 
@@ -70,7 +76,9 @@ pub struct FilesSettings {
 
 impl Default for FilesSettings {
     fn default() -> Self {
-        FilesSettings { confirm_delete: true }
+        FilesSettings {
+            confirm_delete: true,
+        }
     }
 }
 

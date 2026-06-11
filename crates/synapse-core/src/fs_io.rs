@@ -50,7 +50,10 @@ pub fn ensure_writable_within(root: &Path, candidate: &Path) -> io::Result<PathB
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
     let name_str = name.to_string_lossy();
     if name_str == "." || name_str == ".." {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid file name"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid file name",
+        ));
     }
     Ok(parent.join(name))
 }
@@ -65,7 +68,11 @@ pub fn create_unique_note(dir: &Path) -> io::Result<PathBuf> {
             format!("새 노트 {i}.md")
         };
         let path = dir.join(name);
-        match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
             Ok(_) => return Ok(path),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e),
@@ -90,7 +97,11 @@ pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8], sep: &str) -> 
             (None, 1) => stem.clone(),
             (None, n) => format!("{stem}{sep}{n}"),
         };
-        match fs::OpenOptions::new().write(true).create_new(true).open(dir.join(&name)) {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dir.join(&name))
+        {
             Ok(mut f) => {
                 use std::io::Write;
                 f.write_all(bytes)?;
@@ -154,7 +165,10 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         }
     }
     let cleaned: Vec<u8> = input.bytes().filter(|b| !b" \n\r\t".contains(b)).collect();
-    let stripped = cleaned.strip_suffix(b"==").or_else(|| cleaned.strip_suffix(b"=")).unwrap_or(&cleaned);
+    let stripped = cleaned
+        .strip_suffix(b"==")
+        .or_else(|| cleaned.strip_suffix(b"="))
+        .unwrap_or(&cleaned);
     let mut out = Vec::with_capacity(stripped.len() * 3 / 4);
     for chunk in stripped.chunks(4) {
         let mut acc: u32 = 0;
@@ -252,7 +266,10 @@ mod tests {
         fs::write(&a, "원본").unwrap();
         assert_eq!(duplicate_file(&a).unwrap(), "note 2.md");
         assert_eq!(duplicate_file(&a).unwrap(), "note 3.md");
-        assert_eq!(fs::read_to_string(tmp.path().join("note 2.md")).unwrap(), "원본");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("note 2.md")).unwrap(),
+            "원본"
+        );
     }
 
     #[test]
@@ -273,7 +290,10 @@ mod tests {
         let first = create_unique_note(tmp.path()).unwrap();
         let second = create_unique_note(tmp.path()).unwrap();
         assert_eq!(first.file_name().unwrap().to_string_lossy(), "새 노트.md");
-        assert_eq!(second.file_name().unwrap().to_string_lossy(), "새 노트 2.md");
+        assert_eq!(
+            second.file_name().unwrap().to_string_lossy(),
+            "새 노트 2.md"
+        );
         assert!(first.exists() && second.exists());
     }
 }

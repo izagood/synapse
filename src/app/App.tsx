@@ -27,7 +27,11 @@ export default function App() {
       if (e.key === ",") {
         e.preventDefault();
         const s = useSettings.getState();
-        s.showSettings ? s.closeSettings() : s.openSettings();
+        if (s.showSettings) {
+          s.closeSettings();
+        } else {
+          s.openSettings();
+        }
       } else if (e.shiftKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         void ipc.newWindow();

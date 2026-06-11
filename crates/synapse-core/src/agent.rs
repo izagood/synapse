@@ -11,7 +11,11 @@ use std::path::{Path, PathBuf};
 
 /// 프론트엔드(src/ipc/types.ts AgentEvent)와 1:1 대응하는 표시용 이벤트.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum AgentEvent {
     /// system/init — 세션 시작. session_id는 다음 턴 `--resume`에 쓴다.
     Started { session_id: String, model: String },
@@ -34,12 +38,23 @@ pub enum AgentEvent {
 }
 
 fn str_field(v: &Value, key: &str) -> String {
-    v.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
+    v.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// tool_use input에서 사람이 알아볼 만한 대표 값을 하나 고른다.
 fn tool_detail(input: Option<&Value>) -> String {
-    const KEYS: [&str; 7] = ["file_path", "path", "pattern", "command", "url", "query", "description"];
+    const KEYS: [&str; 7] = [
+        "file_path",
+        "path",
+        "pattern",
+        "command",
+        "url",
+        "query",
+        "description",
+    ];
     let Some(obj) = input.and_then(Value::as_object) else {
         return String::new();
     };
@@ -101,7 +116,10 @@ pub fn parse_stream_line(line: &str) -> Vec<AgentEvent> {
                 ok: !is_error,
                 result,
                 session_id: str_field(&v, "session_id"),
-                cost_usd: v.get("total_cost_usd").and_then(Value::as_f64).unwrap_or(0.0),
+                cost_usd: v
+                    .get("total_cost_usd")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0),
                 num_turns: v.get("num_turns").and_then(Value::as_u64).unwrap_or(0),
             }]
         }
@@ -132,7 +150,12 @@ pub fn find_claude_binary(path_var: Option<&str>, home: Option<&Path>) -> Option
         dirs.push(home.join("bin"));
         if cfg!(windows) {
             dirs.push(home.join("AppData").join("Roaming").join("npm"));
-            dirs.push(home.join("AppData").join("Local").join("Programs").join("claude"));
+            dirs.push(
+                home.join("AppData")
+                    .join("Local")
+                    .join("Programs")
+                    .join("claude"),
+            );
         }
     }
     if cfg!(windows) {
@@ -182,7 +205,12 @@ mod tests {
     #[test]
     fn parses_assistant_text_blocks() {
         let events = parse_stream_line(ASSISTANT_TEXT_LINE);
-        assert_eq!(events, vec![AgentEvent::Text { text: "PONG".into() }]);
+        assert_eq!(
+            events,
+            vec![AgentEvent::Text {
+                text: "PONG".into()
+            }]
+        );
     }
 
     #[test]
@@ -192,8 +220,13 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                AgentEvent::Text { text: "읽어볼게요".into() },
-                AgentEvent::ToolUse { name: "Read".into(), detail: "/notes/README.md".into() },
+                AgentEvent::Text {
+                    text: "읽어볼게요".into()
+                },
+                AgentEvent::ToolUse {
+                    name: "Read".into(),
+                    detail: "/notes/README.md".into()
+                },
             ]
         );
     }
@@ -218,7 +251,12 @@ mod tests {
         let line = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":3,"session_id":"s2"}"#;
         let events = parse_stream_line(line);
         match &events[..] {
-            [AgentEvent::Completed { ok: false, result, session_id, .. }] => {
+            [AgentEvent::Completed {
+                ok: false,
+                result,
+                session_id,
+                ..
+            }] => {
                 assert!(!result.is_empty());
                 assert_eq!(session_id, "s2");
             }
@@ -229,7 +267,8 @@ mod tests {
     #[test]
     fn ignores_unknown_event_types_and_garbage() {
         // 문서화되지 않은 타입(rate_limit_event 등)과 깨진 줄은 무시한다
-        let rate_limit = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"uuid":"u"}"#;
+        let rate_limit =
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"uuid":"u"}"#;
         assert!(parse_stream_line(rate_limit).is_empty());
         assert!(parse_stream_line("not json at all").is_empty());
         assert!(parse_stream_line("").is_empty());
@@ -284,7 +323,11 @@ mod tests {
         std::fs::create_dir_all(&path_dir).unwrap();
         std::fs::create_dir_all(home.join(".local").join("bin")).unwrap();
 
-        let name = if cfg!(windows) { "claude.exe" } else { "claude" };
+        let name = if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
+        };
 
         // 아무 데도 없으면 None
         assert_eq!(
