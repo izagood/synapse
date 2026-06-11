@@ -4,7 +4,8 @@
 #   1. package.json의 버전이 이미 태그로 존재하면 patch 버전을 자동 증가
 #      (PR에서 직접 버전을 올렸다면 그 버전을 그대로 사용 — minor/major 릴리스 방법)
 #   2. 버전 파일(package.json, tauri.conf.json, Cargo.toml, Cargo.lock)을 갱신해 main에 커밋
-#   3. vX.Y.Z 태그를 푸시하고 Release (Desktop) 워크플로를 dispatch
+#   3. vX.Y.Z 태그를 푸시하고 GitHub Release를 선생성한 뒤 Release (Desktop)
+#      워크플로를 dispatch
 #   4. 릴리스 빌드가 끝날 때까지 대기하고, 실패하면 1회 자동 재시도
 #
 # 주의: GITHUB_TOKEN으로 푸시한 커밋/태그는 다른 워크플로를 트리거하지 않으므로
@@ -38,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90 # 릴리스 빌드 대기 + 1회 재시도까지 감안
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 0 # 태그 조회용
@@ -102,6 +103,15 @@ jobs:
           v="v${{ steps.version.outputs.next }}"
           git tag "$v"
           git push origin "$v"
+          if gh release view "$v" >/dev/null 2>&1; then
+            echo "GitHub Release가 이미 존재함: $v"
+          else
+            gh release create "$v" \
+              --title "Synapse $v" \
+              --notes "Synapse 데스크톱 설치 파일입니다. 빌드 산출물은 Release (Desktop) 워크플로가 업로드합니다." \
+              --verify-tag
+            echo "GitHub Release 선생성됨: $v"
+          fi
           gh workflow run release-macos.yml --ref "$v"
           echo "Release (Desktop) 워크플로 실행됨: $v"
 
@@ -127,4 +137,12 @@ jobs:
           # 러너 일시 결함(예: 갓 빌드한 build script가 exec 불가)을 흡수하는 1회 재시도
           echo "릴리스 빌드 실패 — 실패한 잡만 1회 재시도"
           gh run rerun "$run_id" --failed
-          gh run watch "$run_id" --interval 30 --exit-status
+          if gh run watch "$run_id" --interval 30 --exit-status; then
+            exit 0
+          fi
+          asset_count=$(gh release view "$v" --json assets --jq '.assets | length' 2>/dev/null || echo 0)
+          if [ "$asset_count" = "0" ]; then
+            echo "릴리스 빌드 실패 및 업로드된 asset 없음 — 빈 Release 정리: $v"
+            gh release delete "$v" --yes
+          fi
+          exit 1
