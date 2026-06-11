@@ -24,7 +24,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use yrs::updates::decoder::Decode;
-use yrs::{ClientID, Doc, GetString, Options, ReadTxn, StateVector, Text, TextRef, Transact, Update};
+use yrs::{
+    ClientID, Doc, GetString, Options, ReadTxn, StateVector, Text, TextRef, Transact, Update,
+};
 
 /// 워크스페이스 안의 협업 데이터 디렉토리 이름
 pub const DATA_DIR: &str = ".synapse";
@@ -61,8 +63,7 @@ pub fn new_doc_id() -> String {
 
 /// 파일 내용에서 온 id가 경로로 쓰이므로 엄격히 검증한다 (경로 탈출 방지)
 pub fn valid_id(id: &str) -> bool {
-    (8..=64).contains(&id.len())
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    (8..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +72,10 @@ pub fn valid_id(id: &str) -> bool {
 
 /// frontmatter 블록의 (본문 시작, 닫는 `---` 줄 시작) 바이트 오프셋
 fn frontmatter_range(text: &str) -> Option<(usize, usize)> {
-    let after_open = text.strip_prefix("---\r\n").map(|_| 5).or_else(|| text.strip_prefix("---\n").map(|_| 4))?;
+    let after_open = text
+        .strip_prefix("---\r\n")
+        .map(|_| 5)
+        .or_else(|| text.strip_prefix("---\n").map(|_| 4))?;
     let mut pos = after_open;
     for line in text[after_open..].split_inclusive('\n') {
         if line.trim_end() == "---" {
@@ -138,10 +142,18 @@ fn diff_patches(base: &str, new: &str) -> Vec<Patch> {
         match chunk {
             dissimilar::Chunk::Equal(s) => pos += s.len(),
             dissimilar::Chunk::Delete(s) => {
-                out.push(Patch { pos, del: s.len(), ins: String::new() });
+                out.push(Patch {
+                    pos,
+                    del: s.len(),
+                    ins: String::new(),
+                });
                 pos += s.len();
             }
-            dissimilar::Chunk::Insert(s) => out.push(Patch { pos, del: 0, ins: s.to_string() }),
+            dissimilar::Chunk::Insert(s) => out.push(Patch {
+                pos,
+                del: 0,
+                ins: s.to_string(),
+            }),
         }
     }
     // 같은 위치의 delete+insert를 하나로 합친다 (교체)
@@ -184,11 +196,17 @@ impl PosMap {
                 dissimilar::Chunk::Insert(s) => c += s.len(),
             }
         }
-        PosMap { segs, cur_len: cur.len() }
+        PosMap {
+            segs,
+            cur_len: cur.len(),
+        }
     }
 
     fn identity(len: usize) -> Self {
-        PosMap { segs: vec![(0, len, 0, true)], cur_len: len }
+        PosMap {
+            segs: vec![(0, len, 0, true)],
+            cur_len: len,
+        }
     }
 
     fn map(&self, p: usize) -> usize {
@@ -229,16 +247,29 @@ pub struct CollabStore {
     compact_threshold: u64,
 }
 
-type LoadedDoc = (Doc, TextRef, bool /* 데이터 존재 여부 */, Vec<PathBuf> /* 읽은 스냅샷 */);
+type LoadedDoc = (
+    Doc,
+    TextRef,
+    bool,         /* 데이터 존재 여부 */
+    Vec<PathBuf>, /* 읽은 스냅샷 */
+);
 
 impl CollabStore {
     pub fn new(root: impl Into<PathBuf>, actor: String) -> Self {
-        CollabStore { root: root.into(), actor, compact_threshold: COMPACT_THRESHOLD }
+        CollabStore {
+            root: root.into(),
+            actor,
+            compact_threshold: COMPACT_THRESHOLD,
+        }
     }
 
     #[cfg(test)]
     fn with_threshold(root: impl Into<PathBuf>, actor: String, threshold: u64) -> Self {
-        CollabStore { root: root.into(), actor, compact_threshold: threshold }
+        CollabStore {
+            root: root.into(),
+            actor,
+            compact_threshold: threshold,
+        }
     }
 
     fn doc_dir(&self, id: &str) -> PathBuf {
@@ -255,7 +286,10 @@ impl CollabStore {
 
     /// 스냅샷 + 모든 로그를 합쳐 문서를 복원한다
     fn load(&self, id: &str) -> io::Result<LoadedDoc> {
-        let doc = Doc::with_options(Options { skip_gc: false, ..Options::default() });
+        let doc = Doc::with_options(Options {
+            skip_gc: false,
+            ..Options::default()
+        });
         let text = doc.get_or_insert_text(TEXT_ROOT);
         let dir = self.doc_dir(id);
         let mut found = false;
@@ -303,7 +337,10 @@ impl CollabStore {
     /// 텍스트가 다르면(그 사이 원격 머지) 패치 위치를 변환해 3-way 머지한다.
     pub fn save_text(&self, id: &str, base: &str, new: &str) -> io::Result<String> {
         if !valid_id(id) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid doc id"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid doc id",
+            ));
         }
         let (doc, text, found, snaps) = self.load(id)?;
         let sv0 = doc.transact().state_vector();
@@ -318,7 +355,11 @@ impl CollabStore {
 
         let cur = text.get_string(&doc.transact());
         let patches = diff_patches(base, new);
-        let map = if cur == base { PosMap::identity(base.len()) } else { PosMap::new(base, &cur) };
+        let map = if cur == base {
+            PosMap::identity(base.len())
+        } else {
+            PosMap::new(base, &cur)
+        };
         {
             let mut txn = doc.transact_mut();
             for p in patches.iter().rev() {
@@ -368,7 +409,10 @@ impl CollabStore {
     /// 합치면 한 번만 반영된다. 변경이 있었으면 true.
     pub fn absorb_external(&self, id: &str, disk: &str) -> io::Result<bool> {
         if !valid_id(id) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid doc id"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid doc id",
+            ));
         }
         let (doc, text, found, _) = self.load(id)?;
         let sv0 = doc.transact().state_vector();
@@ -393,7 +437,10 @@ impl CollabStore {
     /// 위치로 변환해 결정적으로 적용하고 최종 텍스트를 돌려준다.
     pub fn absorb_three_way(&self, id: &str, base: &str, side: &str) -> io::Result<String> {
         if !valid_id(id) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid doc id"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid doc id",
+            ));
         }
         let (doc, text, found, _) = self.load(id)?;
         let sv0 = doc.transact().state_vector();
@@ -423,11 +470,17 @@ impl CollabStore {
         let tmp_text = tmp.get_or_insert_text(TEXT_ROOT);
         {
             let mut txn = tmp.transact_mut();
-            let full = doc.transact().encode_state_as_update_v1(&StateVector::default());
+            let full = doc
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
             apply_bytes(&mut txn, &full);
         }
         let patches = diff_patches(base, side);
-        let map = if cur == base { PosMap::identity(base.len()) } else { PosMap::new(base, &cur) };
+        let map = if cur == base {
+            PosMap::identity(base.len())
+        } else {
+            PosMap::new(base, &cur)
+        };
         {
             let mut txn = tmp.transact_mut();
             for p in patches.iter().rev() {
@@ -457,7 +510,10 @@ impl CollabStore {
         frame.extend_from_slice(&(update.len() as u32).to_le_bytes());
         frame.extend_from_slice(update);
         use std::io::Write;
-        let mut f = fs::OpenOptions::new().append(true).create(true).open(&path)?;
+        let mut f = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&path)?;
         f.write_all(&frame)
     }
 
@@ -469,7 +525,9 @@ impl CollabStore {
         if size <= self.compact_threshold {
             return Ok(());
         }
-        let snapshot = doc.transact().encode_state_as_update_v1(&StateVector::default());
+        let snapshot = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
         let name = format!("snap-{:016x}.y", fnv1a64(&[&snapshot]));
         let path = self.doc_dir(id).join(&name);
         if !path.exists() {
@@ -539,7 +597,9 @@ fn deterministic_patch(
     let text = tmp.get_or_insert_text(TEXT_ROOT);
     {
         let mut txn = tmp.transact_mut();
-        let full = doc.transact().encode_state_as_update_v1(&StateVector::default());
+        let full = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
         apply_bytes(&mut txn, &full);
     }
     {
@@ -702,8 +762,12 @@ mod tests {
         merge_dirs(&ws_a, &ws_b); // B가 클론한 상황
 
         // 동시 편집: A는 앞에, B는 뒤에
-        let a_text = a.save_text(&id, base, "A의 머리말\n첫 줄\n둘째 줄\n셋째 줄\n").unwrap();
-        let b_text = b.save_text(&id, base, "첫 줄\n둘째 줄\n셋째 줄\nB의 꼬리말\n").unwrap();
+        let a_text = a
+            .save_text(&id, base, "A의 머리말\n첫 줄\n둘째 줄\n셋째 줄\n")
+            .unwrap();
+        let b_text = b
+            .save_text(&id, base, "첫 줄\n둘째 줄\n셋째 줄\nB의 꼬리말\n")
+            .unwrap();
         assert_ne!(a_text, b_text);
 
         merge_dirs(&ws_a, &ws_b); // git pull/push 모사
@@ -767,8 +831,12 @@ mod tests {
         let legacy = "레거시 파일 내용\n";
 
         // 같은 레거시 텍스트를 양쪽이 동시에 처음 저장 (서로 다른 편집)
-        let a_text = a.save_text(&id, legacy, "레거시 파일 내용\nA 추가\n").unwrap();
-        let b_text = b.save_text(&id, legacy, "레거시 파일 내용\nB 추가\n").unwrap();
+        let a_text = a
+            .save_text(&id, legacy, "레거시 파일 내용\nA 추가\n")
+            .unwrap();
+        let b_text = b
+            .save_text(&id, legacy, "레거시 파일 내용\nB 추가\n")
+            .unwrap();
         assert!(a_text.contains("A 추가"));
         assert!(b_text.contains("B 추가"));
 
@@ -815,7 +883,9 @@ mod tests {
         s.save_text(&id, "", base).unwrap();
         s.save_text(&id, base, "공통 기반\n내 편집\n").unwrap();
         // 다른 쪽(side)은 base에서 다른 방향으로 편집했다
-        let merged = s.absorb_three_way(&id, base, "공통 기반\n상대 편집\n").unwrap();
+        let merged = s
+            .absorb_three_way(&id, base, "공통 기반\n상대 편집\n")
+            .unwrap();
         assert!(merged.contains("내 편집"));
         assert!(merged.contains("상대 편집"));
         assert_eq!(merged.matches("공통 기반").count(), 1);

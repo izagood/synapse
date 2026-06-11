@@ -217,13 +217,18 @@ mod tests {
             }
         }
         fn next(&self) -> Result<String, String> {
-            self.responses.borrow_mut().pop().ok_or("no more responses".to_string())
+            self.responses
+                .borrow_mut()
+                .pop()
+                .ok_or("no more responses".to_string())
         }
     }
 
     impl Http for FakeHttp {
         fn post_form(&self, url: &str, form: &[(&str, &str)]) -> Result<String, String> {
-            self.requests.borrow_mut().push(format!("POST {url} {form:?}"));
+            self.requests
+                .borrow_mut()
+                .push(format!("POST {url} {form:?}"));
             self.next()
         }
         fn get_json(&self, url: &str, _token: &str) -> Result<String, String> {
@@ -231,7 +236,9 @@ mod tests {
             self.next()
         }
         fn post_json(&self, url: &str, _token: &str, body: &Value) -> Result<String, String> {
-            self.requests.borrow_mut().push(format!("POST {url} {body}"));
+            self.requests
+                .borrow_mut()
+                .push(format!("POST {url} {body}"));
             self.next()
         }
     }
@@ -255,8 +262,14 @@ mod tests {
             r#"{"error":"slow_down","interval":10}"#,
             r#"{"access_token":"gho_token","token_type":"bearer","scope":"repo"}"#,
         ]);
-        assert_eq!(poll_device_flow(&http, "c", "dc").unwrap(), PollOutcome::Pending);
-        assert_eq!(poll_device_flow(&http, "c", "dc").unwrap(), PollOutcome::SlowDown);
+        assert_eq!(
+            poll_device_flow(&http, "c", "dc").unwrap(),
+            PollOutcome::Pending
+        );
+        assert_eq!(
+            poll_device_flow(&http, "c", "dc").unwrap(),
+            PollOutcome::SlowDown
+        );
         assert_eq!(
             poll_device_flow(&http, "c", "dc").unwrap(),
             PollOutcome::Token("gho_token".to_string())
@@ -265,9 +278,8 @@ mod tests {
 
     #[test]
     fn device_flow_poll_failure_carries_description() {
-        let http = FakeHttp::new(&[
-            r#"{"error":"expired_token","error_description":"기기 코드 만료"}"#,
-        ]);
+        let http =
+            FakeHttp::new(&[r#"{"error":"expired_token","error_description":"기기 코드 만료"}"#]);
         assert_eq!(
             poll_device_flow(&http, "c", "dc").unwrap(),
             PollOutcome::Failed("기기 코드 만료".to_string())
@@ -293,7 +305,10 @@ mod tests {
 
     #[test]
     fn credentials_roundtrip_json() {
-        let creds = Credentials { token: "ghp_abc".to_string(), login: "izagood".to_string() };
+        let creds = Credentials {
+            token: "ghp_abc".to_string(),
+            login: "izagood".to_string(),
+        };
         assert_eq!(Credentials::from_json(&creds.to_json()).unwrap(), creds);
     }
 
