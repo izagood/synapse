@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import type { FileNode, FileType } from "../ipc/types";
+import { ancestorDirsOf } from "../features/workspace/fileTreeUtils";
 import { useSettings } from "./settings";
 
 export interface TabInfo {
@@ -45,6 +46,8 @@ interface WorkspaceState {
   activePath: string | null;
   docs: Record<string, DocState>;
   sourceMode: boolean;
+  /** 트리에서 펼쳐진 디렉터리 절대 경로 집합 */
+  expandedDirs: Record<string, true>;
 
   init(): Promise<void>;
   openFolder(path?: string): Promise<void>;
@@ -72,6 +75,10 @@ interface WorkspaceState {
   reloadAfterSync(): Promise<void>;
   createNote(dir?: string): Promise<void>;
   toggleSourceMode(): void;
+  /** 트리 폴더 펼침/접기 */
+  toggleDir(path: string): void;
+  /** 파일의 조상 폴더를 전부 펼친다 (추가 전용 — 접지 않음) */
+  revealPath(path: string): void;
 
   // ---- 파일 작업 (FR-1.3, VS Code 스타일 우클릭) ----
   /** 저장 없이 탭을 닫는다 (삭제된 파일 정리용) */
@@ -99,6 +106,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   activePath: null,
   docs: {},
   sourceMode: false,
+  expandedDirs: {},
 
   async init() {
     try {
@@ -145,6 +153,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         tabs: [],
         activePath: null,
         docs: {},
+        expandedDirs: {},
         loading: false,
       });
       await restoreSession(target, tree, get());
@@ -173,6 +182,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tabs: [],
       activePath: null,
       docs: {},
+      expandedDirs: {},
       error: null,
     });
   },
@@ -413,6 +423,28 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((s) => ({ sourceMode: !s.sourceMode }));
   },
 
+  toggleDir(path) {
+    set((s) => {
+      const expandedDirs = { ...s.expandedDirs };
+      if (expandedDirs[path]) delete expandedDirs[path];
+      else expandedDirs[path] = true;
+      return { expandedDirs };
+    });
+  },
+
+  revealPath(path) {
+    const { root } = get();
+    if (!root) return;
+    const dirs = ancestorDirsOf(root, path);
+    if (!dirs.length) return;
+    set((s) => {
+      if (dirs.every((d) => s.expandedDirs[d])) return s; // 변경 없음 → 리렌더 방지
+      const expandedDirs = { ...s.expandedDirs };
+      for (const d of dirs) expandedDirs[d] = true;
+      return { expandedDirs };
+    });
+  },
+
   closeTabDiscard(path) {
     const timer = autosaveTimers.get(path);
     if (timer) {
@@ -518,6 +550,15 @@ async function restoreSession(
     store.setActiveTab(session.activePath);
   }
 }
+
+// 활성 탭이 바뀌면 (탭 클릭·파일 열기·탭 닫기·퀵 오픈·내부 링크·세션 복원
+// — 경로 불문) 트리에서 그 파일 위치를 펼친다. 단일 구독 지점이라 누락이 없다.
+let lastRevealedPath: string | null = null;
+useWorkspace.subscribe((s) => {
+  if (s.activePath === lastRevealedPath) return;
+  lastRevealedPath = s.activePath; // revealPath의 set 재진입 전에 갱신 → 루프 방지
+  if (s.activePath) s.revealPath(s.activePath);
+});
 
 // 탭/활성 파일이 바뀔 때마다 세션을 전역 레지스트리에 저장 (디바운스, FR-5.5)
 const SESSION_PERSIST_DELAY_MS = 500;

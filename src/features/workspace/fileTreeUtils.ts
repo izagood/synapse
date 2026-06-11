@@ -29,6 +29,24 @@ export function findNode(node: FileNode, path: string): FileNode | null {
   return null;
 }
 
+/**
+ * root 기준으로 filePath의 조상 디렉터리 절대 경로 목록 (루트 제외, 바깥→안 순).
+ * 예: root=/ws, file=/ws/AI/backend/n.md → ["/ws/AI", "/ws/AI/backend"]
+ * filePath가 root 밖이거나 root 직속이면 [].
+ */
+export function ancestorDirsOf(root: string, filePath: string): string[] {
+  const base = root.endsWith("/") ? root.slice(0, -1) : root;
+  if (!filePath.startsWith(`${base}/`)) return [];
+  const parts = filePath.slice(base.length + 1).split("/");
+  const dirs: string[] = [];
+  let cur = base;
+  for (const part of parts.slice(0, -1)) {
+    cur = `${cur}/${part}`;
+    dirs.push(cur);
+  }
+  return dirs;
+}
+
 /** Cmd/Ctrl+Backspace(또는 Delete)가 "선택 파일 삭제" 단축키인지 판정한다 */
 export function isDeleteShortcut(e: {
   metaKey: boolean;

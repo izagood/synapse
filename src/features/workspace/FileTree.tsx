@@ -5,6 +5,10 @@ import { useSettings } from "../../stores/settings";
 import { ChevronIcon, FileIcon, FileTextIcon, GlobeIcon } from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
 
+// jsdom 등 scrollIntoView가 없는 환경 대비 옵셔널 호출
+const scrollToRow = (el: HTMLButtonElement | null) =>
+  el?.scrollIntoView?.({ block: "nearest" });
+
 function FileTypeIcon({ node }: { node: FileNode }) {
   const size = 14;
   if (node.fileType === "markdown") return <FileTextIcon size={size} />;
@@ -32,7 +36,8 @@ function TreeNode({
   depth: number;
   onMenu: (menu: MenuState) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const expanded = useWorkspace((s) => !!s.expandedDirs[node.path]);
+  const toggleDir = useWorkspace((s) => s.toggleDir);
   const activePath = useWorkspace((s) => s.activePath);
   const openFile = useWorkspace((s) => s.openFile);
 
@@ -47,7 +52,7 @@ function TreeNode({
       <div className="tree-group">
         <button
           className="tree-row tree-dir"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => toggleDir(node.path)}
           onContextMenu={handleContextMenu}
         >
           <span className={`tree-caret${expanded ? " expanded" : ""}`}>
@@ -67,9 +72,13 @@ function TreeNode({
     );
   }
 
+  const selected = activePath === node.path;
   return (
     <button
-      className={`tree-row tree-file${activePath === node.path ? " selected" : ""}`}
+      // selected로 마운트/전환되는 순간 보이는 위치로 스크롤 (이미 보이면 no-op).
+      // 조상 펼침(revealPath)과 같은 렌더 패스에서 DOM이 생기므로 ref 시점이 안전하다.
+      ref={selected ? scrollToRow : undefined}
+      className={`tree-row tree-file${selected ? " selected" : ""}`}
       onClick={() => void openFile(node)}
       onContextMenu={handleContextMenu}
       title={node.name}
