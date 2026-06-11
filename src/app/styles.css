@@ -632,15 +632,19 @@ select {
   font-weight: 600;
 }
 
-.rename-dialog input {
-  width: 100%;
+/* 사이드바 인라인 이름 변경 입력 */
+.tree-rename-input {
+  flex: 1;
+  min-width: 0;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
   color: var(--fg);
-  padding: 8px 10px;
-  margin: 8px 0 16px;
-  font-size: 0.95rem;
+  padding: 0 4px;
+  margin: 0;
+  height: 22px;
+  font: inherit;
+  outline: none;
 }
 
 /* ===================== 에디터 ===================== */

@@ -50,8 +50,6 @@ export const en: LocaleShape<KoMessages> = {
     copyPath: "Copy Path",
     delete: "Delete",
     emptyFolder: "Empty folder",
-    renameTitle: "Rename",
-    renameSubmit: "Rename",
     deleteTitle: "Delete",
     deleteFilePrompt: "Delete {name}?",
     deleteFolderPrompt: "Delete the folder {name} and all files inside?",

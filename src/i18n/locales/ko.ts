@@ -45,8 +45,6 @@ export const ko = {
     copyPath: "경로 복사",
     delete: "삭제",
     emptyFolder: "빈 폴더입니다",
-    renameTitle: "이름 변경",
-    renameSubmit: "변경",
     deleteTitle: "삭제",
     deleteFilePrompt: "{name}을(를) 삭제할까요?",
     deleteFolderPrompt: "{name} 폴더와 안의 모든 파일을 삭제할까요?",
