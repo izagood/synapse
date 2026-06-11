@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use synapse_core::github::{self, DeviceCode, PollOutcome, UreqHttp};
+use synapse_core::github::{self, Credentials, DeviceCode, PollOutcome, UreqHttp};
 
 /// GitHub OAuth App의 client_id.
 /// 배포 빌드는 `SYNAPSE_GITHUB_CLIENT_ID` 환경변수로 주입해 빌드한다.
@@ -15,6 +15,12 @@ const CLIENT_ID: &str = match option_env!("SYNAPSE_GITHUB_CLIENT_ID") {
 
 const KEYRING_SERVICE: &str = "dev.synapse.app";
 
+/// 토큰+로그인명을 JSON으로 묶어 담는 단일 키체인 항목.
+/// macOS는 항목마다 접근 허용을 따로 묻기 때문에 항목을 하나만 쓴다.
+const ENTRY_GITHUB: &str = "github";
+/// 구버전이 쓰던 항목들 — 발견하면 통합 항목으로 옮기고 지운다.
+const LEGACY_ENTRIES: [&str; 2] = ["github-token", "github-login"];
+
 #[derive(Default)]
 pub struct AuthState {
     pub pending_device_code: Mutex<Option<String>>,
@@ -24,8 +30,33 @@ fn entry(name: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYRING_SERVICE, name).map_err(|e| e.to_string())
 }
 
+fn store_credentials(creds: &Credentials) -> Result<(), String> {
+    entry(ENTRY_GITHUB)?.set_password(&creds.to_json()).map_err(|e| e.to_string())
+}
+
+fn stored_credentials() -> Option<Credentials> {
+    if let Ok(json) = entry(ENTRY_GITHUB).ok()?.get_password() {
+        return Credentials::from_json(&json).ok();
+    }
+    // 구버전(항목 2개) 마이그레이션 — 옛 항목은 여기서 마지막으로 읽고 지운다
+    let token = entry(LEGACY_ENTRIES[0]).ok()?.get_password().ok()?;
+    let login = entry(LEGACY_ENTRIES[1])
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .unwrap_or_default();
+    let creds = Credentials { token, login };
+    if store_credentials(&creds).is_ok() {
+        for name in LEGACY_ENTRIES {
+            if let Ok(e) = entry(name) {
+                let _ = e.delete_credential();
+            }
+        }
+    }
+    Some(creds)
+}
+
 pub fn stored_token() -> Option<String> {
-    entry("github-token").ok()?.get_password().ok()
+    stored_credentials().map(|c| c.token)
 }
 
 #[derive(Serialize)]
@@ -80,8 +111,7 @@ pub async fn github_login_poll(
             *state.pending_device_code.lock().unwrap() = None;
             let login = crate::sync::run_blocking(move || {
                 let login = github::get_login(&UreqHttp, &token)?;
-                entry("github-token")?.set_password(&token).map_err(|e| e.to_string())?;
-                entry("github-login")?.set_password(&login).map_err(|e| e.to_string())?;
+                store_credentials(&Credentials { token, login: login.clone() })?;
                 Ok(login)
             })
             .await?;
@@ -92,13 +122,13 @@ pub async fn github_login_poll(
 
 #[tauri::command]
 pub fn github_user() -> Option<String> {
-    stored_token()?;
-    entry("github-login").ok()?.get_password().ok()
+    let creds = stored_credentials()?;
+    if creds.login.is_empty() { None } else { Some(creds.login) }
 }
 
 #[tauri::command]
 pub fn github_logout() -> Result<(), String> {
-    for name in ["github-token", "github-login"] {
+    for name in std::iter::once(ENTRY_GITHUB).chain(LEGACY_ENTRIES) {
         if let Ok(e) = entry(name) {
             let _ = e.delete_credential();
         }
