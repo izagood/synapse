@@ -19,6 +19,7 @@ export const en: LocaleShape<KoMessages> = {
   activity: {
     toggleSidebar: "Toggle Sidebar",
     quickOpen: "Quick Open ({shortcut})",
+    search: "Search ({shortcut})",
     agentPanel: "Claude Panel ({shortcut})",
     newWindow: "New Window ({shortcut}) - open another folder",
     openAnotherFolder: "Open Another Folder",
@@ -43,6 +44,10 @@ export const en: LocaleShape<KoMessages> = {
     placeholder: "Search files…",
     empty: "No results",
   },
+  search: {
+    placeholder: "Search in notes…",
+    empty: "No results",
+  },
   fileTree: {
     newNote: "New Note",
     duplicate: "Duplicate",
@@ -50,8 +55,6 @@ export const en: LocaleShape<KoMessages> = {
     copyPath: "Copy Path",
     delete: "Delete",
     emptyFolder: "Empty folder",
-    renameTitle: "Rename",
-    renameSubmit: "Rename",
     deleteTitle: "Delete",
     deleteFilePrompt: "Delete {name}?",
     deleteFolderPrompt: "Delete the folder {name} and all files inside?",
@@ -186,6 +189,14 @@ export const en: LocaleShape<KoMessages> = {
   },
   viewer: {
     preparing: "Preparing render…",
+  },
+  backlinks: {
+    title: "Backlinks",
+    show: "Show backlinks",
+    hide: "Hide backlinks",
+    empty: "No notes link to this note",
+    count: "{count} notes link here",
+    loading: "Finding backlinks…",
   },
   history: {
     title: "File history",

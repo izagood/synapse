@@ -14,6 +14,7 @@ export const ko = {
   activity: {
     toggleSidebar: "사이드바 토글",
     quickOpen: "빠른 열기 ({shortcut})",
+    search: "전체 검색 ({shortcut})",
     agentPanel: "Claude 패널 ({shortcut})",
     newWindow: "새 창 ({shortcut}) - 다른 폴더를 동시에",
     openAnotherFolder: "다른 폴더 열기",
@@ -38,6 +39,10 @@ export const ko = {
     placeholder: "파일 이름 검색…",
     empty: "결과 없음",
   },
+  search: {
+    placeholder: "노트 내용 검색…",
+    empty: "결과 없음",
+  },
   fileTree: {
     newNote: "새 노트",
     duplicate: "사본 만들기",
@@ -45,8 +50,6 @@ export const ko = {
     copyPath: "경로 복사",
     delete: "삭제",
     emptyFolder: "빈 폴더입니다",
-    renameTitle: "이름 변경",
-    renameSubmit: "변경",
     deleteTitle: "삭제",
     deleteFilePrompt: "{name}을(를) 삭제할까요?",
     deleteFolderPrompt: "{name} 폴더와 안의 모든 파일을 삭제할까요?",
@@ -181,6 +184,14 @@ export const ko = {
   },
   viewer: {
     preparing: "렌더링 준비 중…",
+  },
+  backlinks: {
+    title: "백링크",
+    show: "백링크 보기",
+    hide: "백링크 숨기기",
+    empty: "이 노트를 가리키는 노트가 없습니다",
+    count: "{count}개 노트가 이 노트를 가리킵니다",
+    loading: "백링크 찾는 중…",
   },
   history: {
     title: "파일 히스토리",

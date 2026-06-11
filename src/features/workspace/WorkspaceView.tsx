@@ -4,6 +4,7 @@ import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
 import { ContentPane } from "./ContentPane";
 import { QuickOpenModal } from "./QuickOpenModal";
+import { SearchModal } from "./SearchModal";
 import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
 import { AgentPanel } from "../agent/AgentPanel";
@@ -30,6 +31,7 @@ export function WorkspaceView() {
   const createNote = useWorkspace((s) => s.createNote);
   const saveActive = useWorkspace((s) => s.saveActive);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [search, setSearch] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [agentVisible, setAgentVisible] = useState(
@@ -56,6 +58,9 @@ export function WorkspaceView() {
       if (e.shiftKey && key === "a") {
         e.preventDefault();
         toggleAgent();
+      } else if (e.shiftKey && key === "f") {
+        e.preventDefault();
+        setSearch((v) => !v);
       } else if (key === "s") {
         e.preventDefault();
         void saveActive();
@@ -107,6 +112,7 @@ export function WorkspaceView() {
           sidebarVisible={sidebarVisible}
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
           onQuickOpen={() => setQuickOpen(true)}
+          onSearch={() => setSearch(true)}
           agentVisible={agentVisible}
           onToggleAgent={toggleAgent}
         />
@@ -148,6 +154,7 @@ export function WorkspaceView() {
       </div>
       <SyncBar />
       {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
+      {search && <SearchModal onClose={() => setSearch(false)} />}
       {historyPath && (
         <FileHistoryModal key={historyPath} path={historyPath} onClose={closeHistory} />
       )}

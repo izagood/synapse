@@ -11,10 +11,12 @@ import type {
   AgentEventPayload,
   AgentStatus,
   ConfigSyncStatus,
+  Backlink,
   DeviceCode,
   FileCommit,
   FileNode,
   PollResult,
+  SearchHit,
   Settings,
   SyncStatus,
   SynapseIpc,
@@ -30,12 +32,15 @@ const tauriIpc: SynapseIpc = {
     return typeof selected === "string" ? selected : null;
   },
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
+  searchWorkspace: (root, query) =>
+    invoke<SearchHit[]>("search_workspace", { root, query }),
   readFile: (root, path) => invoke<string>("read_file", { root, path }),
   writeFile: (root, path, content) =>
     invoke<void>("write_file", { root, path, content }),
   saveDoc: (root, path, content, base) =>
     invoke<string>("save_doc", { root, path, content, base }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
+  backlinks: (root, path) => invoke<Backlink[]>("backlinks", { root, path }),
   saveImage: (root, dir, desiredName, base64) =>
     invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
   newWindow: () => invoke<void>("new_window"),
