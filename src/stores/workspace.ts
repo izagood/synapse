@@ -52,6 +52,11 @@ interface WorkspaceState {
   closeWorkspace(): void;
 
   openFile(node: Pick<FileNode, "path" | "name" | "kind" | "fileType">): Promise<void>;
+  /**
+   * 절대 경로로 트리에서 파일을 찾아 연다 (노트 내 내부 링크 이동용).
+   * 확장자가 없으면 `.md`를 붙여 재시도. 트리에 없으면 false.
+   */
+  openFileAt(path: string): Promise<boolean>;
   setActiveTab(path: string): void;
   closeTab(path: string): Promise<void>;
   /** VS Code 스타일 일괄 닫기 (FR-1.7) — 미저장분은 닫기 전에 저장 */
@@ -206,6 +211,21 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         },
       }));
     }
+  },
+
+  async openFileAt(path) {
+    const { tree } = get();
+    if (!tree) return false;
+    const existing = collectFilePaths(tree);
+    const target = existing.has(path)
+      ? path
+      : existing.has(`${path}.md`)
+        ? `${path}.md`
+        : null;
+    if (!target) return false;
+    const name = target.split("/").pop()!;
+    await get().openFile({ path: target, name, kind: "file", fileType: fileTypeOf(name) });
+    return true;
   },
 
   setActiveTab(path) {
