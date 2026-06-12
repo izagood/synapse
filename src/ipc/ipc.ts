@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   ConfigSyncStatus,
   Backlink,
+  LinkGraph,
   DeviceCode,
   FileCommit,
   FileNode,
@@ -41,6 +42,7 @@ const tauriIpc: SynapseIpc = {
     invoke<string>("save_doc", { root, path, content, base }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
   backlinks: (root, path) => invoke<Backlink[]>("backlinks", { root, path }),
+  linkGraph: (root) => invoke<LinkGraph>("link_graph", { root }),
   saveImage: (root, dir, desiredName, base64) =>
     invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
   newWindow: () => invoke<void>("new_window"),
