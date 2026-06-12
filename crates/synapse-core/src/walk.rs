@@ -54,11 +54,12 @@ mod tests {
     fn collect(root: &Path) -> Vec<String> {
         let mut out = Vec::new();
         walk_files(root, &mut |path, _| {
+            // Windows 경로 구분자를 정규화해 기대값을 플랫폼 공통으로 둔다
             out.push(
                 path.strip_prefix(root)
                     .unwrap()
                     .to_string_lossy()
-                    .into_owned(),
+                    .replace('\\', "/"),
             );
             true
         });
