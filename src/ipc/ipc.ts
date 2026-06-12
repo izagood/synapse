@@ -11,6 +11,7 @@ import type {
   AgentEventPayload,
   AgentStatus,
   ConfigSyncStatus,
+  ConflictPreview,
   Backlink,
   LinkGraph,
   DeviceCode,
@@ -77,6 +78,8 @@ const tauriIpc: SynapseIpc = {
   syncNow: (root, message) => invoke<SyncStatus>("sync_now", { root, message }),
   resolveConflict: (root, choice) =>
     invoke<SyncStatus>("resolve_conflict", { root, choice }),
+  conflictPreview: (root) =>
+    invoke<ConflictPreview[]>("conflict_preview", { root }),
   publishWorkspace: (root, name, isPrivate) =>
     invoke<SyncStatus>("publish_workspace", { root, name, private: isPrivate }),
   cloneRepo: (url, parentDir, name) =>

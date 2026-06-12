@@ -67,6 +67,19 @@ pub struct FileCommit {
     pub message: String,
 }
 
+/// 충돌한 파일 하나의 양쪽 내용 (FR-4.5 diff 뷰용).
+/// 충돌 상태에서 repo는 깨끗하므로 mine=`HEAD:파일`, theirs=`업스트림:파일`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictPreview {
+    /// 워크스페이스 루트 기준 상대 경로
+    pub path: String,
+    /// 내 버전 (로컬 HEAD). 내 쪽에서 삭제된 경우 None
+    pub mine: Option<String>,
+    /// 원격 버전 (업스트림). 원격에서 삭제된 경우 None
+    pub theirs: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConflictChoice {
@@ -691,6 +704,65 @@ impl GitWorkspace {
         Ok(SyncStatus::simple(SyncState::Synced))
     }
 
+    /// 충돌한 파일들의 양쪽 내용을 모아 돌려준다 (FR-4.5 diff 뷰).
+    ///
+    /// 충돌이 감지되면 rebase가 중단(abort)되어 워킹트리는 깨끗하다. 따라서
+    /// 내 버전은 로컬 `HEAD`, 원격 버전은 업스트림 ref에서 읽는다. 최신 원격을
+    /// 반영하기 위해 먼저 fetch 한다. 어느 한쪽에서 삭제된 파일은 None이 된다.
+    pub fn conflict_preview(&self) -> GitResult<Vec<ConflictPreview>> {
+        if !Self::git_available() || !self.is_repo() {
+            return Ok(vec![]);
+        }
+        // 업스트림 내용을 정확히 보려면 최신 상태로 fetch (락 불필요: 워킹트리 안 만짐)
+        let _ = self.run(&["fetch", "origin"]);
+        let upstream = self.upstream()?;
+
+        // 충돌 대상 파일 = 로컬과 업스트림이 공통 조상 이후로 함께 바뀐 파일.
+        // merge-base 대비 양쪽 diff의 교집합을 쓴다. merge-base가 없으면 빈 목록.
+        let (ok, base, _) = self.run(&["merge-base", "HEAD", &upstream])?;
+        if !ok {
+            return Ok(vec![]);
+        }
+        let base = base.trim().to_string();
+        let mine_changed = self.changed_files(&base, "HEAD")?;
+        let theirs_changed = self.changed_files(&base, &upstream)?;
+
+        let mut files: Vec<String> = mine_changed
+            .iter()
+            .filter(|f| theirs_changed.contains(*f))
+            // .synapse 내부 CRDT 로그 등은 사용자에게 보여줄 diff가 아니다
+            .filter(|f| !f.starts_with(collab::DATA_DIR))
+            .cloned()
+            .collect();
+        files.sort();
+        files.dedup();
+
+        Ok(files
+            .into_iter()
+            .map(|path| {
+                let mine = self
+                    .run(&["show", &format!("HEAD:{path}")])
+                    .ok()
+                    .and_then(|(ok, out, _)| ok.then_some(out));
+                let theirs = self
+                    .run(&["show", &format!("{upstream}:{path}")])
+                    .ok()
+                    .and_then(|(ok, out, _)| ok.then_some(out));
+                ConflictPreview { path, mine, theirs }
+            })
+            .collect())
+    }
+
+    /// `from..to` 사이에 변경된 파일 경로 목록.
+    fn changed_files(&self, from: &str, to: &str) -> GitResult<Vec<String>> {
+        Ok(self
+            .run_ok(&["diff", "--name-only", &format!("{from}..{to}")])?
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect())
+    }
+
     /// 한 파일의 git 커밋 히스토리 (최신순). 레포가 아니거나 추적되지 않는
     /// 파일이면 빈 목록을 돌려준다 — 앱이 죽지 않게 우아하게 처리한다 (FR-4.7).
     ///
@@ -907,6 +979,33 @@ mod tests {
         assert_eq!(status.conflict_files, vec!["shared.md"]);
         // rebase --abort 되어 충돌 마커 없이 내 내용 그대로여야 한다
         assert_eq!(read(&ws_b, "shared.md"), "B의 수정");
+    }
+
+    #[test]
+    fn conflict_preview_returns_both_sides() {
+        let (tmp, remote, ws_a) = setup();
+        let git_a = GitWorkspace::new(&ws_a, None);
+        write(&ws_a, "shared.md", "기준 내용");
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
+
+        let ws_b = tmp.path().join("clone-b");
+        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
+        let git_b = GitWorkspace::new(&ws_b, None);
+
+        write(&ws_a, "shared.md", "A의 수정");
+        git_a.sync("A").unwrap();
+        write(&ws_b, "shared.md", "B의 수정");
+        let status = git_b.sync("B").unwrap();
+        assert_eq!(status.state, SyncState::Conflict);
+
+        // diff 뷰: 내 버전(B)과 원격 버전(A)을 모두 읽어 와야 한다
+        let preview = git_b.conflict_preview().unwrap();
+        assert_eq!(preview.len(), 1);
+        assert_eq!(preview[0].path, "shared.md");
+        assert_eq!(preview[0].mine.as_deref(), Some("B의 수정"));
+        assert_eq!(preview[0].theirs.as_deref(), Some("A의 수정"));
     }
 
     #[test]

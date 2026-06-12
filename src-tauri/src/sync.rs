@@ -8,7 +8,8 @@ use std::path::Path;
 
 use synapse_core::github::{self, UreqHttp};
 use synapse_core::{
-    collab, ensure_within, CollabStore, ConflictChoice, FileCommit, GitWorkspace, SyncStatus,
+    collab, ensure_within, CollabStore, ConflictChoice, ConflictPreview, FileCommit, GitWorkspace,
+    SyncStatus,
 };
 
 use crate::auth::stored_token;
@@ -57,6 +58,12 @@ pub async fn sync_now(root: String, message: String) -> Result<SyncStatus, Strin
 #[tauri::command]
 pub async fn resolve_conflict(root: String, choice: ConflictChoice) -> Result<SyncStatus, String> {
     run_blocking(move || workspace(&root).resolve_conflicts(choice)).await
+}
+
+/// 충돌한 파일들의 내 버전·원격 버전 내용을 모아 돌려준다 (FR-4.5 diff 뷰).
+#[tauri::command]
+pub async fn conflict_preview(root: String) -> Result<Vec<ConflictPreview>, String> {
+    run_blocking(move || workspace(&root).conflict_preview()).await
 }
 
 /// GitHub에 리포지토리를 만들고 워크스페이스를 첫 push 한다
