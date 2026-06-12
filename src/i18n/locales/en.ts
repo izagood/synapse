@@ -172,6 +172,13 @@ export const en: LocaleShape<KoMessages> = {
     roleUser: "You",
     roleAssistant: "Claude",
     aborted: "Response stopped",
+    permissionTitle: "Allow {tool}?",
+    permissionEditTitle: "Allow editing this file?",
+    permissionApprove: "Approve",
+    permissionReject: "Reject",
+    permissionWholeFile: "Replaces the whole file with new content",
+    editApplied: "AI edited {file}",
+    aiEditedBadge: "Edited by AI",
   },
   editor: {
     placeholder:
