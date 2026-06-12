@@ -130,6 +130,8 @@ export const en: LocaleShape<KoMessages> = {
     keepMine: "Keep Mine",
     keepRemote: "Use Remote",
     keepBoth: "Keep Both",
+    diffMine: "Mine",
+    diffTheirs: "Remote",
     noGit: "Git is not installed",
     syncNow: "Sync Now",
     syncing: "Syncing…",

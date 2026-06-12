@@ -50,6 +50,7 @@ pub fn run() {
             sync::sync_status,
             sync::sync_now,
             sync::resolve_conflict,
+            sync::conflict_preview,
             sync::publish_workspace,
             sync::clone_repo,
             config_sync::config_sync_status,
