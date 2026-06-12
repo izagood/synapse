@@ -5,7 +5,6 @@ import type {
   ConflictPreview,
   FileCommit,
   FileNode,
-  FileType,
   RetrievalResult,
   RetrievedSnippet,
   SearchHit,
@@ -16,6 +15,7 @@ import type {
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { computeBacklinks, computeGraph } from "../features/editor/backlinks";
+import { basename, fileTypeOf } from "../shared/pathUtils";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.
 // 파일 맵에서 트리를 파생시키므로 쓰기/생성도 실제처럼 동작한다.
@@ -27,16 +27,10 @@ const files = new Map<string, string>([
   [`${MOCK_ROOT}/ai/summary.html`, "<h1>AI 요약</h1><p>HTML 뷰어 데모 문서입니다.</p>"],
 ]);
 
-function fileTypeOf(name: string): FileType {
-  const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "md" || ext === "markdown") return "markdown";
-  if (ext === "html" || ext === "htm") return "html";
-  return "other";
-}
 
 function buildMockTree(): FileNode {
   const root: FileNode = {
-    name: MOCK_ROOT.split("/").pop()!,
+    name: basename(MOCK_ROOT),
     path: MOCK_ROOT,
     kind: "dir",
     fileType: "other",
@@ -49,7 +43,7 @@ function buildMockTree(): FileNode {
     if (existing) return existing;
     const parent = ensureDir(path.slice(0, path.lastIndexOf("/")));
     const node: FileNode = {
-      name: path.split("/").pop()!,
+      name: basename(path),
       path,
       kind: "dir",
       fileType: "other",
@@ -63,7 +57,7 @@ function buildMockTree(): FileNode {
   for (const path of files.keys()) {
     const dir = ensureDir(path.slice(0, path.lastIndexOf("/")));
     dir.children!.push({
-      name: path.split("/").pop()!,
+      name: basename(path),
       path,
       kind: "file",
       fileType: fileTypeOf(path),
@@ -89,7 +83,7 @@ function mockSearch(query: string): SearchHit[] {
   if (!needle) return [];
   const hits: SearchHit[] = [];
   for (const [path, content] of [...files.entries()].sort()) {
-    const name = path.split("/").pop()!;
+    const name = basename(path);
     const nameMatch = name.toLowerCase().includes(needle);
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
     const matches: { line: number; snippet: string }[] = [];
@@ -342,7 +336,7 @@ export const mockIpc: SynapseIpc = {
     assertInside(root, path);
     const content = files.get(path);
     if (content === undefined) throw new Error(`no such file: ${path}`);
-    const name = path.split("/").pop()!;
+    const name = basename(path);
     const dir = path.slice(0, path.lastIndexOf("/"));
     const dotAt = name.lastIndexOf(".");
     const stem = dotAt > 0 ? name.slice(0, dotAt) : name;

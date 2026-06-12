@@ -6,7 +6,8 @@
 // retrieval::retrieve_context(Rust)가 한다. 여기서는 그 결과를 프롬프트로
 // 조립하고 UI 표시용 출처 목록을 정리하기만 한다(테스트 가능한 순수 함수).
 
-import type { RetrievalResult, RetrievedSnippet } from "../ipc/types";
+import type { Language, RetrievalResult, RetrievedSnippet } from "../ipc/types";
+import { translate } from "../i18n";
 import { toRelativePath } from "./agentContext";
 
 /** UI에 표시·클릭할 출처 노트 한 건. */
@@ -38,11 +39,16 @@ export function sourceNotesFrom(
 }
 
 /** 스니펫 하나를 "출처: 상대경로" 라벨 + 본문으로 포맷한다. */
-function formatSnippet(root: string, snippet: RetrievedSnippet): string {
+function formatSnippet(
+  root: string,
+  snippet: RetrievedSnippet,
+  language: Language,
+): string {
   const rel = toRelativePath(root, snippet.path);
+  const source = translate(language, "agent.ragSource", { path: rel });
   const body = snippet.snippet.trim();
   // 본문이 비어 있는(백링크 보강) 노트도 출처로는 남겨 둔다 — claude가 직접 읽도록.
-  return body ? `[출처: ${rel}]\n${body}` : `[출처: ${rel}]`;
+  return body ? `${source}\n${body}` : source;
 }
 
 /**
@@ -52,9 +58,10 @@ function formatSnippet(root: string, snippet: RetrievedSnippet): string {
 export function buildRagContextBlock(
   root: string,
   result: RetrievalResult,
+  language: Language,
 ): string {
   if (result.snippets.length === 0) return "";
-  const parts = result.snippets.map((s) => formatSnippet(root, s));
+  const parts = result.snippets.map((s) => formatSnippet(root, s, language));
   return parts.join("\n\n");
 }
 
@@ -67,15 +74,15 @@ export function buildAskNotesPrompt(
   question: string,
   root: string,
   result: RetrievalResult,
+  language: Language,
 ): string {
-  const block = buildRagContextBlock(root, result);
+  const block = buildRagContextBlock(root, result, language);
   if (!block) return question;
   return [
-    "[내 노트에서 찾은 관련 발췌 — 답변의 근거로 삼고, 사용한 노트의 경로를 인용하세요.",
-    "더 필요하면 Read 도구로 해당 경로를 직접 읽으세요.]",
+    translate(language, "agent.ragHeader"),
     "",
     block,
     "",
-    `질문: ${question}`,
+    translate(language, "agent.ragQuestion", { question }),
   ].join("\n");
 }

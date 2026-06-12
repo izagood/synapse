@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import type { FileNode, FileType } from "../ipc/types";
 import { ancestorDirsOf } from "../features/workspace/fileTreeUtils";
+import { basename, fileTypeOf } from "../shared/pathUtils";
 import { useSettings } from "./settings";
 import { htmlToMarkdown } from "../features/html/htmlToMarkdown";
 import {
@@ -104,12 +105,6 @@ interface WorkspaceState {
   duplicateEntry(node: Pick<FileNode, "path">): Promise<void>;
 }
 
-function fileTypeOf(name: string): FileType {
-  const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "md" || ext === "markdown") return "markdown";
-  if (ext === "html" || ext === "htm") return "html";
-  return "other";
-}
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   recent: [],
@@ -249,7 +244,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         ? `${path}.md`
         : null;
     if (!target) return false;
-    const name = target.split("/").pop()!;
+    const name = basename(target);
     await get().openFile({ path: target, name, kind: "file", fileType: fileTypeOf(name) });
     return true;
   },
@@ -426,7 +421,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       await get().refreshTree();
       await get().openFile({
         path,
-        name: path.split("/").pop()!,
+        name: basename(path),
         kind: "file",
         fileType: "markdown",
       });
@@ -445,7 +440,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       await get().refreshTree();
       await get().openFile({
         path,
-        name: path.split("/").pop()!,
+        name: basename(path),
         kind: "file",
         fileType: "markdown",
       });

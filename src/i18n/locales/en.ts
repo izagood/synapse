@@ -200,6 +200,14 @@ export const en: LocaleShape<KoMessages> = {
     permissionWholeFile: "Replaces the whole file with new content",
     editApplied: "AI edited {file}",
     aiEditedBadge: "Edited by AI",
+    ctxHeader: "[Workspace context — read these with the Read tool if needed]",
+    ctxCurrentNote: "Current note: {path}",
+    ctxOtherNotes: "Other open notes: {notes}",
+    ctxOpenNotes: "Open notes: {notes}",
+    ragHeader:
+      "[Relevant excerpts from my notes — use them as grounding and cite the note paths you use.\nRead the paths directly with the Read tool if you need more.]",
+    ragSource: "[Source: {path}]",
+    ragQuestion: "Question: {question}",
   },
   editor: {
     placeholder:

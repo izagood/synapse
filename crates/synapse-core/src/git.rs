@@ -195,7 +195,7 @@ impl GitWorkspace {
     pub fn auth_header_for_token(token: &str) -> String {
         format!(
             "AUTHORIZATION: basic {}",
-            base64(format!("x-access-token:{token}").as_bytes())
+            crate::fs_io::base64_encode(format!("x-access-token:{token}").as_bytes())
         )
     }
 
@@ -455,28 +455,17 @@ impl GitWorkspace {
     /// 워크스페이스의 모든 .md를 훑어 CRDT와 어긋난 외부 편집(GitHub 웹,
     /// 다른 에디터 등)을 결정적으로 흡수한다. 개별 파일 실패는 무시한다.
     fn absorb_workspace(&self, store: &CollabStore) {
-        fn walk(dir: &Path, store: &CollabStore) {
-            let Ok(entries) = fs::read_dir(dir) else {
-                return;
-            };
-            for entry in entries.filter_map(Result::ok) {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with('.') {
-                    continue; // .git, .synapse 등
-                }
-                let path = entry.path();
-                if path.is_dir() {
-                    walk(&path, store);
-                } else if name.ends_with(".md") {
-                    if let Ok(text) = fs::read_to_string(&path) {
-                        if let Some(id) = collab::extract_doc_id(&text) {
-                            let _ = store.absorb_external(&id, &text);
-                        }
+        // 순회 정책은 walk 모듈 공통(숨김·심볼릭 링크 제외) — 앱의 다른 순회와 일치.
+        crate::walk::walk_files(&self.root, &mut |path, name| {
+            if name.ends_with(".md") {
+                if let Ok(text) = fs::read_to_string(path) {
+                    if let Some(id) = collab::extract_doc_id(&text) {
+                        let _ = store.absorb_external(&id, &text);
                     }
                 }
             }
-        }
-        walk(&self.root, store);
+            true
+        });
     }
 
     fn rebase_in_progress(&self) -> GitResult<bool> {
@@ -844,32 +833,6 @@ fn conflict_copy_name(path: &str) -> String {
         Some((stem, ext)) if !stem.is_empty() => format!("{stem} (conflict).{ext}"),
         _ => format!("{path} (conflict)"),
     }
-}
-
-fn base64(input: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for chunk in input.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        out.push(TABLE[(n >> 18) as usize & 63] as char);
-        out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[(n >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[n as usize & 63] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1484,14 +1447,5 @@ mod tests {
         write(plain.path(), "note.md", "x");
         let git2 = GitWorkspace::new(plain.path(), None);
         assert!(git2.file_history("note.md").unwrap().is_empty());
-    }
-
-    #[test]
-    fn base64_matches_known_vectors() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"x-access-token:abc"), "eC1hY2Nlc3MtdG9rZW46YWJj");
     }
 }

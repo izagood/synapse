@@ -19,8 +19,7 @@ use serde::{Deserialize, Serialize};
 
 const STATE_FILE: &str = "config-sync.json";
 const CLOUD_SUBDIR: &str = "cloud";
-/// settings.rs의 SETTINGS_FILE과 같아야 한다.
-const SETTINGS_FILE: &str = "settings.json";
+use crate::settings::SETTINGS_FILE;
 
 /// 이 기기에서의 설정 동기화 연동 상태 (동기화 대상 아님).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

@@ -1,4 +1,5 @@
 import type { EditPreview } from "../../ipc/types";
+import { basename } from "../../shared/pathUtils";
 
 // 2-B 안전 편집: 권한 승인 다이얼로그의 순수 로직.
 // UI(AgentPanel)와 분리해 vitest로 단위 테스트한다.
@@ -78,6 +79,5 @@ export function previewDiff(edit: EditPreview): DiffLine[] {
 
 /** 파일 경로에서 표시용 파일명만 뽑는다 */
 export function fileLabel(edit: EditPreview): string {
-  const parts = edit.filePath.split(/[/\\]/);
-  return parts[parts.length - 1] || edit.filePath;
+  return basename(edit.filePath);
 }

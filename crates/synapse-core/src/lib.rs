@@ -11,13 +11,16 @@ pub mod retrieval;
 pub mod search;
 pub mod settings;
 pub mod tree;
+pub mod walk;
 
 pub use collab::CollabStore;
 pub use config_sync::ConfigSyncState;
-pub use fs_io::{atomic_write, atomic_write_bytes, create_unique_note, ensure_writable_within};
+pub use fs_io::{
+    atomic_write, atomic_write_bytes, create_unique_note, ensure_writable_within, is_safe_file_name,
+};
 pub use git::{ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, SyncState, SyncStatus};
 pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, LinkGraph};
-pub use paths::ensure_within;
+pub use paths::{ensure_within, rel_path_within};
 pub use registry::{recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};
 pub use search::{search_workspace, SearchHit, SearchMatch, SearchOptions};

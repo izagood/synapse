@@ -114,15 +114,16 @@ pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8], sep: &str) -> 
     Err(io::Error::other("too many name collisions"))
 }
 
+/// 한 단계 파일/폴더 이름으로 안전한지 검증한다 (경로 트래버설 차단).
+/// 구분자(`/`, `\`)가 금지되므로 "a..b" 같은 이름은 탈출이 불가능해 허용된다.
+pub fn is_safe_file_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != "." && name != ".."
+}
+
 /// 파일/폴더 이름 변경. 같은 디렉토리 안에서만, 기존 항목을 덮어쓰지 않는다.
 /// 새 전체 경로를 돌려준다.
 pub fn rename_entry(path: &Path, new_name: &str) -> io::Result<PathBuf> {
-    if new_name.is_empty()
-        || new_name.contains('/')
-        || new_name.contains('\\')
-        || new_name == "."
-        || new_name == ".."
-    {
+    if !is_safe_file_name(new_name) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid name"));
     }
     let parent = path
@@ -150,6 +151,33 @@ pub fn duplicate_file(path: &Path) -> io::Result<String> {
         .to_string_lossy();
     let bytes = fs::read(path)?;
     write_unique(parent, &name, &bytes, " ")
+}
+
+/// base64 표준 알파벳 인코더 (의존성 없이 — git Basic 인증 헤더 등)
+pub fn base64_encode(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 
 /// base64 표준 알파벳 디코더 (이미지 붙여넣기용 — 의존성 없이)
@@ -269,6 +297,29 @@ mod tests {
         assert_eq!(
             fs::read_to_string(tmp.path().join("note 2.md")).unwrap(),
             "원본"
+        );
+    }
+
+    #[test]
+    fn safe_file_name_rejects_separators_and_dots() {
+        assert!(is_safe_file_name("노트.md"));
+        assert!(is_safe_file_name("v1..final.md")); // 구분자가 없으면 탈출 불가
+        assert!(!is_safe_file_name(""));
+        assert!(!is_safe_file_name("."));
+        assert!(!is_safe_file_name(".."));
+        assert!(!is_safe_file_name("a/b.md"));
+        assert!(!is_safe_file_name("a\\b.md"));
+    }
+
+    #[test]
+    fn base64_encode_known_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(
+            base64_encode(b"x-access-token:abc"),
+            "eC1hY2Nlc3MtdG9rZW46YWJj"
         );
     }
 

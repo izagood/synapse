@@ -63,7 +63,7 @@ impl Default for SearchOptions {
 /// 워크스페이스를 순회하며 파일명·내용을 검색한다. 질의가 비어 있으면 빈 결과.
 pub fn search_workspace(root: &Path, query: &str, opts: &SearchOptions) -> Vec<SearchHit> {
     let query = query.trim();
-    if query.is_empty() {
+    if query.is_empty() || opts.max_results == 0 {
         return Vec::new();
     }
     let needle = if opts.case_sensitive {
@@ -72,49 +72,14 @@ pub fn search_workspace(root: &Path, query: &str, opts: &SearchOptions) -> Vec<S
         query.to_lowercase()
     };
     let mut hits = Vec::new();
-    walk(root, &needle, opts, &mut hits);
+    // 순회 정책(숨김·심볼릭 링크 제외, 결정적 순서)은 walk 모듈이 담당한다.
+    crate::walk::walk_files(root, &mut |path, name| {
+        if let Some(hit) = match_file(path, name, &needle, opts) {
+            hits.push(hit);
+        }
+        hits.len() < opts.max_results
+    });
     hits
-}
-
-fn walk(dir: &Path, needle: &str, opts: &SearchOptions, hits: &mut Vec<SearchHit>) {
-    if hits.len() >= opts.max_results {
-        return;
-    }
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    // 디렉토리를 결정적 순서로 순회해 결과가 안정적이도록 정렬한다.
-    let mut paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-    paths.sort();
-    for path in paths {
-        if hits.len() >= opts.max_results {
-            return;
-        }
-        let name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-        // 숨김 항목(.git 포함)은 건너뛴다 (FR-1.6, tree.rs와 동일).
-        if name.starts_with('.') {
-            continue;
-        }
-        // 심볼릭 링크는 따라가지 않는다(순환 방지).
-        let ft = match path.symlink_metadata() {
-            Ok(m) => m.file_type(),
-            Err(_) => continue,
-        };
-        if ft.is_symlink() {
-            continue;
-        }
-        if ft.is_dir() {
-            walk(&path, needle, opts, hits);
-        } else if ft.is_file() {
-            if let Some(hit) = match_file(&path, &name, needle, opts) {
-                hits.push(hit);
-            }
-        }
-    }
 }
 
 fn match_file(path: &Path, name: &str, needle: &str, opts: &SearchOptions) -> Option<SearchHit> {

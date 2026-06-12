@@ -3,6 +3,7 @@ import { badgeOf, useSync } from "../../stores/sync";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
 import { shouldAutoSync, shouldSyncOnOpen } from "./guard";
+import { basename } from "../../shared/pathUtils";
 import { LoginModal } from "./LoginModal";
 import { UpdateBadge } from "../update/UpdateBadge";
 import {
@@ -21,7 +22,7 @@ function PublishForm({ root }: { root: string }) {
   const publish = useSync((s) => s.publish);
   const syncing = useSync((s) => s.syncing);
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(root.split("/").pop() ?? "notes");
+  const [name, setName] = useState(basename(root) || "notes");
   const [isPrivate, setIsPrivate] = useState(true);
   const t = useT();
 

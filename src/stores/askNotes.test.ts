@@ -56,7 +56,7 @@ describe("sourceNotesFrom", () => {
 
 describe("buildRagContextBlock", () => {
   it("각 스니펫을 '출처: 상대경로' 라벨로 묶는다", () => {
-    const block = buildRagContextBlock(ROOT, result);
+    const block = buildRagContextBlock(ROOT, result, "ko");
     expect(block).toContain("[출처: rust/async.md]");
     expect(block).toContain("tokio 런타임 설명");
     // 본문 없는 보강 노트도 출처 라벨만 남는다
@@ -64,13 +64,19 @@ describe("buildRagContextBlock", () => {
   });
 
   it("관련 노트가 없으면 빈 문자열", () => {
-    expect(buildRagContextBlock(ROOT, empty)).toBe("");
+    expect(buildRagContextBlock(ROOT, empty, "ko")).toBe("");
+  });
+
+  it("영어 모드면 Source 라벨을 쓴다", () => {
+    const block = buildRagContextBlock(ROOT, result, "en");
+    expect(block).toContain("[Source: rust/async.md]");
+    expect(block).not.toContain("[출처:");
   });
 });
 
 describe("buildAskNotesPrompt", () => {
   it("컨텍스트 + 질문을 합친다", () => {
-    const out = buildAskNotesPrompt("러스트 async 어떻게 써?", ROOT, result);
+    const out = buildAskNotesPrompt("러스트 async 어떻게 써?", ROOT, result, "ko");
     expect(out).toContain("[출처: rust/async.md]");
     expect(out).toContain("질문: 러스트 async 어떻게 써?");
     // 출처 블록이 질문보다 앞에 온다
@@ -80,6 +86,13 @@ describe("buildAskNotesPrompt", () => {
   });
 
   it("관련 노트가 없으면 질문을 그대로 둔다 (회귀 방지)", () => {
-    expect(buildAskNotesPrompt("아무거나", ROOT, empty)).toBe("아무거나");
+    expect(buildAskNotesPrompt("아무거나", ROOT, empty, "ko")).toBe("아무거나");
+  });
+
+  it("영어 모드면 Question 라벨과 영어 헤더를 쓴다", () => {
+    const out = buildAskNotesPrompt("how to use async?", ROOT, result, "en");
+    expect(out).toContain("[Source: rust/async.md]");
+    expect(out).toContain("Question: how to use async?");
+    expect(out).not.toContain("질문:");
   });
 });

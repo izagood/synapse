@@ -7,7 +7,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-const SETTINGS_FILE: &str = "settings.json";
+/// 설정 파일 이름. config_sync(코어/셸)도 이 단일 출처를 참조한다.
+pub const SETTINGS_FILE: &str = "settings.json";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

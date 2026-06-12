@@ -36,10 +36,8 @@ fn load(config_dir: &Path) -> Registry {
 fn save(config_dir: &Path, registry: &Registry) -> io::Result<()> {
     fs::create_dir_all(config_dir)?;
     let path = config_dir.join(REGISTRY_FILE);
-    let tmp = config_dir.join(format!("{REGISTRY_FILE}.tmp"));
     let text = serde_json::to_string_pretty(registry).map_err(io::Error::other)?;
-    fs::write(&tmp, text)?;
-    fs::rename(&tmp, &path) // atomic write (NFR-2)
+    crate::fs_io::atomic_write(&path, &text) // atomic write (NFR-2)
 }
 
 /// 최근 연 폴더 목록 (최신순)

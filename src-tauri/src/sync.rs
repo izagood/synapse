@@ -8,8 +8,7 @@ use std::path::Path;
 
 use synapse_core::github::{self, UreqHttp};
 use synapse_core::{
-    collab, ensure_within, CollabStore, ConflictChoice, ConflictPreview, FileCommit, GitWorkspace,
-    SyncStatus,
+    collab, CollabStore, ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, SyncStatus,
 };
 
 use crate::auth::stored_token;
@@ -85,7 +84,7 @@ pub async fn publish_workspace(
 #[tauri::command]
 pub async fn clone_repo(url: String, parent_dir: String, name: String) -> Result<String, String> {
     run_blocking(move || {
-        if name.contains('/') || name.contains('\\') || name.contains("..") || name.is_empty() {
+        if !synapse_core::is_safe_file_name(&name) {
             return Err("폴더 이름이 올바르지 않습니다".to_string());
         }
         let dest = Path::new(&parent_dir).join(&name);
@@ -100,22 +99,9 @@ pub async fn clone_repo(url: String, parent_dir: String, name: String) -> Result
 }
 
 /// 프론트가 넘긴 절대 경로를 워크스페이스 루트 내부로 검증하고, git pathspec용
-/// 상대 경로(슬래시 구분)를 돌려준다. 루트를 벗어나면 에러.
+/// 상대 경로(슬래시 구분)를 돌려준다. 루트를 벗어나면 에러. (코어 paths 모듈 위임)
 fn rel_path_within(root: &str, path: &str) -> Result<String, String> {
-    let root_abs = ensure_within(Path::new(root), Path::new(path)).map_err(|e| e.to_string())?;
-    let root_canon = Path::new(root).canonicalize().map_err(|e| e.to_string())?;
-    let rel = root_abs
-        .strip_prefix(&root_canon)
-        .map_err(|_| "경로가 워크스페이스 루트를 벗어났습니다".to_string())?;
-    let rel = rel
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/");
-    if rel.is_empty() {
-        return Err("파일 경로가 비어 있습니다".to_string());
-    }
-    Ok(rel)
+    synapse_core::rel_path_within(Path::new(root), Path::new(path)).map_err(|e| e.to_string())
 }
 
 /// 한 파일의 git 커밋 히스토리 (FR-4.7). 추적되지 않거나 레포가 아니면 빈 목록.

@@ -1,5 +1,6 @@
 import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
+import { basename } from "../../shared/pathUtils";
 import { CloneForm } from "../sync/CloneForm";
 
 export function StartScreen() {
@@ -36,7 +37,7 @@ export function StartScreen() {
                     disabled={loading}
                     title={path}
                   >
-                    <span className="recent-name">{path.split("/").pop() || path}</span>
+                    <span className="recent-name">{basename(path)}</span>
                     <span className="recent-path">{path}</span>
                   </button>
                 </li>
