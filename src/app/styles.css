@@ -1418,6 +1418,66 @@ select {
   background: var(--bg-hover);
 }
 
+/* 동기화 오류 패널 — 푸터 위에 펼쳐 전문 확인 + 다시 시도/복사/닫기 */
+.sync-error-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--error);
+  background: color-mix(in srgb, var(--error) 12%, var(--bg-panel));
+  font-size: 0.84rem;
+}
+
+.sync-error-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sync-error-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--error);
+}
+
+.sync-error-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sync-error-actions button {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.sync-error-actions button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.sync-error-actions button:disabled {
+  opacity: 0.5;
+}
+
+.sync-error-detail {
+  margin: 0;
+  max-height: 8.5em;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono-font);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--fg);
+  user-select: text;
+}
+
 /* ===================== 모달 ===================== */
 .modal-backdrop {
   position: fixed;
