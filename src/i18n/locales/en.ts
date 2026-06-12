@@ -21,6 +21,7 @@ export const en: LocaleShape<KoMessages> = {
     quickOpen: "Quick Open ({shortcut})",
     search: "Search ({shortcut})",
     agentPanel: "Claude Panel ({shortcut})",
+    graph: "Graph View ({shortcut})",
     newWindow: "New Window ({shortcut}) - open another folder",
     openAnotherFolder: "Open Another Folder",
     backToStart: "Back to Start",
@@ -28,6 +29,7 @@ export const en: LocaleShape<KoMessages> = {
   },
   workspace: {
     newNote: "New Note",
+    importHtml: "Import clipboard HTML as a note",
     refreshTree: "Refresh File Tree",
     empty: "Select a file on the left or create a new note",
   },
@@ -39,6 +41,7 @@ export const en: LocaleShape<KoMessages> = {
     closeAll: "Close All Tabs",
     switchToRendered: "Switch to rendered view",
     switchToSource: "Switch to source view",
+    exportHtml: "Export to HTML",
   },
   quickOpen: {
     placeholder: "Search files…",
@@ -152,6 +155,9 @@ export const en: LocaleShape<KoMessages> = {
     timeoutLabelConflict: "Conflict resolution",
     timeoutLabelPublish: "Publish",
     timeoutMessage: "{label} timed out - no response within {seconds} seconds",
+    errorTitle: "Sync error",
+    retry: "Retry",
+    copyError: "Copy",
   },
   agent: {
     newConversation: "New Conversation",
@@ -168,6 +174,16 @@ export const en: LocaleShape<KoMessages> = {
     roleUser: "You",
     roleAssistant: "Claude",
     aborted: "Response stopped",
+    askNotes: "Ask my notes",
+    askNotesHint: "Finds notes related to your question and sends them as grounding",
+    sources: "Source notes",
+    permissionTitle: "Allow {tool}?",
+    permissionEditTitle: "Allow editing this file?",
+    permissionApprove: "Approve",
+    permissionReject: "Reject",
+    permissionWholeFile: "Replaces the whole file with new content",
+    editApplied: "AI edited {file}",
+    aiEditedBadge: "Edited by AI",
   },
   editor: {
     placeholder:
@@ -214,5 +230,12 @@ export const en: LocaleShape<KoMessages> = {
     readOnly: "Read-only preview",
     currentBadge: "current",
     needFile: "Open a note first to view its history",
+  },
+  graph: {
+    title: "Graph View",
+    close: "Close",
+    loading: "Building graph…",
+    empty: "No note links to show",
+    stats: "{nodes} notes · {edges} links",
   },
 };

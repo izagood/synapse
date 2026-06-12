@@ -99,6 +99,17 @@ describe("sync store (mock ipc)", () => {
     expect(s.syncing).toBe(false);
   });
 
+  it("dismissError clears the footer error without touching status", () => {
+    useSync.setState({
+      status: { state: "synced", ahead: 0, behind: 0, conflictFiles: [] },
+      error: "git push 실패: rejected (non-fast-forward)",
+    });
+    useSync.getState().dismissError();
+    const s = useSync.getState();
+    expect(s.error).toBeNull();
+    expect(s.status?.state).toBe("synced");
+  });
+
   it("logout clears the account", async () => {
     mockSyncControl.login = "mock-user";
     await useSync.getState().init();

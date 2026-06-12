@@ -40,6 +40,8 @@ interface SyncStoreState {
   init(): Promise<void>;
   /** 워크스페이스 전환 시 이전 폴더의 상태·에러를 비운다 */
   resetWorkspace(): void;
+  /** 푸터 오류 패널을 닫는다 (사용자가 확인/해결한 뒤) */
+  dismissError(): void;
   startLogin(): Promise<void>;
   /** Device Flow 폴링 루프 — 성공/실패 시 스스로 종료 */
   pollLogin(): Promise<void>;
@@ -96,6 +98,10 @@ export const useSync = create<SyncStoreState>((set, get) => ({
       failures: 0,
       lastAttemptAt: null,
     });
+  },
+
+  dismissError() {
+    set({ error: null });
   },
 
   async startLogin() {

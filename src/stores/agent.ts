@@ -5,6 +5,13 @@ import { translate } from "../i18n";
 import { useSettings } from "./settings";
 import { useWorkspace } from "./workspace";
 import { buildAgentPrompt } from "./agentContext";
+import { buildAskNotesPrompt, sourceNotesFrom, type SourceNote } from "./askNotes";
+import {
+  applyEditToBase,
+  planApproval,
+  planRejection,
+  type PendingPermission,
+} from "../features/agent/permission";
 
 // PLAN-v0.4 Phase 1: 워크스페이스를 cwd로 claude CLI 한 턴씩 실행하는 채팅.
 // 대화 내역은 메모리에만 두고, 세션 ID만 워크스페이스별로 localStorage에
@@ -16,6 +23,8 @@ export interface ChatItem {
   id: number;
   role: ChatRole;
   text: string;
+  /** "내 노트에게 묻기" 답변에 쓰인 출처 노트 (assistant 항목에만, 클릭 시 열기) */
+  sources?: SourceNote[];
 }
 
 const sessionKey = (root: string) => `synapse.agentSession:${root}`;
@@ -55,15 +64,28 @@ interface AgentStoreState {
   runId: string | null;
   sessionId: string | null;
   root: string | null;
+  /** "내 노트에게 묻기" 모드: 질문마다 관련 노트를 retrieval해 근거로 첨부한다 (2-C) */
+  askNotes: boolean;
+  /** 현재 진행 중 요청의 retrieval 출처 — 첫 assistant 답변에 붙여 표시한다 */
+  pendingSources: SourceNote[] | null;
+  /** 대기 중인 도구 사용 권한 요청 (있으면 승인 다이얼로그 표시) */
+  pendingPermission: PendingPermission | null;
+  /** AI가 이 세션에서 편집한 파일들의 절대 경로 (표시용) */
+  aiEditedPaths: string[];
 
   /** CLI 상태 조회 + 이벤트 구독 + 워크스페이스 세션 로드 */
   init(root: string): Promise<void>;
   refreshStatus(): Promise<void>;
+  setAskNotes(on: boolean): void;
   send(root: string, prompt: string): Promise<void>;
   stop(): Promise<void>;
   /** 세션을 버리고 빈 대화로 시작 */
   newConversation(): void;
   applyEvent(runId: string, event: AgentEvent): void;
+  /** 대기 중인 권한 요청 승인 — 편집이면 CRDT 경유로 적용한다 */
+  approvePermission(): Promise<void>;
+  /** 대기 중인 권한 요청 거부 */
+  rejectPermission(): Promise<void>;
 }
 
 export const useAgent = create<AgentStoreState>((set, get) => ({
@@ -73,6 +95,10 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
   runId: null,
   sessionId: null,
   root: null,
+  askNotes: false,
+  pendingSources: null,
+  pendingPermission: null,
+  aiEditedPaths: [],
 
   async init(root) {
     if (!subscribed) {
@@ -81,7 +107,16 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
     }
     // 워크스페이스가 바뀌면 이전 대화는 비운다
     if (get().root !== root) {
-      set({ root, items: [], runId: null, running: false, sessionId: loadSessionId(root) });
+      set({
+        root,
+        items: [],
+        runId: null,
+        running: false,
+        pendingSources: null,
+        sessionId: loadSessionId(root),
+        pendingPermission: null,
+        aiEditedPaths: [],
+      });
     }
     await get().refreshStatus();
   },
@@ -94,29 +129,57 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
     }
   },
 
+  setAskNotes(on) {
+    set({ askNotes: on });
+  },
+
   async send(root, prompt) {
     if (get().running) return;
     const runId = newRunId();
     const sessionId = get().sessionId;
-    // 채팅에는 사용자가 입력한 원본만 보여주고, CLI에는 현재 열린 노트
-    // 컨텍스트를 앞에 덧붙인 프롬프트를 보낸다 (읽기 전용 — 경로만 알려줌).
     const ws = useWorkspace.getState();
-    const augmented = buildAgentPrompt(prompt, {
-      root: ws.root,
-      activePath: ws.activePath,
-      openPaths: ws.tabs.map((t) => t.path),
-    });
+
+    // 사용자 메시지를 먼저 보여주고 running으로 전환한다.
     set((s) => ({
       root,
       runId,
       running: true,
+      pendingSources: null,
       items: [...s.items, { id: nextItemId++, role: "user", text: prompt }],
     }));
+
+    let augmented: string;
+    let sources: SourceNote[] | null = null;
+    try {
+      if (get().askNotes) {
+        // "내 노트에게 묻기": 질문으로 관련 노트를 retrieval해 근거로 첨부한다.
+        // 실패하면(검색 오류 등) 컨텍스트 없이 일반 질문으로 폴백한다.
+        const result = await ipc.retrieveNotes(root, prompt);
+        augmented = buildAskNotesPrompt(prompt, root, result);
+        sources = sourceNotesFrom(root, result);
+      } else {
+        // 일반 모드: 현재 열린 노트 경로만 컨텍스트로 덧붙인다 (읽기 전용).
+        augmented = buildAgentPrompt(prompt, {
+          root: ws.root,
+          activePath: ws.activePath,
+          openPaths: ws.tabs.map((t) => t.path),
+        });
+      }
+    } catch {
+      // retrieval 실패 시 원본 질문 그대로 보낸다.
+      augmented = prompt;
+    }
+
+    // 다른 요청이 끼어들었으면(중단 후 새 send 등) 이 결과는 버린다.
+    if (get().runId !== runId) return;
+    set({ pendingSources: sources && sources.length > 0 ? sources : null });
+
     try {
       await ipc.agentSend(root, augmented, sessionId, runId);
     } catch (e) {
       set((s) => ({
         running: false,
+        pendingSources: null,
         items: [...s.items, { id: nextItemId++, role: "error", text: String(e) }],
       }));
     }
@@ -137,7 +200,14 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
     if (get().running) return;
     const root = get().root;
     if (root) storeSessionId(root, null);
-    set({ items: [], sessionId: null, runId: null });
+    set({
+      items: [],
+      sessionId: null,
+      runId: null,
+      pendingSources: null,
+      pendingPermission: null,
+      aiEditedPaths: [],
+    });
   },
 
   applyEvent(runId, event) {
@@ -153,27 +223,101 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
         set({ sessionId: event.sessionId });
         break;
       }
-      case "text":
-        push("assistant", event.text);
+      case "text": {
+        // "내 노트에게 묻기" 답변이면 첫 assistant 항목에 출처 노트를 붙인다.
+        const sources = get().pendingSources;
+        set((s) => ({
+          pendingSources: null,
+          items: [
+            ...s.items,
+            { id: nextItemId++, role: "assistant", text: event.text, ...(sources ? { sources } : {}) },
+          ],
+        }));
         break;
+      }
       case "toolUse":
         push("tool", event.detail ? `${event.name} · ${event.detail}` : event.name);
+        break;
+      case "permissionRequest":
+        // 같은 요청을 한 번만 보여준다 (중복 control_request 방어)
+        if (get().pendingPermission?.requestId === event.requestId) break;
+        set({
+          pendingPermission: {
+            requestId: event.requestId,
+            tool: event.tool,
+            detail: event.detail,
+            edit: event.edit,
+          },
+        });
         break;
       case "completed": {
         const root = get().root;
         if (root) storeSessionId(root, event.sessionId);
-        set({ running: false, sessionId: event.sessionId });
+        set({ running: false, sessionId: event.sessionId, pendingPermission: null });
         if (!event.ok) push("error", event.result);
         break;
       }
       case "failed":
-        set({ running: false });
+        set({ running: false, pendingPermission: null });
         push("error", event.message);
         break;
       case "aborted":
-        set({ running: false });
+        set({ running: false, pendingPermission: null });
         push("info", translate(useSettings.getState().settings.appearance.language, "agent.aborted"));
         break;
+    }
+  },
+
+  async approvePermission() {
+    const pending = get().pendingPermission;
+    const root = get().root;
+    if (!pending) return;
+    set({ pendingPermission: null });
+    const lang = useSettings.getState().settings.appearance.language;
+    const push = (role: ChatRole, text: string) =>
+      set((s) => ({ items: [...s.items, { id: nextItemId++, role, text }] }));
+    const plan = planApproval(pending);
+    try {
+      if (plan.applyEdit && pending.edit && root) {
+        // CRDT 경유 안전 편집: 현재 디스크 내용을 base로 읽어 편집을 적용한다
+        const edit = pending.edit;
+        let base = "";
+        try {
+          base = await ipc.readFile(root, edit.filePath);
+        } catch {
+          base = ""; // 새 파일(Write)이면 base가 없다
+        }
+        const next = applyEditToBase(base, edit);
+        await ipc.agentEditFile(root, edit.filePath, next, base);
+        set((s) => ({
+          aiEditedPaths: s.aiEditedPaths.includes(edit.filePath)
+            ? s.aiEditedPaths
+            : [...s.aiEditedPaths, edit.filePath],
+        }));
+        push("info", translate(lang, "agent.editApplied", { file: edit.filePath }));
+      }
+      // CLI에 회신 (편집은 allowCli=false로 직접 쓰기를 막는다)
+      await ipc.agentRespondPermission(pending.requestId, plan.allowCli);
+    } catch (e) {
+      push("error", String(e));
+      // 실패해도 CLI는 거부로 회신해 멈추지 않게 한다
+      try {
+        await ipc.agentRespondPermission(pending.requestId, false);
+      } catch {
+        // 프로세스가 이미 끝났을 수 있다 — 무시
+      }
+    }
+  },
+
+  async rejectPermission() {
+    const pending = get().pendingPermission;
+    if (!pending) return;
+    set({ pendingPermission: null });
+    const plan = planRejection();
+    try {
+      await ipc.agentRespondPermission(pending.requestId, plan.allowCli);
+    } catch (e) {
+      set((s) => ({ items: [...s.items, { id: nextItemId++, role: "error", text: String(e) }] }));
     }
   },
 }));

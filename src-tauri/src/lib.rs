@@ -23,9 +23,12 @@ pub fn run() {
             commands::read_file,
             commands::write_file,
             commands::save_doc,
+            commands::agent_edit_file,
             commands::backlinks,
+            commands::link_graph,
             commands::create_note,
             commands::search_workspace,
+            commands::retrieve_notes,
             commands::recent_workspaces,
             commands::record_workspace_opened,
             commands::get_last_workspace,
@@ -58,6 +61,7 @@ pub fn run() {
             sync::file_at_revision,
             agent::agent_status,
             agent::agent_send,
+            agent::agent_respond_permission,
             agent::agent_stop,
         ])
         .run(tauri::generate_context!())

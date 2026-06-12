@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { autoSyncDelayMs, shouldAutoSync, withTimeout } from "./guard";
+import { autoSyncDelayMs, shouldAutoSync, shouldSyncOnOpen, withTimeout } from "./guard";
 
 describe("withTimeout", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -65,5 +65,28 @@ describe("shouldAutoSync", () => {
     expect(shouldAutoSync(1_000_000 + base, 1_000_000, base, 2)).toBe(false);
     expect(shouldAutoSync(1_000_000 + 4 * base - 1, 1_000_000, base, 2)).toBe(false);
     expect(shouldAutoSync(1_000_000 + 4 * base, 1_000_000, base, 2)).toBe(true);
+  });
+});
+
+describe("shouldSyncOnOpen", () => {
+  it("로그인 + 원격 연결(pending/synced) 상태면 pull 한다", () => {
+    expect(shouldSyncOnOpen(true, "synced", false)).toBe(true);
+    expect(shouldSyncOnOpen(true, "pending", false)).toBe(true);
+  });
+
+  it("로그인하지 않았으면 pull 하지 않는다", () => {
+    expect(shouldSyncOnOpen(false, "synced", false)).toBe(false);
+  });
+
+  it("이미 동기화 중이면 중복 실행하지 않는다", () => {
+    expect(shouldSyncOnOpen(true, "synced", true)).toBe(false);
+  });
+
+  it("원격이 없는 상태(noRepo/noRemote/noGit/conflict/미정)에선 pull 하지 않는다", () => {
+    expect(shouldSyncOnOpen(true, "noRepo", false)).toBe(false);
+    expect(shouldSyncOnOpen(true, "noRemote", false)).toBe(false);
+    expect(shouldSyncOnOpen(true, "noGit", false)).toBe(false);
+    expect(shouldSyncOnOpen(true, "conflict", false)).toBe(false);
+    expect(shouldSyncOnOpen(true, undefined, false)).toBe(false);
   });
 });

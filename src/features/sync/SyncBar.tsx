@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { badgeOf, useSync } from "../../stores/sync";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
-import { shouldAutoSync } from "./guard";
+import { shouldAutoSync, shouldSyncOnOpen } from "./guard";
 import { LoginModal } from "./LoginModal";
 import { UpdateBadge } from "../update/UpdateBadge";
 import {
@@ -108,6 +108,40 @@ function ConflictPanel({ root }: { root: string }) {
   );
 }
 
+/**
+ * 동기화/게시 오류를 푸터 위에 펼쳐 보여 준다. 기존엔 푸터에 한 줄로
+ * 잘려 나와 전문 확인도, 재시도도 어려웠다 — 전문 표시 + 다시 시도/복사/닫기.
+ */
+function SyncErrorPanel({ root }: { root: string }) {
+  const error = useSync((s) => s.error);
+  const syncing = useSync((s) => s.syncing);
+  const syncNow = useSync((s) => s.syncNow);
+  const dismissError = useSync((s) => s.dismissError);
+  const t = useT();
+
+  if (!error) return null;
+
+  return (
+    <div className="sync-error-panel" role="alert">
+      <div className="sync-error-head">
+        <span className="sync-error-title">
+          <AlertIcon size={14} /> {t("sync.errorTitle")}
+        </span>
+        <div className="sync-error-actions">
+          <button disabled={syncing} onClick={() => void syncNow(root)}>
+            {t("sync.retry")}
+          </button>
+          <button onClick={() => void navigator.clipboard?.writeText(error)}>
+            {t("sync.copyError")}
+          </button>
+          <button onClick={() => dismissError()}>{t("common.close")}</button>
+        </div>
+      </div>
+      <pre className="sync-error-detail">{error}</pre>
+    </div>
+  );
+}
+
 function SyncStateIndicator({ root }: { root: string }) {
   const status = useSync((s) => s.status);
   const syncing = useSync((s) => s.syncing);
@@ -154,7 +188,7 @@ function SyncStateIndicator({ root }: { root: string }) {
 
 export function SyncBar() {
   const root = useWorkspace((s) => s.root);
-  const { login, status, error, init, startLogin, logout, refreshStatus } = useSync();
+  const { login, status, init, startLogin, logout, refreshStatus } = useSync();
   const autoSync = useSettings((s) => s.settings.sync.auto);
   const intervalMinutes = useSettings((s) => s.settings.sync.intervalMinutes);
   const t = useT();
@@ -188,16 +222,33 @@ export function SyncBar() {
     };
   }, [root, refreshStatus, autoSync, intervalMinutes]);
 
+  // 폴더를 열거나 로그인하면 곧바로 한 번 pull(동기화)해서 로컬을 원격과
+  // 맞춘다 — 이후 커밋을 push 할 때 non-fast-forward로 거부되는 걸 예방한다.
+  useEffect(() => {
+    if (!root || !login) return;
+    let cancelled = false;
+    void refreshStatus(root).then(() => {
+      if (cancelled) return;
+      const s = useSync.getState();
+      if (shouldSyncOnOpen(Boolean(s.login), s.status?.state, s.syncing)) {
+        void s.syncNow(root);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [root, login, refreshStatus]);
+
   if (!root) return null;
   const needsSetup = status?.state === "noRepo" || status?.state === "noRemote";
 
   return (
     <>
       <ConflictPanel root={root} />
+      <SyncErrorPanel root={root} />
       <footer className="status-bar">
         <span className="status-left">
           {login && needsSetup && <PublishForm root={root} />}
-          {error && <span className="error status-error">{error}</span>}
         </span>
         <span className="status-right">
           {login && !needsSetup && <SyncStateIndicator root={root} />}

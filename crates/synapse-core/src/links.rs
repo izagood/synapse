@@ -317,6 +317,103 @@ fn stem(path: &Path) -> Option<String> {
     path.file_stem().map(|s| s.to_string_lossy().into_owned())
 }
 
+/// 링크 그래프의 노드 한 개(= 워크스페이스의 `.md` 노트 하나). (FR-6.2)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNode {
+    /// 노트의 절대 경로 (안정적 식별자)
+    pub path: String,
+    /// 표시용 파일명
+    pub name: String,
+}
+
+/// 링크 그래프의 방향성 엣지 하나: `source` 노트가 `target` 노트를 링크한다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphEdge {
+    /// 링크를 가진 소스 노트의 절대 경로
+    pub source: String,
+    /// 링크가 가리키는 대상 노트의 절대 경로
+    pub target: String,
+}
+
+/// 노트 링크 그래프(노드=노트, 엣지=노트→노트 링크). (FR-6.2)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+/// 워크스페이스 전체의 노트 링크 그래프를 만든다. (FR-6.2)
+///
+/// `backlinks_for`와 같은 순회/해석 정책을 재사용한다:
+/// 모든 `.md` 파일을 노드로 두고, 각 파일의 아웃바운드 링크를 표준 링크
+/// (`resolve_standard_link`)와 위키링크(basename 매칭)로 해석해, 워크스페이스
+/// 내부의 다른 노트를 가리키면 방향성 엣지를 만든다.
+///
+/// - 자기 자신을 가리키는 링크는 제외한다.
+/// - 같은 (source, target) 엣지는 중복 제거한다.
+/// - 워크스페이스 밖/외부 URL/해석 불가 링크는 무시한다.
+/// - 결과(노드·엣지)는 경로 기준 정렬로 결정적이다.
+pub fn build_graph(root: &Path) -> io::Result<LinkGraph> {
+    let root = root.canonicalize()?;
+
+    let mut md_files = Vec::new();
+    collect_markdown(&root, &mut md_files)?;
+    md_files.sort();
+
+    // 위키링크 해석용: basename(소문자) → 절대 경로. 충돌 시 먼저 만난 것 유지.
+    let mut by_stem: HashMap<String, PathBuf> = HashMap::new();
+    for f in &md_files {
+        if let Some(s) = stem(f) {
+            by_stem.entry(s.to_lowercase()).or_insert_with(|| f.clone());
+        }
+    }
+    // 유효한 노드 경로 집합(엣지 대상이 실제 노드인지 확인용)
+    let node_set: std::collections::HashSet<PathBuf> = md_files.iter().cloned().collect();
+
+    let nodes: Vec<GraphNode> = md_files
+        .iter()
+        .map(|p| GraphNode {
+            path: p.display().to_string(),
+            name: p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        })
+        .collect();
+
+    let mut edges: Vec<GraphEdge> = Vec::new();
+    let mut seen: std::collections::HashSet<(PathBuf, PathBuf)> = std::collections::HashSet::new();
+    for source in &md_files {
+        let body = match fs::read_to_string(source) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        for (link, _snippet) in extract_links(&body) {
+            let resolved = match &link {
+                OutLink::Standard(href) => resolve_standard_link(href, source, &root),
+                OutLink::Wiki(name) => by_stem.get(&name.to_lowercase()).cloned(),
+            };
+            let Some(target) = resolved else { continue };
+            // 자기 자신·노드가 아닌 대상은 제외
+            if &target == source || !node_set.contains(&target) {
+                continue;
+            }
+            if seen.insert((source.clone(), target.clone())) {
+                edges.push(GraphEdge {
+                    source: source.display().to_string(),
+                    target: target.display().to_string(),
+                });
+            }
+        }
+    }
+    edges.sort_by(|a, b| (&a.source, &a.target).cmp(&(&b.source, &b.target)));
+
+    Ok(LinkGraph { nodes, edges })
+}
+
 /// `target`을 가리키는 모든 백링크를 모은다.
 ///
 /// 워크스페이스 전체를 순회하며 각 `.md` 파일의 아웃바운드 링크를 해석해,
@@ -551,6 +648,82 @@ mod tests {
         write(&root.join("a.md"), "[x](존재.md)");
         let backs = backlinks_for(root, &root.join("없음.md")).unwrap();
         assert!(backs.is_empty());
+    }
+
+    #[test]
+    fn builds_graph_nodes_and_edges() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("a.md"), "표준 링크 [b](b.md) 와 위키 [[c]]");
+        write(&root.join("b.md"), "[[c]] 만 가리킴");
+        write(&root.join("c.md"), "# 외톨이는 아님(대상이 됨)");
+        // 숨김 폴더는 노드/엣지에서 제외
+        write(&root.join(".git/x.md"), "[a](../a.md)");
+
+        let g = build_graph(root).unwrap();
+        let names: Vec<&str> = g.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["a.md", "b.md", "c.md"]);
+
+        // 엣지 쌍을 파일명으로 비교
+        let name_of = |p: &str| {
+            Path::new(p)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        };
+        let mut pairs: Vec<(String, String)> = g
+            .edges
+            .iter()
+            .map(|e| (name_of(&e.source), name_of(&e.target)))
+            .collect();
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                ("a.md".to_string(), "b.md".to_string()),
+                ("a.md".to_string(), "c.md".to_string()),
+                ("b.md".to_string(), "c.md".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn graph_excludes_self_and_external_and_dedups() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // 자기 참조, 외부 URL, vault 밖 탈출, 같은 대상 중복 링크
+        write(
+            &root.join("a.md"),
+            "[self](a.md) [ext](https://x.com) [up](../out.md) [b](b.md) 또 [b again](b.md)",
+        );
+        write(&root.join("b.md"), "내용");
+
+        let g = build_graph(root).unwrap();
+        assert_eq!(g.nodes.len(), 2);
+        // a→b 한 개만 (자기참조·외부·탈출 제외, 중복 합침)
+        assert_eq!(g.edges.len(), 1);
+        assert!(g.edges[0].source.ends_with("a.md"));
+        assert!(g.edges[0].target.ends_with("b.md"));
+    }
+
+    #[test]
+    fn graph_serializes_camel_case() {
+        let g = LinkGraph {
+            nodes: vec![GraphNode {
+                path: "/v/a.md".to_string(),
+                name: "a.md".to_string(),
+            }],
+            edges: vec![GraphEdge {
+                source: "/v/a.md".to_string(),
+                target: "/v/b.md".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&g).unwrap();
+        assert!(json.contains("\"nodes\""));
+        assert!(json.contains("\"edges\""));
+        assert!(json.contains("\"source\""));
+        assert!(json.contains("\"target\""));
     }
 
     #[test]
