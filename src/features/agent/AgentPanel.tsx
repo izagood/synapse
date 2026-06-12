@@ -14,6 +14,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   const status = useAgent((s) => s.status);
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
+  const askNotes = useAgent((s) => s.askNotes);
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const toggleShortcut = shortcutLabel(["Shift", "Mod", "A"]);
@@ -108,6 +109,24 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
                   ) : (
                     <div className="agent-message-text">{item.text}</div>
                   )}
+                  {item.sources && item.sources.length > 0 && (
+                    <div className="agent-sources">
+                      <div className="agent-sources-label">{t("agent.sources")}</div>
+                      <ul>
+                        {item.sources.map((src) => (
+                          <li key={src.path}>
+                            <button
+                              className="agent-source"
+                              title={src.relPath}
+                              onClick={() => void useWorkspace.getState().openFileAt(src.path)}
+                            >
+                              {src.name}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ),
             )}
@@ -115,6 +134,15 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="agent-input">
+            <label className="agent-ask-notes" title={t("agent.askNotesHint")}>
+              <input
+                type="checkbox"
+                checked={askNotes}
+                onChange={(e) => useAgent.getState().setAskNotes(e.target.checked)}
+                disabled={!root}
+              />
+              {t("agent.askNotes")}
+            </label>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}

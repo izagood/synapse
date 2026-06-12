@@ -26,6 +26,7 @@ pub fn run() {
             commands::backlinks,
             commands::create_note,
             commands::search_workspace,
+            commands::retrieve_notes,
             commands::recent_workspaces,
             commands::record_workspace_opened,
             commands::get_last_workspace,

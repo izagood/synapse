@@ -20,6 +20,8 @@ describe("agent store (mock ipc)", () => {
       runId: null,
       sessionId: null,
       root: null,
+      askNotes: false,
+      pendingSources: null,
     });
   });
 
@@ -141,6 +143,44 @@ describe("agent store (mock ipc)", () => {
     await useAgent.getState().init("/mock/other");
     expect(useAgent.getState().items).toHaveLength(0);
     expect(useAgent.getState().root).toBe("/mock/other");
+  });
+
+  it("askNotes 모드: 관련 노트를 retrieval해 출처를 답변에 붙이고 프롬프트에 컨텍스트를 넣는다", async () => {
+    await useAgent.getState().init(ROOT);
+    useAgent.getState().setAskNotes(true);
+    // mock README에 "브라우저 개발 모드" 문구가 있다 → retrieval이 출처를 찾는다
+    await useAgent.getState().send(ROOT, "브라우저 개발 모드가 뭐야");
+    await flush();
+
+    const s = useAgent.getState();
+    const assistant = s.items.find((i) => i.role === "assistant");
+    expect(assistant?.sources?.length).toBeGreaterThan(0);
+    // 출처는 절대 경로 + 상대 경로를 갖는다
+    expect(assistant?.sources?.[0].path.startsWith(ROOT)).toBe(true);
+    expect(assistant?.sources?.[0].relPath).not.toContain(ROOT);
+    // CLI로 보낸 프롬프트엔 출처 컨텍스트가 들어간다 (채팅 표시는 원본 질문)
+    expect(mockAgentControl.lastSend?.prompt).toContain("[출처:");
+    expect(s.items.find((i) => i.role === "user")?.text).toBe("브라우저 개발 모드가 뭐야");
+    // 응답이 끝나면 pendingSources는 비워진다
+    expect(s.pendingSources).toBeNull();
+  });
+
+  it("askNotes 모드라도 관련 노트가 없으면 출처 없이 원본 질문을 보낸다", async () => {
+    await useAgent.getState().init(ROOT);
+    useAgent.getState().setAskNotes(true);
+    await useAgent.getState().send(ROOT, "zzzqqqxnomatch");
+    await flush();
+    const assistant = useAgent.getState().items.find((i) => i.role === "assistant");
+    expect(assistant?.sources).toBeUndefined();
+    expect(mockAgentControl.lastSend?.prompt).toBe("zzzqqqxnomatch");
+  });
+
+  it("askNotes를 끄면 일반(열린 노트 경로) 컨텍스트로 보낸다", async () => {
+    await useAgent.getState().init(ROOT);
+    useAgent.getState().setAskNotes(false);
+    await useAgent.getState().send(ROOT, "안녕");
+    await flush();
+    expect(mockAgentControl.lastSend?.prompt).not.toContain("[출처:");
   });
 
   it("응답 도중 stop 없이 두 번째 send는 무시된다", async () => {

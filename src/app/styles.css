@@ -1868,10 +1868,67 @@ select {
 
 .agent-input {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--border);
+}
+
+/* "내 노트에게 묻기" 토글 — 입력 줄 위에 전체 폭으로 */
+.agent-ask-notes {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.agent-ask-notes input {
+  cursor: pointer;
+}
+
+/* 답변 아래 출처 노트 목록 (클릭 시 해당 노트 열기) */
+.agent-sources {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
+.agent-sources-label {
+  font-size: 11px;
+  color: var(--fg-faint);
+  margin-bottom: 4px;
+}
+
+.agent-sources ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-source {
+  font-size: 11.5px;
+  color: var(--accent, var(--fg));
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-source:hover {
+  background: var(--bg);
 }
 
 .agent-input textarea {
