@@ -3,6 +3,7 @@ import { ipc } from "../../ipc/ipc";
 import type { SearchHit } from "../../ipc/types";
 import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
+import { toRelativePath } from "../../shared/pathUtils";
 import { highlightSnippet } from "./searchHighlight";
 
 const DEBOUNCE_MS = 180;
@@ -60,8 +61,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
     if (e.key === "Escape") onClose();
   };
 
-  const relPath = (path: string) =>
-    root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  const relPath = (path: string) => (root ? toRelativePath(root, path) : path);
 
   const showEmpty = !searching && query.trim() !== "" && hits.length === 0;
 

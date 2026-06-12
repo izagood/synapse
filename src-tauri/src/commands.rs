@@ -139,7 +139,7 @@ pub fn viewer_cache_write(
     file_name: String,
     content: String,
 ) -> Result<String, String> {
-    if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
+    if !synapse_core::is_safe_file_name(&file_name) {
         return Err("invalid cache file name".to_string());
     }
     let dir = config_dir()?.join("cache").join("viewer");
@@ -192,7 +192,7 @@ pub fn save_image(
     desired_name: String,
     data_base64: String,
 ) -> Result<String, String> {
-    if desired_name.contains('/') || desired_name.contains('\\') || desired_name.contains("..") {
+    if !synapse_core::is_safe_file_name(&desired_name) {
         return Err("invalid image file name".to_string());
     }
     let dir = ensure_within(Path::new(&root), Path::new(&dir)).map_err(|e| e.to_string())?;

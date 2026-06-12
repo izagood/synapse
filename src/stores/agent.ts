@@ -148,6 +148,7 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
       items: [...s.items, { id: nextItemId++, role: "user", text: prompt }],
     }));
 
+    const language = useSettings.getState().settings.appearance.language;
     let augmented: string;
     let sources: SourceNote[] | null = null;
     try {
@@ -155,15 +156,19 @@ export const useAgent = create<AgentStoreState>((set, get) => ({
         // "내 노트에게 묻기": 질문으로 관련 노트를 retrieval해 근거로 첨부한다.
         // 실패하면(검색 오류 등) 컨텍스트 없이 일반 질문으로 폴백한다.
         const result = await ipc.retrieveNotes(root, prompt);
-        augmented = buildAskNotesPrompt(prompt, root, result);
+        augmented = buildAskNotesPrompt(prompt, root, result, language);
         sources = sourceNotesFrom(root, result);
       } else {
         // 일반 모드: 현재 열린 노트 경로만 컨텍스트로 덧붙인다 (읽기 전용).
-        augmented = buildAgentPrompt(prompt, {
-          root: ws.root,
-          activePath: ws.activePath,
-          openPaths: ws.tabs.map((t) => t.path),
-        });
+        augmented = buildAgentPrompt(
+          prompt,
+          {
+            root: ws.root,
+            activePath: ws.activePath,
+            openPaths: ws.tabs.map((t) => t.path),
+          },
+          language,
+        );
       }
     } catch {
       // retrieval 실패 시 원본 질문 그대로 보낸다.

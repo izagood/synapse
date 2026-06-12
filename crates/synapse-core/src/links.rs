@@ -281,25 +281,29 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-/// 워크스페이스의 모든 `.md` 파일 절대 경로를 모은다(tree.rs와 같은 순회 정책).
-fn collect_markdown(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with('.') {
-            continue;
+/// 워크스페이스의 모든 `.md` 파일 절대 경로를 정렬된 순서로 모은다
+/// (순회 정책은 walk 모듈 공통: 숨김·심볼릭 링크 제외, 읽기 실패 건너뜀).
+fn collect_markdown(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    crate::walk::walk_files(dir, &mut |path, _name| {
+        if is_markdown(path) {
+            out.push(path.to_path_buf());
         }
-        let ft = entry.path().symlink_metadata()?.file_type();
-        let path = entry.path();
-        if ft.is_dir() {
-            collect_markdown(&path, out)?;
-        } else if ft.is_file() && is_markdown(&path) {
-            out.push(path);
+        true
+    });
+    out
+}
+
+/// 위키링크 해석용 인덱스: basename(소문자) → 절대 경로. 충돌 시 정렬 순서상
+/// 먼저 만난 파일이 이긴다(결정적).
+fn stem_index(md_files: &[PathBuf]) -> HashMap<String, PathBuf> {
+    let mut by_stem: HashMap<String, PathBuf> = HashMap::new();
+    for f in md_files {
+        if let Some(s) = stem(f) {
+            by_stem.entry(s.to_lowercase()).or_insert_with(|| f.clone());
         }
-        // 심볼릭 링크는 제외
     }
-    Ok(())
+    by_stem
 }
 
 fn is_markdown(path: &Path) -> bool {
@@ -359,17 +363,8 @@ pub struct LinkGraph {
 pub fn build_graph(root: &Path) -> io::Result<LinkGraph> {
     let root = root.canonicalize()?;
 
-    let mut md_files = Vec::new();
-    collect_markdown(&root, &mut md_files)?;
-    md_files.sort();
-
-    // 위키링크 해석용: basename(소문자) → 절대 경로. 충돌 시 먼저 만난 것 유지.
-    let mut by_stem: HashMap<String, PathBuf> = HashMap::new();
-    for f in &md_files {
-        if let Some(s) = stem(f) {
-            by_stem.entry(s.to_lowercase()).or_insert_with(|| f.clone());
-        }
-    }
+    let md_files = collect_markdown(&root);
+    let by_stem = stem_index(&md_files);
     // 유효한 노드 경로 집합(엣지 대상이 실제 노드인지 확인용)
     let node_set: std::collections::HashSet<PathBuf> = md_files.iter().cloned().collect();
 
@@ -427,16 +422,8 @@ pub fn backlinks_for(root: &Path, target: &Path) -> io::Result<Vec<Backlink>> {
         .unwrap_or_else(|_| target.to_path_buf());
     let target_stem = stem(&target_abs);
 
-    let mut md_files = Vec::new();
-    collect_markdown(&root, &mut md_files)?;
-
-    // 위키링크 해석용: basename(소문자) → 절대 경로. 충돌 시 먼저 만난 것 유지.
-    let mut by_stem: HashMap<String, PathBuf> = HashMap::new();
-    for f in &md_files {
-        if let Some(s) = stem(f) {
-            by_stem.entry(s.to_lowercase()).or_insert_with(|| f.clone());
-        }
-    }
+    let md_files = collect_markdown(&root);
+    let by_stem = stem_index(&md_files);
 
     let mut result: Vec<Backlink> = Vec::new();
     for source in &md_files {

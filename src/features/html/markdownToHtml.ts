@@ -7,6 +7,7 @@
 import { Editor } from "@tiptap/core";
 import { editorExtensions } from "../editor/extensions";
 import { splitFrontmatter } from "../editor/frontmatter";
+import { basename } from "../../shared/pathUtils";
 
 export interface ExportOptions {
   /** <title> 및 문서 제목 — 보통 파일명(확장자 제외) */
@@ -23,7 +24,7 @@ export function htmlExportPath(notePath: string): string {
 
 /** 파일 경로에서 확장자를 뗀 표시용 제목을 뽑는다. */
 export function titleFromPath(notePath: string): string {
-  const base = notePath.split(/[/\\]/).pop() ?? notePath;
+  const base = basename(notePath);
   return base.replace(/\.(md|markdown|html?|)$/i, "") || base;
 }
 

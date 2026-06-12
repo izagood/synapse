@@ -22,6 +22,28 @@ pub fn ensure_within(root: &Path, candidate: &Path) -> io::Result<PathBuf> {
     }
 }
 
+/// 루트 내부로 검증된 경로를 git pathspec용 상대 경로(슬래시 구분)로 바꾼다.
+///
+/// `ensure_within` 검증을 포함한다. 루트 자신(빈 상대 경로)은 에러.
+pub fn rel_path_within(root: &Path, candidate: &Path) -> io::Result<String> {
+    let resolved = ensure_within(root, candidate)?;
+    let root_canon = root.canonicalize()?;
+    let rel = resolved
+        .strip_prefix(&root_canon)
+        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e.to_string()))?
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    if rel.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "파일 경로가 비어 있습니다",
+        ));
+    }
+    Ok(rel)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,6 +65,24 @@ mod tests {
         fs::create_dir(&sub).unwrap();
         let escape = sub.join("../../");
         assert!(ensure_within(&sub, &escape).is_err());
+    }
+
+    #[test]
+    fn rel_path_within_returns_slash_separated_relative() {
+        let tmp = tempfile::tempdir().unwrap();
+        let inner = tmp.path().join("a/b.md");
+        fs::create_dir_all(inner.parent().unwrap()).unwrap();
+        fs::write(&inner, "x").unwrap();
+        assert_eq!(rel_path_within(tmp.path(), &inner).unwrap(), "a/b.md");
+    }
+
+    #[test]
+    fn rel_path_within_rejects_root_itself_and_escape() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sub = tmp.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        assert!(rel_path_within(&sub, &sub).is_err()); // 빈 상대 경로
+        assert!(rel_path_within(&sub, tmp.path()).is_err()); // 루트 밖
     }
 
     #[cfg(unix)]

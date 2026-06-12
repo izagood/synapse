@@ -1,4 +1,5 @@
 import type { FileNode } from "../../ipc/types";
+import { toRelativePath } from "../../shared/pathUtils";
 
 export interface QuickOpenItem {
   node: FileNode;
@@ -8,11 +9,10 @@ export interface QuickOpenItem {
 
 export function flattenFiles(tree: FileNode | null): QuickOpenItem[] {
   if (!tree) return [];
-  const rootPrefix = `${tree.path}/`;
   const items: QuickOpenItem[] = [];
   const walk = (node: FileNode) => {
     if (node.kind === "file") {
-      items.push({ node, relPath: node.path.replace(rootPrefix, "") });
+      items.push({ node, relPath: toRelativePath(tree.path, node.path) });
     }
     node.children?.forEach(walk);
   };

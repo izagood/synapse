@@ -12,6 +12,7 @@ import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
 import { GlobeIcon, PlusIcon, RefreshIcon } from "../../shared/Icons";
+import { basename } from "../../shared/pathUtils";
 import { useT } from "../../i18n";
 
 const SIDEBAR_DEFAULT = 260;
@@ -115,7 +116,7 @@ export function WorkspaceView() {
     localStorage.setItem(SIDEBAR_KEY, String(SIDEBAR_DEFAULT));
   }, []);
 
-  const folderName = root?.split("/").pop() || root;
+  const folderName = root ? basename(root) : root;
 
   return (
     <div className="workspace">

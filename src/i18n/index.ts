@@ -1,8 +1,11 @@
 import { useSettings } from "../stores/settings";
+import type { Language } from "../ipc/types";
 import { en } from "./locales/en";
 import { ko } from "./locales/ko";
 
-export type Locale = "ko" | "en";
+// Locale 은 Settings.appearance.language(Language)와 같은 집합이다.
+// 단일 출처를 위해 Language 의 별칭으로 둔다 (Rust serde 와 1:1).
+export type Locale = Language;
 
 export const SUPPORTED_LOCALES: { code: Locale; label: string }[] = [
   { code: "ko", label: "한국어" },
