@@ -167,6 +167,13 @@ export const ko = {
     roleUser: "나",
     roleAssistant: "Claude",
     aborted: "응답을 중단했습니다",
+    permissionTitle: "{tool} 사용을 허용할까요?",
+    permissionEditTitle: "이 파일을 수정하도록 허용할까요?",
+    permissionApprove: "승인",
+    permissionReject: "거부",
+    permissionWholeFile: "파일 전체를 새 내용으로 교체합니다",
+    editApplied: "AI가 {file}을(를) 수정했습니다",
+    aiEditedBadge: "AI가 수정함",
   },
   editor: {
     placeholder:

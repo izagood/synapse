@@ -6,6 +6,7 @@ import { CloseIcon, PlusIcon, RefreshIcon, SendIcon, StopIcon } from "../../shar
 import { shortcutLabel } from "../../shared/platform";
 import { useT } from "../../i18n";
 import { Markdown } from "./MarkdownView";
+import { fileLabel, previewDiff } from "./permission";
 
 // PLAN-v0.4 Phase 1: 워크스페이스를 컨텍스트로 claude와 대화하는 우측 패널.
 // 읽기 전용 도구만 허용된 헤드리스 CLI 한 턴씩 실행한다.
@@ -14,6 +15,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   const status = useAgent((s) => s.status);
   const items = useAgent((s) => s.items);
   const running = useAgent((s) => s.running);
+  const pendingPermission = useAgent((s) => s.pendingPermission);
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const toggleShortcut = shortcutLabel(["Shift", "Mod", "A"]);
@@ -31,7 +33,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [items.length, running]);
+  }, [items.length, running, pendingPermission]);
 
   const submit = () => {
     const prompt = input.trim();
@@ -111,7 +113,58 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
                 </div>
               ),
             )}
-            {running && <div className="agent-thinking">{t("agent.thinking")}</div>}
+            {running && !pendingPermission && (
+              <div className="agent-thinking">{t("agent.thinking")}</div>
+            )}
+            {pendingPermission && (
+              <div className="agent-permission" role="dialog" aria-modal="false">
+                <div className="agent-permission-title">
+                  {pendingPermission.edit
+                    ? t("agent.permissionEditTitle")
+                    : t("agent.permissionTitle", { tool: pendingPermission.tool })}
+                </div>
+                {pendingPermission.edit ? (
+                  <>
+                    <div className="agent-permission-file">
+                      {fileLabel(pendingPermission.edit)}
+                    </div>
+                    {pendingPermission.edit.wholeFile && (
+                      <div className="agent-permission-note">
+                        {t("agent.permissionWholeFile")}
+                      </div>
+                    )}
+                    <pre className="agent-diff">
+                      {previewDiff(pendingPermission.edit).map((line, i) => (
+                        <div key={i} className={`agent-diff-line ${line.kind}`}>
+                          <span className="agent-diff-sign">
+                            {line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}
+                          </span>
+                          {line.text}
+                        </div>
+                      ))}
+                    </pre>
+                  </>
+                ) : (
+                  pendingPermission.detail && (
+                    <div className="agent-permission-detail">{pendingPermission.detail}</div>
+                  )
+                )}
+                <div className="agent-permission-actions">
+                  <button
+                    className="agent-reject"
+                    onClick={() => void useAgent.getState().rejectPermission()}
+                  >
+                    {t("agent.permissionReject")}
+                  </button>
+                  <button
+                    className="agent-approve"
+                    onClick={() => void useAgent.getState().approvePermission()}
+                  >
+                    {t("agent.permissionApprove")}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="agent-input">
