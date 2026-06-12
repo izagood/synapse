@@ -2,6 +2,11 @@
 // 덧붙이는 순수 로직. 파일 내용을 욱여넣지 않고 "경로만" 알려주면 claude가
 // 자신의 Read 도구로 직접 읽는다 — 더 간결하고 안전하다.
 
+import { toRelativePath } from "../shared/pathUtils";
+
+// 기존 import 경로(./agentContext)를 유지하기 위해 재-export 한다.
+export { toRelativePath };
+
 export interface AgentContextInput {
   /** 워크스페이스 루트 절대 경로 */
   root: string | null;
@@ -11,12 +16,6 @@ export interface AgentContextInput {
   openPaths: string[];
 }
 
-/** 루트 기준 상대 경로로 바꾼다. 루트 밖이면 절대 경로를 그대로 둔다. */
-export function toRelativePath(root: string, path: string): string {
-  if (path === root) return ".";
-  const prefix = root.endsWith("/") ? root : `${root}/`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
-}
 
 /**
  * 사용자 프롬프트 앞에 붙일 컨텍스트 블록을 만든다.

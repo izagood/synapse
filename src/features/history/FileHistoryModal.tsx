@@ -1,17 +1,11 @@
 import { useEffect, useState } from "react";
 import { ipc } from "../../ipc/ipc";
-import type { FileCommit, FileType } from "../../ipc/types";
+import type { FileCommit } from "../../ipc/types";
 import { useWorkspace } from "../../stores/workspace";
 import { useSettings } from "../../stores/settings";
 import { useT } from "../../i18n";
+import { basename, fileTypeOf } from "../../shared/pathUtils";
 import { commitTitle, formatCommitTime } from "./format";
-
-function fileTypeOf(name: string): FileType {
-  const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "md" || ext === "markdown") return "markdown";
-  if (ext === "html" || ext === "htm") return "html";
-  return "other";
-}
 
 export function FileHistoryModal({
   path,
@@ -35,7 +29,7 @@ export function FileHistoryModal({
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
-  const name = path.split("/").pop() ?? path;
+  const name = basename(path);
 
   // 히스토리 목록 로드
   useEffect(() => {
