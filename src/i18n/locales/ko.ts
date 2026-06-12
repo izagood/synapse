@@ -148,6 +148,9 @@ export const ko = {
     timeoutLabelConflict: "충돌 해결",
     timeoutLabelPublish: "게시",
     timeoutMessage: "{label} 시간 초과 — {seconds}초 안에 응답이 없습니다",
+    errorTitle: "동기화 오류",
+    retry: "다시 시도",
+    copyError: "복사",
   },
   agent: {
     newConversation: "새 대화",
