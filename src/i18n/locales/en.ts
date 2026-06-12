@@ -153,6 +153,9 @@ export const en: LocaleShape<KoMessages> = {
     timeoutLabelConflict: "Conflict resolution",
     timeoutLabelPublish: "Publish",
     timeoutMessage: "{label} timed out - no response within {seconds} seconds",
+    errorTitle: "Sync error",
+    retry: "Retry",
+    copyError: "Copy",
   },
   agent: {
     newConversation: "New Conversation",
