@@ -63,6 +63,16 @@ export interface SyncStatus {
 
 export type ConflictChoice = "keepMine" | "keepRemote" | "keepBoth";
 
+// Rust synapse-core::git::ConflictPreview 와 1:1 대응 (FR-4.5 diff 뷰)
+export interface ConflictPreview {
+  /** 워크스페이스 루트 기준 상대 경로 */
+  path: string;
+  /** 내 버전 (로컬 HEAD). 내 쪽에서 삭제됐으면 null */
+  mine: string | null;
+  /** 원격 버전 (업스트림). 원격에서 삭제됐으면 null */
+  theirs: string | null;
+}
+
 // 설정 동기화 상태 (1-E) — Rust config_sync::ConfigSyncStatus 와 1:1 대응
 export interface ConfigSyncStatus {
   linked: boolean;
@@ -279,6 +289,8 @@ export interface SynapseIpc {
   /** message: 커밋 메시지 (시각 포함, 프론트에서 생성) */
   syncNow(root: string, message: string): Promise<SyncStatus>;
   resolveConflict(root: string, choice: ConflictChoice): Promise<SyncStatus>;
+  /** 충돌한 파일들의 내 버전·원격 버전 내용 (FR-4.5 diff 뷰). 충돌이 없으면 빈 배열 */
+  conflictPreview(root: string): Promise<ConflictPreview[]>;
   publishWorkspace(root: string, name: string, isPrivate: boolean): Promise<SyncStatus>;
   /** parentDir/name 으로 클론하고 새 워크스페이스 경로 반환 */
   cloneRepo(url: string, parentDir: string, name: string): Promise<string>;

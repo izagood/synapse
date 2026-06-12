@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AgentEventPayload,
   ConfigSyncStatus,
+  ConflictPreview,
   FileCommit,
   FileNode,
   FileType,
@@ -410,6 +411,14 @@ export const mockIpc: SynapseIpc = {
     if (!sync.hasRemote) return currentSyncStatus();
     if (sync.conflictOnNextSync) {
       sync.conflictOnNextSync = false;
+      const path = `${MOCK_ROOT}/README.md`;
+      // diff 뷰 데모용: 내 버전은 디스크 현재 내용, 원격 버전은 다른 편집본
+      sync.conflict = {
+        path: "README.md",
+        mine: files.get(path) ?? null,
+        theirs:
+          "# Mock 워크스페이스\n\n원격에서 고친 줄입니다.\n실제 파일시스템은 Tauri 앱에서만 접근합니다.",
+      };
       return {
         state: "conflict",
         ahead: 1,
@@ -420,8 +429,12 @@ export const mockIpc: SynapseIpc = {
     sync.dirty = false;
     return currentSyncStatus();
   },
+  async conflictPreview() {
+    return sync.conflict ? [sync.conflict] : [];
+  },
   async resolveConflict() {
     sync.dirty = false;
+    sync.conflict = null;
     return currentSyncStatus();
   },
   async publishWorkspace(_root, name) {
@@ -573,6 +586,7 @@ const sync = {
   dirty: false,
   repoName: "",
   conflictOnNextSync: false,
+  conflict: null as ConflictPreview | null,
   lastMessage: "",
   updateAvailable: null as string | null,
 };

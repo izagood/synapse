@@ -141,6 +141,8 @@ export const ko = {
     keepMine: "내 버전 유지",
     keepRemote: "원격 버전 가져오기",
     keepBoth: "둘 다 보존",
+    diffMine: "내 버전",
+    diffTheirs: "원격 버전",
     noGit: "git이 설치되어 있지 않습니다",
     syncNow: "지금 동기화",
     syncing: "동기화 중…",

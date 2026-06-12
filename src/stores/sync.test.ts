@@ -11,9 +11,11 @@ describe("sync store (mock ipc)", () => {
     mockSyncControl.hasRemote = false;
     mockSyncControl.dirty = false;
     mockSyncControl.conflictOnNextSync = false;
+    mockSyncControl.conflict = null;
     useSync.setState({
       login: null,
       status: null,
+      conflictPreview: [],
       device: null,
       loginError: null,
       syncing: false,
@@ -67,8 +69,16 @@ describe("sync store (mock ipc)", () => {
     expect(status?.state).toBe("conflict");
     expect(status?.conflictFiles).toEqual(["README.md"]);
 
+    // diff 뷰 데이터(내 버전/원격 버전)가 함께 채워진다 (FR-4.5)
+    const preview = useSync.getState().conflictPreview;
+    expect(preview).toHaveLength(1);
+    expect(preview[0].path).toBe("README.md");
+    expect(preview[0].theirs).toContain("원격에서 고친 줄");
+
     await useSync.getState().resolveConflict(ROOT, "keepBoth");
     expect(useSync.getState().status?.state).toBe("synced");
+    // 해결 후 diff 데이터는 비워진다
+    expect(useSync.getState().conflictPreview).toEqual([]);
   });
 
   it("publish without login surfaces the error", async () => {

@@ -13,6 +13,7 @@ import {
   RefreshIcon,
 } from "../../shared/Icons";
 import { useT } from "../../i18n";
+import { DiffView } from "../../shared/DiffView";
 
 const STATUS_POLL_MS = 15_000;
 
@@ -64,6 +65,7 @@ function PublishForm({ root }: { root: string }) {
 
 function ConflictPanel({ root }: { root: string }) {
   const status = useSync((s) => s.status);
+  const preview = useSync((s) => s.conflictPreview);
   const resolveConflict = useSync((s) => s.resolveConflict);
   const syncing = useSync((s) => s.syncing);
   const t = useT();
@@ -76,6 +78,21 @@ function ConflictPanel({ root }: { root: string }) {
         <strong>{t("sync.conflictTitle")}</strong>{" "}
         <span className="conflict-files">{status.conflictFiles.join(", ")}</span>
       </div>
+      {preview.length > 0 && (
+        <div className="conflict-diffs">
+          {preview.map((file) => (
+            <div key={file.path} className="conflict-file">
+              <div className="conflict-file-name">{file.path}</div>
+              <DiffView
+                left={file.mine ?? ""}
+                right={file.theirs ?? ""}
+                leftLabel={t("sync.diffMine")}
+                rightLabel={t("sync.diffTheirs")}
+              />
+            </div>
+          ))}
+        </div>
+      )}
       <div className="conflict-actions">
         <button disabled={syncing} onClick={() => void resolveConflict(root, "keepMine")}>
           {t("sync.keepMine")}
