@@ -37,6 +37,17 @@ export const FileTextIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const GraphIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="3.5" cy="12" r="1.8" />
+    <circle cx="12.5" cy="11.5" r="1.8" />
+    <circle cx="8" cy="3.5" r="1.8" />
+    <line x1="7" y1="4.7" x2="4.5" y2="10.3" />
+    <line x1="9" y1="4.7" x2="11.5" y2="10" />
+    <line x1="5.3" y1="12" x2="10.7" y2="11.6" />
+  </Svg>
+);
+
 export const GlobeIcon = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="8" cy="8" r="6" />

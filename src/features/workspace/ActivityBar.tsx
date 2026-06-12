@@ -4,6 +4,7 @@ import { useWorkspace } from "../../stores/workspace";
 import {
   FolderIcon,
   GearIcon,
+  GraphIcon,
   HomeIcon,
   NewWindowIcon,
   SearchIcon,
@@ -19,6 +20,7 @@ interface ActivityBarProps {
   onToggleSidebar: () => void;
   onQuickOpen: () => void;
   onSearch: () => void;
+  onGraph: () => void;
   agentVisible: boolean;
   onToggleAgent: () => void;
 }
@@ -29,6 +31,7 @@ export function ActivityBar({
   onToggleSidebar,
   onQuickOpen,
   onSearch,
+  onGraph,
   agentVisible,
   onToggleAgent,
 }: ActivityBarProps) {
@@ -38,6 +41,7 @@ export function ActivityBar({
   const quickOpenShortcut = shortcutLabel(["Mod", "P"]);
   const searchShortcut = shortcutLabel(["Shift", "Mod", "F"]);
   const agentShortcut = shortcutLabel(["Shift", "Mod", "A"]);
+  const graphShortcut = shortcutLabel(["Shift", "Mod", "G"]);
   const newWindowShortcut = shortcutLabel(["Shift", "Mod", "N"]);
   const settingsShortcut = shortcutLabel(["Mod", ","]);
   const t = useT();
@@ -57,6 +61,9 @@ export function ActivityBar({
         </button>
         <button onClick={onSearch} title={t("activity.search", { shortcut: searchShortcut })}>
           <SearchTextIcon size={18} />
+        </button>
+        <button onClick={onGraph} title={t("activity.graph", { shortcut: graphShortcut })}>
+          <GraphIcon size={18} />
         </button>
         <button
           className={agentVisible ? "active" : ""}

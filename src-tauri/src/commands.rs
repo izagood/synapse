@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use synapse_core::{build_tree, ensure_within, Backlink, FileNode};
+use synapse_core::{build_tree, ensure_within, Backlink, FileNode, LinkGraph};
 
 /// 전역 설정 디렉토리: ~/.config/synapse (OS별 표준 위치, FR-5.1)
 pub(crate) fn config_dir() -> Result<PathBuf, String> {
@@ -70,6 +70,16 @@ pub async fn save_doc(
 pub async fn backlinks(root: String, path: String) -> Result<Vec<Backlink>, String> {
     crate::sync::run_blocking(move || {
         synapse_core::backlinks_for(Path::new(&root), Path::new(&path)).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// 워크스페이스 전체의 노트 링크 그래프(노드=노트, 엣지=링크)를 만든다 (FR-6.2).
+/// 백링크와 같은 전체 순회라 무거울 수 있어 블로킹 풀에서 돈다.
+#[tauri::command]
+pub async fn link_graph(root: String) -> Result<LinkGraph, String> {
+    crate::sync::run_blocking(move || {
+        synapse_core::build_graph(Path::new(&root)).map_err(|e| e.to_string())
     })
     .await
 }
