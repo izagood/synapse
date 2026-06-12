@@ -114,15 +114,16 @@ pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8], sep: &str) -> 
     Err(io::Error::other("too many name collisions"))
 }
 
+/// 한 단계 파일/폴더 이름으로 안전한지 검증한다 (경로 트래버설 차단).
+/// 구분자(`/`, `\`)가 금지되므로 "a..b" 같은 이름은 탈출이 불가능해 허용된다.
+pub fn is_safe_file_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != "." && name != ".."
+}
+
 /// 파일/폴더 이름 변경. 같은 디렉토리 안에서만, 기존 항목을 덮어쓰지 않는다.
 /// 새 전체 경로를 돌려준다.
 pub fn rename_entry(path: &Path, new_name: &str) -> io::Result<PathBuf> {
-    if new_name.is_empty()
-        || new_name.contains('/')
-        || new_name.contains('\\')
-        || new_name == "."
-        || new_name == ".."
-    {
+    if !is_safe_file_name(new_name) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid name"));
     }
     let parent = path
@@ -297,6 +298,17 @@ mod tests {
             fs::read_to_string(tmp.path().join("note 2.md")).unwrap(),
             "원본"
         );
+    }
+
+    #[test]
+    fn safe_file_name_rejects_separators_and_dots() {
+        assert!(is_safe_file_name("노트.md"));
+        assert!(is_safe_file_name("v1..final.md")); // 구분자가 없으면 탈출 불가
+        assert!(!is_safe_file_name(""));
+        assert!(!is_safe_file_name("."));
+        assert!(!is_safe_file_name(".."));
+        assert!(!is_safe_file_name("a/b.md"));
+        assert!(!is_safe_file_name("a\\b.md"));
     }
 
     #[test]
