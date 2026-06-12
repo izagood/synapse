@@ -152,6 +152,33 @@ pub fn duplicate_file(path: &Path) -> io::Result<String> {
     write_unique(parent, &name, &bytes, " ")
 }
 
+/// base64 표준 알파벳 인코더 (의존성 없이 — git Basic 인증 헤더 등)
+pub fn base64_encode(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// base64 표준 알파벳 디코더 (이미지 붙여넣기용 — 의존성 없이)
 pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     fn val(c: u8) -> Result<u32, String> {
@@ -269,6 +296,18 @@ mod tests {
         assert_eq!(
             fs::read_to_string(tmp.path().join("note 2.md")).unwrap(),
             "원본"
+        );
+    }
+
+    #[test]
+    fn base64_encode_known_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(
+            base64_encode(b"x-access-token:abc"),
+            "eC1hY2Nlc3MtdG9rZW46YWJj"
         );
     }
 

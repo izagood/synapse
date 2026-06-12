@@ -89,7 +89,7 @@ pub async fn link_config_repo(name: String, create: bool) -> Result<ConfigSyncSt
             let url = format!("https://github.com/{owner}/{repo}.git");
             GitWorkspace::clone(&url, &cloud, auth_header())?;
             // 레포에 설정이 아직 없으면 현재 로컬 설정을 올린다
-            if !cloud.join("settings.json").exists() {
+            if !cloud.join(settings::SETTINGS_FILE).exists() {
                 let current = settings::load_settings(&cfg);
                 settings::save_settings(&cloud, &current).map_err(|e| e.to_string())?;
                 let _ = GitWorkspace::new(&cloud, auth_header()).sync("synapse: 설정 초기화");
@@ -112,7 +112,7 @@ pub async fn unlink_config_repo(keep_local: bool) -> Result<ConfigSyncStatus, St
     run_blocking(move || {
         let cfg = config_dir()?;
         let cloud = config_sync::cloud_dir(&cfg);
-        if keep_local && cloud.join("settings.json").exists() {
+        if keep_local && cloud.join(settings::SETTINGS_FILE).exists() {
             let s = settings::load_settings(&cloud);
             settings::save_settings(&cfg, &s).map_err(|e| e.to_string())?;
         }

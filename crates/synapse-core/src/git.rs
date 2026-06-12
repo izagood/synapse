@@ -195,7 +195,7 @@ impl GitWorkspace {
     pub fn auth_header_for_token(token: &str) -> String {
         format!(
             "AUTHORIZATION: basic {}",
-            base64(format!("x-access-token:{token}").as_bytes())
+            crate::fs_io::base64_encode(format!("x-access-token:{token}").as_bytes())
         )
     }
 
@@ -846,32 +846,6 @@ fn conflict_copy_name(path: &str) -> String {
     }
 }
 
-fn base64(input: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for chunk in input.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        out.push(TABLE[(n >> 18) as usize & 63] as char);
-        out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[(n >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[n as usize & 63] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1484,14 +1458,5 @@ mod tests {
         write(plain.path(), "note.md", "x");
         let git2 = GitWorkspace::new(plain.path(), None);
         assert!(git2.file_history("note.md").unwrap().is_empty());
-    }
-
-    #[test]
-    fn base64_matches_known_vectors() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"x-access-token:abc"), "eC1hY2Nlc3MtdG9rZW46YWJj");
     }
 }
