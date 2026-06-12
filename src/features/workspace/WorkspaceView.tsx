@@ -11,7 +11,7 @@ import { AgentPanel } from "../agent/AgentPanel";
 import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
-import { PlusIcon, RefreshIcon } from "../../shared/Icons";
+import { GlobeIcon, PlusIcon, RefreshIcon } from "../../shared/Icons";
 import { useT } from "../../i18n";
 
 const SIDEBAR_DEFAULT = 260;
@@ -30,6 +30,7 @@ export function WorkspaceView() {
   const error = useWorkspace((s) => s.error);
   const refreshTree = useWorkspace((s) => s.refreshTree);
   const createNote = useWorkspace((s) => s.createNote);
+  const importHtmlAsNote = useWorkspace((s) => s.importHtmlAsNote);
   const saveActive = useWorkspace((s) => s.saveActive);
   const [quickOpen, setQuickOpen] = useState(false);
   const [search, setSearch] = useState(false);
@@ -50,6 +51,12 @@ export function WorkspaceView() {
       return !v;
     });
   }, []);
+
+  // 클립보드의 HTML(AI 산출물 등)을 정화·변환해 새 노트로 가져온다 (FR-3.4).
+  const importHtmlFromClipboard = useCallback(async () => {
+    const html = await navigator.clipboard?.readText?.();
+    if (html && html.trim()) await importHtmlAsNote(html);
+  }, [importHtmlAsNote]);
 
   // Ctrl/Cmd+S 저장 · Ctrl/Cmd+P 빠른 열기 · Ctrl/Cmd+B 사이드바 (VS Code)
   // Ctrl/Cmd+Shift+A Claude 패널
@@ -132,6 +139,12 @@ export function WorkspaceView() {
                 <span className="sidebar-actions">
                   <button onClick={() => void createNote()} title={t("workspace.newNote")}>
                     <PlusIcon size={15} />
+                  </button>
+                  <button
+                    onClick={() => void importHtmlFromClipboard()}
+                    title={t("workspace.importHtml")}
+                  >
+                    <GlobeIcon size={14} />
                   </button>
                   <button onClick={() => void refreshTree()} title={t("workspace.refreshTree")}>
                     <RefreshIcon size={14} />

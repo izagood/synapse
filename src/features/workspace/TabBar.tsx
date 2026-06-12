@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isDirty, useWorkspace } from "../../stores/workspace";
 import { useHistoryUi } from "../history/historyStore";
-import { CloseIcon, CodeIcon, PlusIcon } from "../../shared/Icons";
+import { CloseIcon, CodeIcon, GlobeIcon, PlusIcon } from "../../shared/Icons";
 import { useT } from "../../i18n";
 
 interface ContextMenuState {
@@ -85,6 +85,7 @@ export function TabBar() {
   const closeTab = useWorkspace((s) => s.closeTab);
   const createNote = useWorkspace((s) => s.createNote);
   const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
+  const exportNoteAsHtml = useWorkspace((s) => s.exportNoteAsHtml);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const t = useT();
@@ -151,6 +152,14 @@ export function TabBar() {
         </button>
       </div>
       <div className="tab-actions">
+        {activeTab && activeTab.fileType === "markdown" && (
+          <button
+            onClick={() => void exportNoteAsHtml()}
+            title={t("tabs.exportHtml")}
+          >
+            <GlobeIcon size={15} />
+          </button>
+        )}
         {activeTab && activeTab.fileType !== "other" && (
           <button
             className={sourceMode ? "active" : ""}

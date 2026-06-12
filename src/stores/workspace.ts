@@ -3,6 +3,12 @@ import { ipc } from "../ipc/ipc";
 import type { FileNode, FileType } from "../ipc/types";
 import { ancestorDirsOf } from "../features/workspace/fileTreeUtils";
 import { useSettings } from "./settings";
+import { htmlToMarkdown } from "../features/html/htmlToMarkdown";
+import {
+  htmlExportPath,
+  markdownToStandaloneHtml,
+  titleFromPath,
+} from "../features/html/markdownToHtml";
 
 export interface TabInfo {
   path: string;
@@ -74,6 +80,16 @@ interface WorkspaceState {
   /** sync 후 열린 문서에 원격 변경을 반영 — 깨끗하면 다시 읽고, 편집 중이면 CRDT 머지 저장 */
   reloadAfterSync(): Promise<void>;
   createNote(dir?: string): Promise<void>;
+  /**
+   * HTML 텍스트(AI 산출물 등)를 정화·변환해 새 마크다운 노트로 가져온다 (FR-3.4).
+   * 생성된 노트를 열고, 생성 경로를 반환한다.
+   */
+  importHtmlAsNote(html: string, dir?: string): Promise<string | null>;
+  /**
+   * 활성(또는 지정) 노트를 자기완결적 HTML 문서로 같은 폴더에 내보낸다 (FR-3.5).
+   * 내보낸 .html 경로를 반환한다.
+   */
+  exportNoteAsHtml(path?: string): Promise<string | null>;
   toggleSourceMode(): void;
   /** 트리 폴더 펼침/접기 */
   toggleDir(path: string): void;
@@ -416,6 +432,48 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       });
     } catch (e) {
       set({ error: String(e) });
+    }
+  },
+
+  async importHtmlAsNote(html, dir) {
+    const { root } = get();
+    if (!root) return null;
+    try {
+      const markdown = htmlToMarkdown(html);
+      // 빈 노트를 만든 뒤 변환 결과를 채워 같은 저장 경로(saveDoc)를 탄다.
+      const path = await ipc.createNote(root, dir ?? root);
+      await get().refreshTree();
+      await get().openFile({
+        path,
+        name: path.split("/").pop()!,
+        kind: "file",
+        fileType: "markdown",
+      });
+      get().updateContent(path, markdown ? markdown + "\n" : "");
+      await get().saveDoc(path);
+      return path;
+    } catch (e) {
+      set({ error: String(e) });
+      return null;
+    }
+  },
+
+  async exportNoteAsHtml(path) {
+    const { root } = get();
+    const target = path ?? get().activePath;
+    if (!root || !target) return null;
+    try {
+      const content = get().docs[target]?.content ?? "";
+      const html = markdownToStandaloneHtml(content, {
+        title: titleFromPath(target),
+      });
+      const outPath = htmlExportPath(target);
+      await ipc.writeFile(root, outPath, html);
+      await get().refreshTree();
+      return outPath;
+    } catch (e) {
+      set({ error: String(e) });
+      return null;
     }
   },
 
