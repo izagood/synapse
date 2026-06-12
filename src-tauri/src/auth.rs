@@ -20,6 +20,8 @@ const KEYRING_SERVICE: &str = "dev.synapse.app";
 const ENTRY_GITHUB: &str = "github";
 /// 구버전이 쓰던 항목들 — 발견하면 통합 항목으로 옮기고 지운다.
 const LEGACY_ENTRIES: [&str; 2] = ["github-token", "github-login"];
+/// Anthropic API 키(2-D). settings.json 평문 대신 OS 키체인에 보관한다.
+const ENTRY_AGENT_API_KEY: &str = "agent-api-key";
 
 #[derive(Default)]
 pub struct AuthState {
@@ -134,4 +136,42 @@ pub fn github_logout() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+// ---- Anthropic API 키 (2-D, github 토큰과 같은 키체인 패턴) ----
+
+/// 키체인에서 Anthropic API 키를 읽는다. 없으면 None.
+/// agent.rs가 apiKey 모드에서 ANTHROPIC_API_KEY 주입에 쓴다.
+pub fn stored_agent_api_key() -> Option<String> {
+    let key = entry(ENTRY_AGENT_API_KEY).ok()?.get_password().ok()?;
+    if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    }
+}
+
+#[tauri::command]
+pub fn set_agent_api_key(key: String) -> Result<(), String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("API 키가 비어 있습니다".into());
+    }
+    entry(ENTRY_AGENT_API_KEY)?
+        .set_password(key)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_agent_api_key() -> Result<(), String> {
+    if let Ok(e) = entry(ENTRY_AGENT_API_KEY) {
+        // 항목이 없을 때의 NoEntry 오류는 성공으로 간주한다(idempotent).
+        let _ = e.delete_credential();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn has_agent_api_key() -> bool {
+    stored_agent_api_key().is_some()
 }

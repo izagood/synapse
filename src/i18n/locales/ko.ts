@@ -85,6 +85,22 @@ export const ko = {
     allowScripts: "스크립트 실행 허용 (위험)",
     scriptWarning:
       "스크립트 허용 시 HTML 정화 없이 원문 그대로 격리된 샌드박스에서 실행됩니다. 신뢰할 수 있는 문서만 여세요.",
+    agent: "Claude 에이전트",
+    agentAuthMode: "인증 방식",
+    agentAuthSubscription: "구독 로그인 (claude CLI)",
+    agentAuthApiKey: "Anthropic API 키",
+    agentAuthHint:
+      "구독 로그인은 터미널에서 claude로 로그인한 계정을 그대로 씁니다. 공개 배포 빌드에서는 Anthropic API 키 모드를 권장합니다.",
+    agentApiKey: "API 키",
+    agentApiKeySet: "설정됨",
+    agentApiKeyNotSet: "설정되지 않음",
+    agentApiKeyPlaceholder: "sk-ant-…",
+    agentApiKeySave: "저장",
+    agentApiKeyClear: "삭제",
+    agentApiKeyStored: "키는 OS 키체인에 안전하게 보관되며 설정 파일에 평문으로 저장되지 않습니다.",
+    agentApiKeyMissing: "API 키 모드를 쓰려면 키를 입력하세요.",
+    agentModel: "모델",
+    agentModelDefault: "기본 (CLI 설정 따름)",
   },
   update: {
     section: "업데이트",

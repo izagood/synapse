@@ -8,7 +8,9 @@ use serde::Serialize;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use synapse_core::agent::{find_claude_binary, parse_stream_line, AgentEvent};
+use synapse_core::agent::{
+    agent_spawn_config, find_claude_binary, parse_stream_line, AgentEvent, AuthMode,
+};
 use tauri::{AppHandle, Emitter, State};
 
 const EVENT_NAME: &str = "agent:event";
@@ -43,6 +45,16 @@ fn claude_bin() -> Option<std::path::PathBuf> {
     find_claude_binary(path_var.as_deref(), dirs::home_dir().as_deref())
 }
 
+/// 현재 저장된 에이전트 설정(인증 모드·모델·권한)을 읽는다.
+/// get_settings와 같은 경로(설정 동기화 연결 시 클라우드 작업트리)를 본다.
+fn agent_settings() -> synapse_core::settings::AgentSettings {
+    let Ok(cfg) = crate::commands::config_dir() else {
+        return synapse_core::settings::AgentSettings::default();
+    };
+    let dir = synapse_core::config_sync::settings_dir(&cfg);
+    synapse_core::settings::load_settings(&dir).agent
+}
+
 fn emit(app: &AppHandle, run_id: &str, event: AgentEvent) {
     let _ = app.emit(
         EVENT_NAME,
@@ -71,11 +83,34 @@ pub fn agent_send(
         "claude CLI를 찾을 수 없습니다. 설치 후 `claude` 명령으로 로그인하세요.",
     )?;
 
+    // 인증 모드·모델·권한을 읽어 spawn에 적용할 인자/환경을 만든다(순수 로직은 core).
+    let settings = agent_settings();
+    let mode = AuthMode::from_settings_value(&settings.auth_mode);
+    let api_key = if mode == AuthMode::ApiKey {
+        let key = crate::auth::stored_agent_api_key();
+        if key.is_none() {
+            return Err(
+                "API 키 모드인데 저장된 Anthropic API 키가 없습니다. 설정에서 API 키를 입력하세요."
+                    .into(),
+            );
+        }
+        key
+    } else {
+        None
+    };
+    let spawn = agent_spawn_config(
+        mode,
+        &settings.model,
+        &settings.permission_mode,
+        api_key.as_deref(),
+    );
+
     let mut cmd = Command::new(bin);
     cmd.arg("-p")
         .arg(&prompt)
         .args(["--output-format", "stream-json", "--verbose"])
         .args(["--allowedTools", ALLOWED_TOOLS])
+        .args(&spawn.extra_args)
         .current_dir(&root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -83,6 +118,14 @@ pub fn agent_send(
         // Synapse가 claude 세션 안에서 dev 모드로 떠 있어도 중첩 실행되도록
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT");
+    // 인증 모드별 환경 적용: apiKey면 키 주입, subscription이면 떠 있을 수 있는
+    // ANTHROPIC_API_KEY 제거(구독 로그인 우선).
+    for (k, v) in &spawn.env_set {
+        cmd.env(k, v);
+    }
+    for k in &spawn.env_remove {
+        cmd.env_remove(k);
+    }
     if let Some(sid) = &session_id {
         cmd.args(["--resume", sid]);
     }

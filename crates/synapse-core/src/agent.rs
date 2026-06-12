@@ -181,6 +181,82 @@ pub fn find_claude_binary(path_var: Option<&str>, home: Option<&Path>) -> Option
     None
 }
 
+/// 인증 방식. 프론트 settings.agent.authMode 와 1:1 (serde camelCase).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthMode {
+    /// claude CLI의 구독 로그인을 그대로 쓴다 (현행 기본).
+    Subscription,
+    /// ANTHROPIC_API_KEY 를 주입해 실행한다 (공개 배포용).
+    ApiKey,
+}
+
+impl AuthMode {
+    /// settings의 문자열에서 파싱. 알 수 없는 값은 안전하게 Subscription으로 떨군다.
+    pub fn from_settings_value(s: &str) -> AuthMode {
+        match s {
+            "apiKey" => AuthMode::ApiKey,
+            _ => AuthMode::Subscription,
+        }
+    }
+}
+
+/// claude 프로세스를 띄울 때 인증 모드/모델/권한에 따라 추가로 붙일
+/// 인자와 환경변수. spawn 자체(Tauri 셸)와 분리해 순수 함수로 테스트한다.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AgentSpawnConfig {
+    /// 공통 인자 뒤에 덧붙일 추가 인자(`--model …`, `--permission-mode …`).
+    pub extra_args: Vec<String>,
+    /// 주입할 환경변수 (apiKey 모드에서 ANTHROPIC_API_KEY).
+    pub env_set: Vec<(String, String)>,
+    /// 제거할 환경변수 (구독 모드에서 떠 있을 수 있는 키를 비워 충돌 방지).
+    pub env_remove: Vec<String>,
+}
+
+/// 인증 모드·모델·권한·API 키로 spawn에 적용할 인자/환경을 만든다.
+///
+/// - `model`/`permission_mode`가 빈 문자열이면 해당 인자를 붙이지 않는다(CLI 기본).
+/// - apiKey 모드: `ANTHROPIC_API_KEY`를 주입한다. 키가 비어 있으면 주입하지
+///   않으므로(인자/환경 미설정) 호출 측에서 키 존재를 먼저 확인해야 한다.
+/// - subscription 모드: 혹시 떠 있을 수 있는 `ANTHROPIC_API_KEY`를 제거해
+///   사용자의 구독 로그인이 항상 쓰이도록 한다.
+pub fn agent_spawn_config(
+    mode: AuthMode,
+    model: &str,
+    permission_mode: &str,
+    api_key: Option<&str>,
+) -> AgentSpawnConfig {
+    let mut cfg = AgentSpawnConfig::default();
+
+    let model = model.trim();
+    if !model.is_empty() {
+        cfg.extra_args.push("--model".into());
+        cfg.extra_args.push(model.to_owned());
+    }
+    let permission_mode = permission_mode.trim();
+    if !permission_mode.is_empty() {
+        cfg.extra_args.push("--permission-mode".into());
+        cfg.extra_args.push(permission_mode.to_owned());
+    }
+
+    match mode {
+        AuthMode::ApiKey => {
+            if let Some(key) = api_key {
+                let key = key.trim();
+                if !key.is_empty() {
+                    cfg.env_set
+                        .push(("ANTHROPIC_API_KEY".into(), key.to_owned()));
+                }
+            }
+        }
+        AuthMode::Subscription => {
+            // 구독 로그인이 항상 우선되도록, 외부에서 흘러든 API 키 환경을 비운다.
+            cfg.env_remove.push("ANTHROPIC_API_KEY".into());
+        }
+    }
+
+    cfg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +434,85 @@ mod tests {
         let fallback = npm.join("claude.cmd");
         std::fs::write(&fallback, b"@echo off\r\n").unwrap();
         assert_eq!(find_claude_binary(Some(""), Some(&home)), Some(fallback));
+    }
+
+    #[test]
+    fn auth_mode_parses_known_values_and_falls_back() {
+        assert_eq!(AuthMode::from_settings_value("apiKey"), AuthMode::ApiKey);
+        assert_eq!(
+            AuthMode::from_settings_value("subscription"),
+            AuthMode::Subscription
+        );
+        assert_eq!(AuthMode::from_settings_value(""), AuthMode::Subscription);
+        assert_eq!(
+            AuthMode::from_settings_value("nonsense"),
+            AuthMode::Subscription
+        );
+    }
+
+    #[test]
+    fn subscription_mode_adds_no_model_args_and_clears_api_key_env() {
+        let cfg = agent_spawn_config(AuthMode::Subscription, "", "", None);
+        assert!(cfg.extra_args.is_empty());
+        assert!(cfg.env_set.is_empty());
+        assert_eq!(cfg.env_remove, vec!["ANTHROPIC_API_KEY".to_string()]);
+    }
+
+    #[test]
+    fn subscription_mode_ignores_api_key_even_if_present() {
+        // 구독 모드에서는 키가 키체인에 남아 있어도 주입하지 않는다.
+        let cfg = agent_spawn_config(AuthMode::Subscription, "", "", Some("sk-leftover"));
+        assert!(cfg.env_set.is_empty());
+        assert_eq!(cfg.env_remove, vec!["ANTHROPIC_API_KEY".to_string()]);
+    }
+
+    #[test]
+    fn api_key_mode_injects_key_env() {
+        let cfg = agent_spawn_config(AuthMode::ApiKey, "", "", Some("sk-ant-123"));
+        assert_eq!(
+            cfg.env_set,
+            vec![("ANTHROPIC_API_KEY".to_string(), "sk-ant-123".to_string())]
+        );
+        assert!(cfg.env_remove.is_empty());
+    }
+
+    #[test]
+    fn api_key_mode_trims_and_skips_blank_key() {
+        let trimmed = agent_spawn_config(AuthMode::ApiKey, "", "", Some("  sk-x  "));
+        assert_eq!(
+            trimmed.env_set,
+            vec![("ANTHROPIC_API_KEY".to_string(), "sk-x".to_string())]
+        );
+
+        // 키가 비어 있으면 아무 환경도 설정하지 않는다(호출 측이 키 존재를 검증해야 함).
+        let blank = agent_spawn_config(AuthMode::ApiKey, "", "", Some("   "));
+        assert!(blank.env_set.is_empty());
+        let missing = agent_spawn_config(AuthMode::ApiKey, "", "", None);
+        assert!(missing.env_set.is_empty());
+    }
+
+    #[test]
+    fn model_and_permission_mode_become_args_when_set() {
+        let cfg = agent_spawn_config(
+            AuthMode::ApiKey,
+            "claude-sonnet-4-5",
+            "acceptEdits",
+            Some("sk-ant-123"),
+        );
+        assert_eq!(
+            cfg.extra_args,
+            vec![
+                "--model".to_string(),
+                "claude-sonnet-4-5".to_string(),
+                "--permission-mode".to_string(),
+                "acceptEdits".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn blank_model_and_permission_mode_are_omitted() {
+        let cfg = agent_spawn_config(AuthMode::Subscription, "  ", "  ", None);
+        assert!(cfg.extra_args.is_empty());
     }
 }
