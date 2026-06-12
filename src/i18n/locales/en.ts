@@ -188,6 +188,16 @@ export const en: LocaleShape<KoMessages> = {
     roleUser: "You",
     roleAssistant: "Claude",
     aborted: "Response stopped",
+    askNotes: "Ask my notes",
+    askNotesHint: "Finds notes related to your question and sends them as grounding",
+    sources: "Source notes",
+    permissionTitle: "Allow {tool}?",
+    permissionEditTitle: "Allow editing this file?",
+    permissionApprove: "Approve",
+    permissionReject: "Reject",
+    permissionWholeFile: "Replaces the whole file with new content",
+    editApplied: "AI edited {file}",
+    aiEditedBadge: "Edited by AI",
   },
   editor: {
     placeholder:

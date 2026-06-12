@@ -17,6 +17,7 @@ import type {
   FileCommit,
   FileNode,
   PollResult,
+  RetrievalResult,
   SearchHit,
   Settings,
   SyncStatus,
@@ -35,6 +36,8 @@ const tauriIpc: SynapseIpc = {
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
   searchWorkspace: (root, query) =>
     invoke<SearchHit[]>("search_workspace", { root, query }),
+  retrieveNotes: (root, question) =>
+    invoke<RetrievalResult>("retrieve_notes", { root, question }),
   readFile: (root, path) => invoke<string>("read_file", { root, path }),
   writeFile: (root, path, content) =>
     invoke<void>("write_file", { root, path, content }),
@@ -107,6 +110,10 @@ const tauriIpc: SynapseIpc = {
   agentStatus: () => invoke<AgentStatus>("agent_status"),
   agentSend: (root, prompt, sessionId, runId) =>
     invoke<void>("agent_send", { root, prompt, sessionId, runId }),
+  agentRespondPermission: (requestId, allow) =>
+    invoke<void>("agent_respond_permission", { requestId, allow }),
+  agentEditFile: (root, path, newContent, baseContent) =>
+    invoke<string>("agent_edit_file", { root, path, newContent, baseContent }),
   agentStop: () => invoke<void>("agent_stop"),
   onAgentEvent: (handler) =>
     listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),

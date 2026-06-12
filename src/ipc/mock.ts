@@ -5,6 +5,8 @@ import type {
   FileCommit,
   FileNode,
   FileType,
+  RetrievalResult,
+  RetrievedSnippet,
   SearchHit,
   Settings,
   SyncStatus,
@@ -104,6 +106,70 @@ function mockSearch(query: string): SearchHit[] {
   return hits;
 }
 
+const MOCK_STOPWORDS = new Set([
+  "the", "and", "for", "are", "was", "were", "with", "that", "this", "from",
+  "what", "which", "how", "why", "who", "when", "where", "about", "into",
+  "your", "you", "our", "can", "could", "would", "should", "does", "did",
+  "has", "have", "had", "will", "shall", "not", "but", "all", "any",
+]);
+
+// Rust retrieval::extract_keywords 시맨틱을 흉내 (소문자, 짧은/불용어 제거, 중복 제거).
+function mockKeywords(question: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of question.split(/[^\p{L}\p{N}]+/u)) {
+    if (!raw) continue;
+    const lower = raw.toLowerCase();
+    if ([...lower].length < 2 || MOCK_STOPWORDS.has(lower)) continue;
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      out.push(lower);
+      if (out.length >= 8) break;
+    }
+  }
+  return out;
+}
+
+// Rust retrieval::retrieve_context의 간략판 (키워드 매칭 + 파일명 가산점).
+// 백링크 보강은 mock에선 생략한다(브라우저 데모용).
+function mockRetrieve(question: string): RetrievalResult {
+  const keywords = mockKeywords(question);
+  if (keywords.length === 0) return { keywords, snippets: [] };
+
+  const acc = new Map<
+    string,
+    { name: string; kws: Set<string>; nameMatch: boolean; lines: string[] }
+  >();
+  for (const kw of keywords) {
+    for (const hit of mockSearch(kw)) {
+      let entry = acc.get(hit.path);
+      if (!entry) {
+        entry = { name: hit.name, kws: new Set(), nameMatch: false, lines: [] };
+        acc.set(hit.path, entry);
+      }
+      entry.kws.add(kw);
+      if (hit.nameMatch) entry.nameMatch = true;
+      for (const m of hit.matches) {
+        if (entry.lines.length >= 3) break;
+        if (!entry.lines.includes(m.snippet)) entry.lines.push(m.snippet);
+      }
+    }
+  }
+
+  const snippets: RetrievedSnippet[] = [...acc.entries()].map(([path, e]) => {
+    const score = e.kws.size * 10 + (e.nameMatch ? 5 : 0) + Math.min(e.lines.length, 3);
+    return {
+      path,
+      name: e.name,
+      snippet: e.lines.join("\n"),
+      directMatch: e.kws.size > 0,
+      score,
+    };
+  });
+  snippets.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  return { keywords, snippets: snippets.slice(0, 6) };
+}
+
 let recent: string[] = [];
 const MAX_RECENT = 10;
 let mockDocSeq = 0;
@@ -161,6 +227,9 @@ export const mockIpc: SynapseIpc = {
   },
   async searchWorkspace(_root, query) {
     return mockSearch(query);
+  },
+  async retrieveNotes(_root, question) {
+    return mockRetrieve(question);
   },
   async readFile(root, path) {
     assertInside(root, path);
@@ -446,6 +515,17 @@ export const mockIpc: SynapseIpc = {
       agent.running = false;
     }, 0);
   },
+  async agentRespondPermission(requestId, allow) {
+    agent.permissionResponses.push({ requestId, allow });
+  },
+  async agentEditFile(root, path, newContent, _baseContent) {
+    void _baseContent;
+    assertInside(root, path);
+    // 브라우저 mock: CRDT 병합 없이 새 내용을 그대로 쓴다(테스트용 단순화)
+    files.set(path, newContent);
+    sync.dirty = true;
+    return newContent;
+  },
   async agentStop() {
     if (!agent.running || !agent.lastSend) return;
     agent.running = false;
@@ -521,6 +601,8 @@ const agent = {
   running: false,
   /** 키체인 시뮬레이션: 저장된 Anthropic API 키 (null=없음) */
   apiKey: null as string | null,
+  /** 테스트 전용: 회신된 권한 결정 기록 */
+  permissionResponses: [] as { requestId: string; allow: boolean }[],
 };
 
 function deliverAgentEvent(payload: AgentEventPayload) {
