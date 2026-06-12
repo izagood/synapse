@@ -1,4 +1,5 @@
 import { ko } from "../../i18n/locales/ko";
+import type { SyncState } from "../../ipc/types";
 
 // 동기화 UI가 영구히 잠기지 않게 하는 안전망 (워치독 + 백오프).
 // 백엔드에도 git 명령 타임아웃이 있지만, IPC 자체가 응답하지 못하는
@@ -48,4 +49,21 @@ export function shouldAutoSync(
 ): boolean {
   if (lastAttemptMs === null) return true;
   return nowMs - lastAttemptMs >= autoSyncDelayMs(baseMs, consecutiveFailures);
+}
+
+/**
+ * 폴더를 열거나 로그인했을 때 곧바로 한 번 pull(동기화)할지 결정한다.
+ *
+ * 노트를 켜는 순간 로컬을 원격과 맞춰 두면, 이후 커밋을 push 할 때
+ * non-fast-forward(원격이 앞서 있어 거부)로 실패하는 걸 예방한다.
+ * 원격이 연결된(pending/synced) 상태이고, 로그인되어 있으며, 이미
+ * 동기화 중이 아닐 때만 시도한다.
+ */
+export function shouldSyncOnOpen(
+  loggedIn: boolean,
+  state: SyncState | undefined,
+  syncing: boolean,
+): boolean {
+  if (!loggedIn || syncing) return false;
+  return state === "pending" || state === "synced";
 }
