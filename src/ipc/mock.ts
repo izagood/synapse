@@ -12,7 +12,7 @@ import type {
   WorkspaceSession,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
-import { computeBacklinks } from "../features/editor/backlinks";
+import { computeBacklinks, computeGraph } from "../features/editor/backlinks";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.
 // 파일 맵에서 트리를 파생시키므로 쓰기/생성도 실제처럼 동작한다.
@@ -205,6 +205,10 @@ export const mockIpc: SynapseIpc = {
   async backlinks(root, path) {
     void root;
     return computeBacklinks(MOCK_ROOT, path, files);
+  },
+  async linkGraph(root) {
+    void root;
+    return computeGraph(MOCK_ROOT, files);
   },
   async saveImage(root, dir, desiredName, base64) {
     assertInside(root, `${dir}/x`);

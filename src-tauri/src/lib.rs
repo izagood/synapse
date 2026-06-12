@@ -25,6 +25,7 @@ pub fn run() {
             commands::save_doc,
             commands::agent_edit_file,
             commands::backlinks,
+            commands::link_graph,
             commands::create_note,
             commands::search_workspace,
             commands::recent_workspaces,

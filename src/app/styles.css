@@ -2137,3 +2137,111 @@ select {
   justify-content: flex-end;
   margin-top: 14px;
 }
+
+/* 그래프 뷰 (FR-6.2) */
+.graph-modal {
+  width: min(820px, 94vw);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  padding: 18px 20px;
+}
+
+.graph-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.graph-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.graph-stats {
+  color: var(--fg-dim);
+  font-size: 0.82rem;
+}
+
+.graph-close {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 6px;
+  color: var(--fg-dim);
+  align-self: center;
+}
+
+.graph-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.graph-message {
+  color: var(--fg-dim);
+  text-align: center;
+  padding: 48px 0;
+}
+
+.graph-canvas {
+  width: 100%;
+  height: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.graph-edge {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.graph-edge-active {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node-circle {
+  fill: var(--fg-dim);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  transition: fill 0.1s ease;
+}
+
+.graph-node:hover .graph-node-circle,
+.graph-node-hover .graph-node-circle {
+  fill: var(--accent);
+}
+
+.graph-node-neighbor .graph-node-circle {
+  fill: var(--accent);
+  opacity: 0.85;
+}
+
+.graph-node-current .graph-node-circle {
+  fill: var(--accent);
+  stroke: var(--fg);
+  stroke-width: 2;
+}
+
+.graph-node-dimmed {
+  opacity: 0.25;
+}
+
+.graph-node-label {
+  fill: var(--fg);
+  font-size: 11px;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}

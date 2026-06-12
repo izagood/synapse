@@ -16,6 +16,7 @@ export const ko = {
     quickOpen: "빠른 열기 ({shortcut})",
     search: "전체 검색 ({shortcut})",
     agentPanel: "Claude 패널 ({shortcut})",
+    graph: "그래프 뷰 ({shortcut})",
     newWindow: "새 창 ({shortcut}) - 다른 폴더를 동시에",
     openAnotherFolder: "다른 폴더 열기",
     backToStart: "시작 화면으로",
@@ -23,6 +24,7 @@ export const ko = {
   },
   workspace: {
     newNote: "새 노트",
+    importHtml: "클립보드 HTML을 노트로 가져오기",
     refreshTree: "파일 트리 새로고침",
     empty: "왼쪽에서 파일을 선택하거나 새 노트를 만드세요",
   },
@@ -34,6 +36,7 @@ export const ko = {
     closeAll: "모든 탭 닫기",
     switchToRendered: "렌더 보기로 전환",
     switchToSource: "소스 보기로 전환",
+    exportHtml: "HTML로 내보내기",
   },
   quickOpen: {
     placeholder: "파일 이름 검색…",
@@ -214,5 +217,12 @@ export const ko = {
     readOnly: "읽기 전용 미리보기",
     currentBadge: "현재",
     needFile: "히스토리를 보려면 노트를 먼저 여세요",
+  },
+  graph: {
+    title: "그래프 뷰",
+    close: "닫기",
+    loading: "그래프 만드는 중…",
+    empty: "표시할 노트 링크가 없습니다",
+    stats: "노트 {nodes}개 · 링크 {edges}개",
   },
 } as const;
