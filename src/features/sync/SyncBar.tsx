@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { badgeOf, useSync } from "../../stores/sync";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
-import { shouldAutoSync } from "./guard";
+import { shouldAutoSync, shouldSyncOnOpen } from "./guard";
 import { LoginModal } from "./LoginModal";
 import { UpdateBadge } from "../update/UpdateBadge";
 import {
@@ -170,6 +170,23 @@ export function SyncBar() {
       if (autoTimer) clearInterval(autoTimer);
     };
   }, [root, refreshStatus, autoSync, intervalMinutes]);
+
+  // 폴더를 열거나 로그인하면 곧바로 한 번 pull(동기화)해서 로컬을 원격과
+  // 맞춘다 — 이후 커밋을 push 할 때 non-fast-forward로 거부되는 걸 예방한다.
+  useEffect(() => {
+    if (!root || !login) return;
+    let cancelled = false;
+    void refreshStatus(root).then(() => {
+      if (cancelled) return;
+      const s = useSync.getState();
+      if (shouldSyncOnOpen(Boolean(s.login), s.status?.state, s.syncing)) {
+        void s.syncNow(root);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [root, login, refreshStatus]);
 
   if (!root) return null;
   const needsSetup = status?.state === "noRepo" || status?.state === "noRemote";
