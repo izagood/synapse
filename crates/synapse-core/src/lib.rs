@@ -11,6 +11,7 @@ pub mod retrieval;
 pub mod search;
 pub mod settings;
 pub mod tree;
+pub mod walk;
 
 pub use collab::CollabStore;
 pub use config_sync::ConfigSyncState;

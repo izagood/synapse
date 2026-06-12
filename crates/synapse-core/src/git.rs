@@ -455,28 +455,17 @@ impl GitWorkspace {
     /// 워크스페이스의 모든 .md를 훑어 CRDT와 어긋난 외부 편집(GitHub 웹,
     /// 다른 에디터 등)을 결정적으로 흡수한다. 개별 파일 실패는 무시한다.
     fn absorb_workspace(&self, store: &CollabStore) {
-        fn walk(dir: &Path, store: &CollabStore) {
-            let Ok(entries) = fs::read_dir(dir) else {
-                return;
-            };
-            for entry in entries.filter_map(Result::ok) {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with('.') {
-                    continue; // .git, .synapse 등
-                }
-                let path = entry.path();
-                if path.is_dir() {
-                    walk(&path, store);
-                } else if name.ends_with(".md") {
-                    if let Ok(text) = fs::read_to_string(&path) {
-                        if let Some(id) = collab::extract_doc_id(&text) {
-                            let _ = store.absorb_external(&id, &text);
-                        }
+        // 순회 정책은 walk 모듈 공통(숨김·심볼릭 링크 제외) — 앱의 다른 순회와 일치.
+        crate::walk::walk_files(&self.root, &mut |path, name| {
+            if name.ends_with(".md") {
+                if let Ok(text) = fs::read_to_string(path) {
+                    if let Some(id) = collab::extract_doc_id(&text) {
+                        let _ = store.absorb_external(&id, &text);
                     }
                 }
             }
-        }
-        walk(&self.root, store);
+            true
+        });
     }
 
     fn rebase_in_progress(&self) -> GitResult<bool> {
