@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
-import type { ConflictChoice, DeviceCode, SyncStatus } from "../ipc/types";
+import type { ConflictChoice, ConflictPreview, DeviceCode, SyncStatus } from "../ipc/types";
 import { syncCommitMessage } from "../features/sync/commitMessage";
 import { IPC_TIMEOUT_MS, withTimeout } from "../features/sync/guard";
 import { useWorkspace } from "./workspace";
@@ -26,6 +26,8 @@ export function badgeOf(status: SyncStatus | null): SyncBadge {
 interface SyncStoreState {
   login: string | null;
   status: SyncStatus | null;
+  /** 충돌 상태일 때 양쪽 버전 diff 데이터 (FR-4.5). 비충돌이면 빈 배열 */
+  conflictPreview: ConflictPreview[];
   device: DeviceCode | null;
   loginError: string | null;
   syncing: boolean;
@@ -50,9 +52,26 @@ interface SyncStoreState {
   publish(root: string, name: string, isPrivate: boolean): Promise<void>;
 }
 
+/**
+ * 새 상태가 충돌이면 양쪽 버전 미리보기를 불러오고, 아니면 비운다.
+ * 미리보기 로드 실패는 치명적이지 않으므로 빈 배열로 떨어진다(3택 버튼은 그대로 동작).
+ */
+async function loadPreviewFor(
+  root: string,
+  status: SyncStatus | null,
+): Promise<ConflictPreview[]> {
+  if (status?.state !== "conflict") return [];
+  try {
+    return await ipc.conflictPreview(root);
+  } catch {
+    return [];
+  }
+}
+
 export const useSync = create<SyncStoreState>((set, get) => ({
   login: null,
   status: null,
+  conflictPreview: [],
   device: null,
   loginError: null,
   syncing: false,
@@ -69,7 +88,14 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   },
 
   resetWorkspace() {
-    set({ status: null, error: null, syncing: false, failures: 0, lastAttemptAt: null });
+    set({
+      status: null,
+      conflictPreview: [],
+      error: null,
+      syncing: false,
+      failures: 0,
+      lastAttemptAt: null,
+    });
   },
 
   async startLogin() {
@@ -127,7 +153,16 @@ export const useSync = create<SyncStoreState>((set, get) => ({
 
   async refreshStatus(root) {
     try {
-      set({ status: await ipc.syncStatus(root) });
+      const status = await ipc.syncStatus(root);
+      set({ status });
+      // 충돌이면 diff 데이터를 함께 채운다(이미 충돌 중이면 매 폴링마다 새로 받지 않음)
+      if (status.state === "conflict") {
+        if (get().conflictPreview.length === 0) {
+          set({ conflictPreview: await loadPreviewFor(root, status) });
+        }
+      } else if (get().conflictPreview.length > 0) {
+        set({ conflictPreview: [] });
+      }
     } catch (e) {
       set({ error: String(e) });
     }
@@ -142,17 +177,17 @@ export const useSync = create<SyncStoreState>((set, get) => ({
       const language = useSettings.getState().settings.appearance.language;
       const syncLabel = translate(language, "sync.timeoutLabelSync");
       // 워치독: 백엔드가 응답하지 못해도 syncing이 영구히 잠기지 않게 한다
-      set({
-        status: await withTimeout(
-          ipc.syncNow(root, syncCommitMessage(new Date(), language)),
-          IPC_TIMEOUT_MS,
-          syncLabel,
-          translate(language, "sync.timeoutMessage", {
-            label: syncLabel,
-            seconds: Math.round(IPC_TIMEOUT_MS / 1000),
-          }),
-        ),
-      });
+      const status = await withTimeout(
+        ipc.syncNow(root, syncCommitMessage(new Date(), language)),
+        IPC_TIMEOUT_MS,
+        syncLabel,
+        translate(language, "sync.timeoutMessage", {
+          label: syncLabel,
+          seconds: Math.round(IPC_TIMEOUT_MS / 1000),
+        }),
+      );
+      // 충돌이면 diff 데이터를 함께 채워 패널이 바로 비교를 보여주게 한다
+      set({ status, conflictPreview: await loadPreviewFor(root, status) });
       // pull로 받은 원격 변경을 열린 에디터에 라이브 반영
       await useWorkspace.getState().reloadAfterSync();
       set({ failures: 0 });
@@ -168,17 +203,17 @@ export const useSync = create<SyncStoreState>((set, get) => ({
     try {
       const language = useSettings.getState().settings.appearance.language;
       const label = translate(language, "sync.timeoutLabelConflict");
-      set({
-        status: await withTimeout(
-          ipc.resolveConflict(root, choice),
-          IPC_TIMEOUT_MS,
+      const status = await withTimeout(
+        ipc.resolveConflict(root, choice),
+        IPC_TIMEOUT_MS,
+        label,
+        translate(language, "sync.timeoutMessage", {
           label,
-          translate(language, "sync.timeoutMessage", {
-            label,
-            seconds: Math.round(IPC_TIMEOUT_MS / 1000),
-          }),
-        ),
-      });
+          seconds: Math.round(IPC_TIMEOUT_MS / 1000),
+        }),
+      );
+      // 해결되면 diff 데이터를 비운다
+      set({ status, conflictPreview: [] });
       await useWorkspace.getState().reloadAfterSync();
     } catch (e) {
       set({ error: String(e) });
