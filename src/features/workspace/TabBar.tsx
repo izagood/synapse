@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isDirty, useWorkspace } from "../../stores/workspace";
+import { useAgent } from "../../stores/agent";
 import { useHistoryUi } from "../history/historyStore";
 import { CloseIcon, CodeIcon, PlusIcon } from "../../shared/Icons";
 import { useT } from "../../i18n";
@@ -85,6 +86,7 @@ export function TabBar() {
   const closeTab = useWorkspace((s) => s.closeTab);
   const createNote = useWorkspace((s) => s.createNote);
   const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
+  const aiEditedPaths = useAgent((s) => s.aiEditedPaths);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const t = useT();
@@ -110,6 +112,7 @@ export function TabBar() {
       >
         {tabs.map((tab) => {
           const dirty = isDirty(docs[tab.path]);
+          const aiEdited = aiEditedPaths.includes(tab.path);
           return (
             <div
               key={tab.path}
@@ -132,6 +135,11 @@ export function TabBar() {
                 onClick={() => setActiveTab(tab.path)}
               >
                 {tab.name}
+                {aiEdited && (
+                  <span className="ai-edited-badge" title={t("agent.aiEditedBadge")}>
+                    {t("agent.aiEditedBadge")}
+                  </span>
+                )}
               </button>
               <button
                 className="tab-close"

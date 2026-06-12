@@ -875,6 +875,56 @@ mod tests {
     }
 
     #[test]
+    fn ai_and_user_edits_converge_in_same_workspace() {
+        // 2-B: AI 편집은 ai-assistant actor로 라우팅되어 사용자 로그와 분리된
+        // log-ai-assistant.y에 기록되고, 같은 워크스페이스 안에서 CRDT로 병합된다.
+        let tmp = tempfile::tempdir().unwrap();
+        let user = store(tmp.path(), "actor-user");
+        let ai = store(tmp.path(), "ai-assistant");
+        let id = new_doc_id();
+        let base = "첫 줄\n둘째 줄\n셋째 줄\n";
+        user.save_text(&id, "", base).unwrap();
+
+        // 사용자는 앞에, AI는 뒤에 — 같은 base에서 동시에 편집
+        user.save_text(&id, base, "사용자 머리말\n첫 줄\n둘째 줄\n셋째 줄\n")
+            .unwrap();
+        let ai_merged = ai
+            .save_text(&id, base, "첫 줄\n둘째 줄\n셋째 줄\nAI 꼬리말\n")
+            .unwrap();
+        assert!(ai_merged.contains("AI 꼬리말"));
+
+        // 같은 .synapse 디렉토리를 공유하므로 둘 다 합쳐진 결과를 본다
+        let final_text = user.doc_text(&id).unwrap();
+        assert_eq!(final_text, ai.doc_text(&id).unwrap());
+        assert!(final_text.contains("사용자 머리말"));
+        assert!(final_text.contains("AI 꼬리말"));
+        assert!(final_text.contains("둘째 줄"));
+
+        // AI 편집이 자기 actor 로그(log-ai-assistant.y)에 분리 기록됐다
+        let ai_log = ai.own_log(&id);
+        assert!(ai_log.ends_with("log-ai-assistant.y"));
+        assert!(ai_log.exists());
+        assert!(fs::metadata(&ai_log).unwrap().len() > 0);
+    }
+
+    #[test]
+    fn denied_ai_edit_leaves_document_untouched() {
+        // 권한 거부 경로: agent_edit_file을 호출하지 않으면 ai-assistant 로그가
+        // 생기지 않고 문서도 그대로다. (편집은 승인된 호출에서만 일어난다)
+        let tmp = tempfile::tempdir().unwrap();
+        let user = store(tmp.path(), "actor-user");
+        let ai = store(tmp.path(), "ai-assistant");
+        let id = new_doc_id();
+        let base = "원본 내용\n";
+        user.save_text(&id, "", base).unwrap();
+
+        // 거부 → ai-assistant는 아무것도 저장하지 않는다
+        assert_eq!(user.doc_text(&id).unwrap(), base);
+        assert!(!ai.own_log(&id).exists());
+        assert_eq!(ai.doc_text(&id).unwrap(), base);
+    }
+
+    #[test]
     fn three_way_absorb_merges_divergent_side() {
         let tmp = tempfile::tempdir().unwrap();
         let s = store(tmp.path(), "actor-a");

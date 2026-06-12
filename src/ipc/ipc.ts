@@ -105,6 +105,10 @@ const tauriIpc: SynapseIpc = {
   agentStatus: () => invoke<AgentStatus>("agent_status"),
   agentSend: (root, prompt, sessionId, runId) =>
     invoke<void>("agent_send", { root, prompt, sessionId, runId }),
+  agentRespondPermission: (requestId, allow) =>
+    invoke<void>("agent_respond_permission", { requestId, allow }),
+  agentEditFile: (root, path, newContent, baseContent) =>
+    invoke<string>("agent_edit_file", { root, path, newContent, baseContent }),
   agentStop: () => invoke<void>("agent_stop"),
   onAgentEvent: (handler) =>
     listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),
