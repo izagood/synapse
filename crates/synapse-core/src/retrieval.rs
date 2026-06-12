@@ -260,8 +260,8 @@ mod tests {
     #[test]
     fn extracts_keywords_dropping_short_and_stopwords() {
         let kws = extract_keywords("How does the Rust async runtime work?", &opts());
-        // "how","the" 불용어, "" 제거. 길이 < 2 없음.
-        assert_eq!(kws, vec!["does", "rust", "async", "runtime", "work"]);
+        // "how","does","the" 불용어, "" 제거. 길이 < 2 없음.
+        assert_eq!(kws, vec!["rust", "async", "runtime", "work"]);
     }
 
     #[test]
