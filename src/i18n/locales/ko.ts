@@ -24,6 +24,7 @@ export const ko = {
   },
   workspace: {
     newNote: "새 노트",
+    importHtml: "클립보드 HTML을 노트로 가져오기",
     refreshTree: "파일 트리 새로고침",
     empty: "왼쪽에서 파일을 선택하거나 새 노트를 만드세요",
   },
@@ -35,6 +36,7 @@ export const ko = {
     closeAll: "모든 탭 닫기",
     switchToRendered: "렌더 보기로 전환",
     switchToSource: "소스 보기로 전환",
+    exportHtml: "HTML로 내보내기",
   },
   quickOpen: {
     placeholder: "파일 이름 검색…",
