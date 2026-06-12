@@ -14,7 +14,7 @@ import type {
   WorkspaceSession,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
-import { computeBacklinks } from "../features/editor/backlinks";
+import { computeBacklinks, computeGraph } from "../features/editor/backlinks";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.
 // 파일 맵에서 트리를 파생시키므로 쓰기/생성도 실제처럼 동작한다.
@@ -275,6 +275,10 @@ export const mockIpc: SynapseIpc = {
     void root;
     return computeBacklinks(MOCK_ROOT, path, files);
   },
+  async linkGraph(root) {
+    void root;
+    return computeGraph(MOCK_ROOT, files);
+  },
   async saveImage(root, dir, desiredName, base64) {
     assertInside(root, `${dir}/x`);
     const dotAt = desiredName.lastIndexOf(".");
@@ -511,6 +515,17 @@ export const mockIpc: SynapseIpc = {
       agent.running = false;
     }, 0);
   },
+  async agentRespondPermission(requestId, allow) {
+    agent.permissionResponses.push({ requestId, allow });
+  },
+  async agentEditFile(root, path, newContent, _baseContent) {
+    void _baseContent;
+    assertInside(root, path);
+    // 브라우저 mock: CRDT 병합 없이 새 내용을 그대로 쓴다(테스트용 단순화)
+    files.set(path, newContent);
+    sync.dirty = true;
+    return newContent;
+  },
   async agentStop() {
     if (!agent.running || !agent.lastSend) return;
     agent.running = false;
@@ -573,6 +588,8 @@ const agent = {
     | { root: string; prompt: string; sessionId: string | null; runId: string }
     | null,
   running: false,
+  /** 테스트 전용: 회신된 권한 결정 기록 */
+  permissionResponses: [] as { requestId: string; allow: boolean }[],
 };
 
 function deliverAgentEvent(payload: AgentEventPayload) {

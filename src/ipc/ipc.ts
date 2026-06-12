@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   ConfigSyncStatus,
   Backlink,
+  LinkGraph,
   DeviceCode,
   FileCommit,
   FileNode,
@@ -44,6 +45,7 @@ const tauriIpc: SynapseIpc = {
     invoke<string>("save_doc", { root, path, content, base }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
   backlinks: (root, path) => invoke<Backlink[]>("backlinks", { root, path }),
+  linkGraph: (root) => invoke<LinkGraph>("link_graph", { root }),
   saveImage: (root, dir, desiredName, base64) =>
     invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
   newWindow: () => invoke<void>("new_window"),
@@ -108,6 +110,10 @@ const tauriIpc: SynapseIpc = {
   agentStatus: () => invoke<AgentStatus>("agent_status"),
   agentSend: (root, prompt, sessionId, runId) =>
     invoke<void>("agent_send", { root, prompt, sessionId, runId }),
+  agentRespondPermission: (requestId, allow) =>
+    invoke<void>("agent_respond_permission", { requestId, allow }),
+  agentEditFile: (root, path, newContent, baseContent) =>
+    invoke<string>("agent_edit_file", { root, path, newContent, baseContent }),
   agentStop: () => invoke<void>("agent_stop"),
   onAgentEvent: (handler) =>
     listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),

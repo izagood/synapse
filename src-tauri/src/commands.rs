@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use synapse_core::{build_tree, ensure_within, Backlink, FileNode};
+use synapse_core::{build_tree, ensure_within, Backlink, FileNode, LinkGraph};
 
 /// 전역 설정 디렉토리: ~/.config/synapse (OS별 표준 위치, FR-5.1)
 pub(crate) fn config_dir() -> Result<PathBuf, String> {
@@ -64,12 +64,51 @@ pub async fn save_doc(
     .await
 }
 
+/// AI 안전 편집 (2-B): 승인된 AI 편집을 사용자 로그와 분리된 `ai-assistant`
+/// actor로 라우팅한다. 파일을 직접 덮어쓰지 않고 CollabStore를 경유시켜
+/// `log-ai-assistant.y`에 기록 → CRDT가 사용자 편집과 자동 병합한다.
+/// base_content는 AI가 본 기준 텍스트, new_content는 적용 후 전체 텍스트다.
+#[tauri::command]
+pub async fn agent_edit_file(
+    root: String,
+    path: String,
+    new_content: String,
+    base_content: String,
+) -> Result<String, String> {
+    crate::sync::run_blocking(move || {
+        use synapse_core::collab;
+
+        // 새 파일(Write)도 만들 수 있어야 하므로 writable 가드를 쓴다 (루트 내부만)
+        let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
+            .map_err(|e| e.to_string())?;
+        let _guard = collab::workspace_lock()
+            .lock()
+            .map_err(|_| "workspace lock poisoned".to_string())?;
+        // 고정 actor "ai-assistant" — 사용자 actor와 별도 로그로 분리된다
+        let store = synapse_core::CollabStore::new(Path::new(&root), "ai-assistant".to_string());
+        store
+            .save_doc_file(&resolved, &new_content, &base_content)
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
 /// 현재 노트(path)를 가리키는 다른 노트들의 백링크를 모은다 (FR-2.8 → FR-6.1).
 /// 워크스페이스 전체 순회가 무거울 수 있어 블로킹 풀에서 돈다.
 #[tauri::command]
 pub async fn backlinks(root: String, path: String) -> Result<Vec<Backlink>, String> {
     crate::sync::run_blocking(move || {
         synapse_core::backlinks_for(Path::new(&root), Path::new(&path)).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// 워크스페이스 전체의 노트 링크 그래프(노드=노트, 엣지=링크)를 만든다 (FR-6.2).
+/// 백링크와 같은 전체 순회라 무거울 수 있어 블로킹 풀에서 돈다.
+#[tauri::command]
+pub async fn link_graph(root: String) -> Result<LinkGraph, String> {
+    crate::sync::run_blocking(move || {
+        synapse_core::build_graph(Path::new(&root)).map_err(|e| e.to_string())
     })
     .await
 }

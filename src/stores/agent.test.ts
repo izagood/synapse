@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useAgent } from "./agent";
-import { mockAgentControl } from "../ipc/mock";
+import { mockAgentControl, mockIpc } from "../ipc/mock";
 
 const ROOT = "/mock/notes";
 
@@ -13,6 +13,7 @@ describe("agent store (mock ipc)", () => {
     mockAgentControl.script = null;
     mockAgentControl.lastSend = null;
     mockAgentControl.running = false;
+    mockAgentControl.permissionResponses = [];
     useAgent.setState({
       status: null,
       items: [],
@@ -22,6 +23,8 @@ describe("agent store (mock ipc)", () => {
       root: null,
       askNotes: false,
       pendingSources: null,
+      pendingPermission: null,
+      aiEditedPaths: [],
     });
   });
 
@@ -181,6 +184,99 @@ describe("agent store (mock ipc)", () => {
     await useAgent.getState().send(ROOT, "안녕");
     await flush();
     expect(mockAgentControl.lastSend?.prompt).not.toContain("[출처:");
+  });
+
+  it("permissionRequest 이벤트는 승인 다이얼로그 상태를 띄운다", async () => {
+    mockAgentControl.script = [
+      { kind: "started", sessionId: "s1", model: "m" },
+      {
+        kind: "permissionRequest",
+        requestId: "req-1",
+        tool: "Edit",
+        detail: "/mock/notes/a.md",
+        edit: {
+          filePath: "/mock/notes/a.md",
+          oldString: "옛",
+          newString: "새",
+          wholeFile: false,
+        },
+      },
+    ];
+    await useAgent.getState().init(ROOT);
+    await useAgent.getState().send(ROOT, "고쳐줘");
+    await flush();
+    const pending = useAgent.getState().pendingPermission;
+    expect(pending?.requestId).toBe("req-1");
+    expect(pending?.edit?.filePath).toBe("/mock/notes/a.md");
+  });
+
+  it("편집 승인: CRDT 경유로 적용하고 CLI엔 deny로 회신한다", async () => {
+    const file = `${ROOT}/edit-target.md`;
+    await mockIpc.writeFile(ROOT, file, "옛 내용");
+    mockAgentControl.script = [
+      { kind: "started", sessionId: "s1", model: "m" },
+      {
+        kind: "permissionRequest",
+        requestId: "req-edit",
+        tool: "Edit",
+        detail: file,
+        edit: { filePath: file, oldString: "옛 내용", newString: "새 내용", wholeFile: false },
+      },
+    ];
+    await useAgent.getState().init(ROOT);
+    await useAgent.getState().send(ROOT, "수정해줘");
+    await flush();
+
+    await useAgent.getState().approvePermission();
+    expect(useAgent.getState().pendingPermission).toBeNull();
+    // 파일이 CRDT 경유로 갱신됐다
+    expect(await mockIpc.readFile(ROOT, file)).toBe("새 내용");
+    // CLI엔 직접 쓰기를 막기 위해 allow=false로 회신했다
+    expect(mockAgentControl.permissionResponses).toEqual([
+      { requestId: "req-edit", allow: false },
+    ]);
+    // "AI가 수정함" 추적에 경로가 들어갔다
+    expect(useAgent.getState().aiEditedPaths).toContain(file);
+  });
+
+  it("편집 거부: 파일을 건드리지 않고 CLI엔 deny로 회신한다", async () => {
+    const file = `${ROOT}/keep.md`;
+    await mockIpc.writeFile(ROOT, file, "원본");
+    mockAgentControl.script = [
+      { kind: "started", sessionId: "s1", model: "m" },
+      {
+        kind: "permissionRequest",
+        requestId: "req-rej",
+        tool: "Write",
+        detail: file,
+        edit: { filePath: file, oldString: "", newString: "덮어쓰기", wholeFile: true },
+      },
+    ];
+    await useAgent.getState().init(ROOT);
+    await useAgent.getState().send(ROOT, "덮어써줘");
+    await flush();
+
+    await useAgent.getState().rejectPermission();
+    expect(useAgent.getState().pendingPermission).toBeNull();
+    expect(await mockIpc.readFile(ROOT, file)).toBe("원본"); // 변경 없음
+    expect(mockAgentControl.permissionResponses).toEqual([
+      { requestId: "req-rej", allow: false },
+    ]);
+    expect(useAgent.getState().aiEditedPaths).toHaveLength(0);
+  });
+
+  it("비편집 도구 승인은 CLI에 allow로 회신한다", async () => {
+    mockAgentControl.script = [
+      { kind: "started", sessionId: "s1", model: "m" },
+      { kind: "permissionRequest", requestId: "req-bash", tool: "Bash", detail: "ls", edit: null },
+    ];
+    await useAgent.getState().init(ROOT);
+    await useAgent.getState().send(ROOT, "실행해줘");
+    await flush();
+    await useAgent.getState().approvePermission();
+    expect(mockAgentControl.permissionResponses).toEqual([
+      { requestId: "req-bash", allow: true },
+    ]);
   });
 
   it("응답 도중 stop 없이 두 번째 send는 무시된다", async () => {
