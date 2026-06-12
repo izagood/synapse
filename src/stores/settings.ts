@@ -44,6 +44,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
       sync: { ...get().settings.sync, ...patch.sync },
       htmlViewer: { ...get().settings.htmlViewer, ...patch.htmlViewer },
       files: { ...get().settings.files, ...patch.files },
+      agent: { ...get().settings.agent, ...patch.agent },
     });
     set({ settings: merged });
     await ipc.updateSettings(merged);

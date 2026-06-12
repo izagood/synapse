@@ -90,6 +90,22 @@ export const en: LocaleShape<KoMessages> = {
     allowScripts: "Allow scripts (dangerous)",
     scriptWarning:
       "When scripts are allowed, the original HTML runs in an isolated sandbox without sanitization. Open only documents you trust.",
+    agent: "Claude Agent",
+    agentAuthMode: "Authentication",
+    agentAuthSubscription: "Subscription login (claude CLI)",
+    agentAuthApiKey: "Anthropic API key",
+    agentAuthHint:
+      "Subscription login reuses the account you logged into with claude in your terminal. For public distribution builds, the Anthropic API key mode is recommended.",
+    agentApiKey: "API key",
+    agentApiKeySet: "Set",
+    agentApiKeyNotSet: "Not set",
+    agentApiKeyPlaceholder: "sk-ant-…",
+    agentApiKeySave: "Save",
+    agentApiKeyClear: "Remove",
+    agentApiKeyStored: "The key is stored securely in the OS keychain, never as plain text in the settings file.",
+    agentApiKeyMissing: "Enter a key to use API key mode.",
+    agentModel: "Model",
+    agentModelDefault: "Default (follow CLI setting)",
   },
   update: {
     section: "Updates",

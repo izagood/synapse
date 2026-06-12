@@ -549,6 +549,17 @@ export const mockIpc: SynapseIpc = {
     return () => agent.listeners.delete(handler);
   },
 
+  async setAgentApiKey(key) {
+    if (!key.trim()) throw new Error("API 키가 비어 있습니다");
+    agent.apiKey = key.trim();
+  },
+  async clearAgentApiKey() {
+    agent.apiKey = null;
+  },
+  async hasAgentApiKey() {
+    return agent.apiKey !== null;
+  },
+
   async appVersion() {
     return "0.2.0-dev";
   },
@@ -602,6 +613,8 @@ const agent = {
     | { root: string; prompt: string; sessionId: string | null; runId: string }
     | null,
   running: false,
+  /** 키체인 시뮬레이션: 저장된 Anthropic API 키 (null=없음) */
+  apiKey: null as string | null,
   /** 테스트 전용: 회신된 권한 결정 기록 */
   permissionResponses: [] as { requestId: string; allow: boolean }[],
 };

@@ -82,6 +82,30 @@ impl Default for FilesSettings {
     }
 }
 
+/// Claude 에이전트 설정 (2-D 배포 정책 대응). API 키 자체는 settings.json 평문에
+/// 두지 않고 OS 키체인에 보관하므로 여기에는 들어가지 않는다 — 인증 방식과
+/// 모델/권한 선택만 둔다.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentSettings {
+    /// "subscription"(기본, claude CLI 구독 로그인) | "apiKey"(ANTHROPIC_API_KEY 주입)
+    pub auth_mode: String,
+    /// 빈 문자열이면 CLI 기본 모델을 따른다. 예: "claude-sonnet-4-5"
+    pub model: String,
+    /// claude `--permission-mode` 값. 빈 문자열이면 CLI 기본(읽기 전용 도구만).
+    pub permission_mode: String,
+}
+
+impl Default for AgentSettings {
+    fn default() -> Self {
+        AgentSettings {
+            auth_mode: "subscription".into(),
+            model: String::new(),
+            permission_mode: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -90,6 +114,7 @@ pub struct Settings {
     pub sync: SyncSettings,
     pub html_viewer: HtmlViewerSettings,
     pub files: FilesSettings,
+    pub agent: AgentSettings,
 }
 
 pub fn load_settings(config_dir: &Path) -> Settings {
@@ -150,5 +175,45 @@ mod tests {
         assert!(json.contains("\"htmlViewer\""));
         assert!(json.contains("\"intervalMinutes\""));
         assert!(json.contains("\"confirmDelete\""));
+    }
+
+    #[test]
+    fn agent_defaults_to_subscription_mode() {
+        let s = Settings::default();
+        assert_eq!(s.agent.auth_mode, "subscription");
+        assert_eq!(s.agent.model, "");
+        assert_eq!(s.agent.permission_mode, "");
+    }
+
+    #[test]
+    fn agent_section_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        s.agent.auth_mode = "apiKey".into();
+        s.agent.model = "claude-sonnet-4-5".into();
+        s.agent.permission_mode = "acceptEdits".into();
+        save_settings(dir.path(), &s).unwrap();
+        assert_eq!(load_settings(dir.path()), s);
+
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"agent\""));
+        assert!(json.contains("\"authMode\":\"apiKey\""));
+        assert!(json.contains("\"permissionMode\":\"acceptEdits\""));
+    }
+
+    #[test]
+    fn old_settings_without_agent_section_get_defaults() {
+        // 기존(2-D 이전) settings.json에는 agent 섹션이 없다 — 기본값으로 읽혀야 한다.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"appearance":{"theme":"dark"},"editor":{"fontSize":18}}"#,
+        )
+        .unwrap();
+        let s = load_settings(dir.path());
+        assert_eq!(s.appearance.theme, "dark");
+        assert_eq!(s.editor.font_size, 18);
+        assert_eq!(s.agent, AgentSettings::default());
+        assert_eq!(s.agent.auth_mode, "subscription");
     }
 }
