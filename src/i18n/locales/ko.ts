@@ -195,6 +195,14 @@ export const ko = {
     permissionWholeFile: "파일 전체를 새 내용으로 교체합니다",
     editApplied: "AI가 {file}을(를) 수정했습니다",
     aiEditedBadge: "AI가 수정함",
+    ctxHeader: "[워크스페이스 컨텍스트 — 필요하면 Read 도구로 직접 읽으세요]",
+    ctxCurrentNote: "현재 보고 있는 노트: {path}",
+    ctxOtherNotes: "그 외 열린 노트: {notes}",
+    ctxOpenNotes: "열린 노트: {notes}",
+    ragHeader:
+      "[내 노트에서 찾은 관련 발췌 — 답변의 근거로 삼고, 사용한 노트의 경로를 인용하세요.\n더 필요하면 Read 도구로 해당 경로를 직접 읽으세요.]",
+    ragSource: "[출처: {path}]",
+    ragQuestion: "질문: {question}",
   },
   editor: {
     placeholder:
