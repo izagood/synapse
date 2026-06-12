@@ -8,6 +8,7 @@ import { SearchModal } from "./SearchModal";
 import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
 import { AgentPanel } from "../agent/AgentPanel";
+import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
 import { PlusIcon, RefreshIcon } from "../../shared/Icons";
@@ -32,6 +33,7 @@ export function WorkspaceView() {
   const saveActive = useWorkspace((s) => s.saveActive);
   const [quickOpen, setQuickOpen] = useState(false);
   const [search, setSearch] = useState(false);
+  const [graph, setGraph] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [agentVisible, setAgentVisible] = useState(
@@ -58,6 +60,9 @@ export function WorkspaceView() {
       if (e.shiftKey && key === "a") {
         e.preventDefault();
         toggleAgent();
+      } else if (e.shiftKey && key === "g") {
+        e.preventDefault();
+        setGraph((v) => !v);
       } else if (e.shiftKey && key === "f") {
         e.preventDefault();
         setSearch((v) => !v);
@@ -113,6 +118,7 @@ export function WorkspaceView() {
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
           onQuickOpen={() => setQuickOpen(true)}
           onSearch={() => setSearch(true)}
+          onGraph={() => setGraph(true)}
           agentVisible={agentVisible}
           onToggleAgent={toggleAgent}
         />
@@ -155,6 +161,7 @@ export function WorkspaceView() {
       <SyncBar />
       {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
       {search && <SearchModal onClose={() => setSearch(false)} />}
+      {graph && <GraphView onClose={() => setGraph(false)} />}
       {historyPath && (
         <FileHistoryModal key={historyPath} path={historyPath} onClose={closeHistory} />
       )}
