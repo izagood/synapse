@@ -227,6 +227,25 @@ pub async fn search_workspace(
     .await
 }
 
+/// "내 노트에게 묻기"용 retrieval (2-C): 질문에서 키워드를 뽑아 워크스페이스를
+/// 검색하고 백링크로 인접 노트를 보강해 근거 스니펫을 모은다. 워크스페이스 전체를
+/// 순회하므로 검색과 동일하게 스레드 풀에서 돈다(읽기 전용).
+#[tauri::command]
+pub async fn retrieve_notes(
+    root: String,
+    question: String,
+) -> Result<synapse_core::RetrievalResult, String> {
+    crate::sync::run_blocking(move || {
+        let opts = synapse_core::RetrievalOptions::default();
+        Ok(synapse_core::retrieve_context(
+            Path::new(&root),
+            &question,
+            &opts,
+        ))
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn delete_path(root: String, path: String) -> Result<(), String> {
     let resolved =

@@ -23,6 +23,27 @@ export interface SearchHit {
   matches: SearchMatch[];
 }
 
+// Rust synapse-core::retrieval::{RetrievedSnippet, RetrievalResult} 와 1:1 대응 (2-C)
+export interface RetrievedSnippet {
+  /** 노트 절대 경로 (출처 라벨 + 클릭 시 열기용) */
+  path: string;
+  /** 파일명 (표시용) */
+  name: string;
+  /** 대표 스니펫 (매치 줄들을 합친 것). 백링크 보강 노트는 비어 있을 수 있음 */
+  snippet: string;
+  /** 직접 검색에 걸렸는지 (false면 백링크로 보강된 인접 노트) */
+  directMatch: boolean;
+  /** 랭킹 점수 */
+  score: number;
+}
+
+export interface RetrievalResult {
+  /** 질문에서 뽑은 키워드 */
+  keywords: string[];
+  /** 점수순 상위 스니펫 */
+  snippets: RetrievedSnippet[];
+}
+
 // Rust synapse-core::git::SyncStatus 와 1:1 대응
 export type SyncState =
   | "noGit"
@@ -186,6 +207,12 @@ export interface SynapseIpc {
   listWorkspace(path: string): Promise<FileNode>;
   /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */
   searchWorkspace(root: string, query: string): Promise<SearchHit[]>;
+  /**
+   * "내 노트에게 묻기"용 retrieval (2-C): 질문에서 키워드를 뽑아 워크스페이스를
+   * 검색하고 백링크로 인접 노트를 보강해 근거 스니펫(출처 포함)을 모은다.
+   * 임베딩이 아닌 키워드 매칭 기반 v1.
+   */
+  retrieveNotes(root: string, question: string): Promise<RetrievalResult>;
   /** 워크스페이스 루트 내부 파일만 읽기 허용 */
   readFile(root: string, path: string): Promise<string>;
   /** 루트 내부 경로에만 원자적 쓰기 허용 (새 파일 생성 포함) */
