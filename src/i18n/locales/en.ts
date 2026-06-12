@@ -28,6 +28,7 @@ export const en: LocaleShape<KoMessages> = {
   },
   workspace: {
     newNote: "New Note",
+    importHtml: "Import clipboard HTML as a note",
     refreshTree: "Refresh File Tree",
     empty: "Select a file on the left or create a new note",
   },
@@ -39,6 +40,7 @@ export const en: LocaleShape<KoMessages> = {
     closeAll: "Close All Tabs",
     switchToRendered: "Switch to rendered view",
     switchToSource: "Switch to source view",
+    exportHtml: "Export to HTML",
   },
   quickOpen: {
     placeholder: "Search files…",
