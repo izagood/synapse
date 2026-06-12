@@ -104,6 +104,9 @@ export type PollResult =
 // Rust synapse-core::settings::Settings 와 1:1 대응 (FR-5)
 export type Language = "ko" | "en";
 
+/** 에이전트 인증 방식 (2-D). API 키 자체는 OS 키체인에 저장되고 여기 없다. */
+export type AgentAuthMode = "subscription" | "apiKey";
+
 export interface Settings {
   appearance: { theme: "system" | "light" | "dark"; language: Language };
   editor: {
@@ -115,6 +118,7 @@ export interface Settings {
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
   files: { confirmDelete: boolean };
+  agent: { authMode: AgentAuthMode; model: string; permissionMode: string };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -128,6 +132,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },
   files: { confirmDelete: true },
+  agent: { authMode: "subscription", model: "", permissionMode: "" },
 };
 
 // Rust synapse-core::agent::EditPreview 와 1:1 대응 (2-B 안전 편집)
@@ -344,6 +349,14 @@ export interface SynapseIpc {
   agentStop(): Promise<void>;
   /** 에이전트 이벤트 구독. 해제 함수를 반환한다 */
   onAgentEvent(handler: (payload: AgentEventPayload) => void): Promise<() => void>;
+
+  // ---- 에이전트 API 키 (2-D) — 키는 OS 키체인에만 저장된다 ----
+  /** Anthropic API 키를 키체인에 저장(덮어쓰기). 빈 키는 거부 */
+  setAgentApiKey(key: string): Promise<void>;
+  /** 저장된 API 키 삭제 (idempotent) */
+  clearAgentApiKey(): Promise<void>;
+  /** 키체인에 API 키가 저장돼 있는지 (값은 노출하지 않음) */
+  hasAgentApiKey(): Promise<boolean>;
 
   // ---- 앱 업데이트 (F2) ----
   appVersion(): Promise<string>;

@@ -121,6 +121,10 @@ const tauriIpc: SynapseIpc = {
   onAgentEvent: (handler) =>
     listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),
 
+  setAgentApiKey: (key) => invoke<void>("set_agent_api_key", { key }),
+  clearAgentApiKey: () => invoke<void>("clear_agent_api_key"),
+  hasAgentApiKey: () => invoke<boolean>("has_agent_api_key"),
+
   appVersion: () => getVersion(),
   async checkUpdate() {
     const update = await check();
