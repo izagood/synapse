@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { badgeOf, useSync } from "./sync";
+import { useSettings } from "./settings";
 import { ipc } from "../ipc/ipc";
 import { mockSyncControl } from "../ipc/mock";
 
@@ -108,6 +109,38 @@ describe("sync store (mock ipc)", () => {
     const s = useSync.getState();
     expect(s.error).toBeNull();
     expect(s.status?.state).toBe("synced");
+  });
+
+  it("autoLinkConfig: 연결되면 받아온 설정을 다시 읽어 반영한다", async () => {
+    const autolink = vi.spyOn(ipc, "configSyncAutolink").mockResolvedValue({
+      linked: true,
+      repoName: "mock-user/synapse-config",
+      sync: { state: "synced", ahead: 0, behind: 0, conflictFiles: [] },
+    });
+    const settingsInit = vi.spyOn(useSettings.getState(), "init").mockResolvedValue();
+
+    await useSync.getState().autoLinkConfig();
+
+    expect(autolink).toHaveBeenCalled();
+    expect(settingsInit).toHaveBeenCalled();
+  });
+
+  it("autoLinkConfig: 가져올 레포가 없으면(미연결) 설정을 다시 읽지 않는다", async () => {
+    vi.spyOn(ipc, "configSyncAutolink").mockResolvedValue({
+      linked: false,
+      repoName: null,
+      sync: null,
+    });
+    const settingsInit = vi.spyOn(useSettings.getState(), "init").mockResolvedValue();
+
+    await useSync.getState().autoLinkConfig();
+
+    expect(settingsInit).not.toHaveBeenCalled();
+  });
+
+  it("autoLinkConfig: 자동 연결이 실패해도 조용히 무시한다", async () => {
+    vi.spyOn(ipc, "configSyncAutolink").mockRejectedValue(new Error("network"));
+    await expect(useSync.getState().autoLinkConfig()).resolves.toBeUndefined();
   });
 
   it("logout clears the account", async () => {

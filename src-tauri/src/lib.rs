@@ -57,6 +57,7 @@ pub fn run() {
             sync::publish_workspace,
             sync::clone_repo,
             config_sync::config_sync_status,
+            config_sync::config_sync_autolink,
             config_sync::link_config_repo,
             config_sync::unlink_config_repo,
             config_sync::config_sync_now,

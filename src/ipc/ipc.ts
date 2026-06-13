@@ -94,6 +94,7 @@ const tauriIpc: SynapseIpc = {
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
 
   configSyncStatus: () => invoke<ConfigSyncStatus>("config_sync_status"),
+  configSyncAutolink: () => invoke<ConfigSyncStatus>("config_sync_autolink"),
   linkConfigRepo: (name, create) =>
     invoke<ConfigSyncStatus>("link_config_repo", { name, create }),
   unlinkConfigRepo: (keepLocal) =>
