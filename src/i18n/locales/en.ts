@@ -261,5 +261,10 @@ export const en: LocaleShape<KoMessages> = {
     loading: "Building graph…",
     empty: "No note links to show",
     stats: "{nodes} notes · {edges} links",
+    searchPlaceholder: "Search notes…",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    resetView: "Reset view",
+    hint: "Drag to pan · scroll to zoom · click to open a note",
   },
 };

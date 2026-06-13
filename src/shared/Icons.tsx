@@ -69,6 +69,12 @@ export const PlusIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const MinusIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 8h9" />
+  </Svg>
+);
+
 export const RefreshIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M13 8a5 5 0 1 1-1.7-3.75" />

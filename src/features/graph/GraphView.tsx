@@ -1,17 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ipc } from "../../ipc/ipc";
 import type { LinkGraph } from "../../ipc/types";
 import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
-import { CloseIcon } from "../../shared/Icons";
+import {
+  CloseIcon,
+  MinusIcon,
+  PlusIcon,
+  RefreshIcon,
+  SearchIcon,
+} from "../../shared/Icons";
 import { adjacencyOf, layoutGraph } from "./layout";
 
-const WIDTH = 760;
-const HEIGHT = 520;
+const WIDTH = 900;
+const HEIGHT = 600;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 5;
+
+interface View {
+  k: number;
+  tx: number;
+  ty: number;
+}
+
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
+
+const displayName = (name: string) => name.replace(/\.(md|markdown)$/i, "");
 
 // 노트 링크 그래프 시각화 모달 (FR-6.2).
 // 백링크 인덱스를 그래프(노드=노트, 엣지=링크)로 재사용한다.
-// 노드 클릭 → 노트 열기. 현재 노트 강조, 호버 시 인접 노드 강조.
+// 노드 클릭 → 노트 열기. 현재 노트 강조, 호버·검색 시 인접/일치 노드 강조.
+// 연결 수(degree)로 노드 크기·색을 나눠 위계를 만들고, 줌/팬으로 탐색한다.
 export function GraphView({ onClose }: { onClose: () => void }) {
   const root = useWorkspace((s) => s.root);
   const activePath = useWorkspace((s) => s.activePath);
@@ -21,6 +41,15 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   const [graph, setGraph] = useState<LinkGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [hover, setHover] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState<View>({ k: 1, tx: 0, ty: 0 });
+
+  const svgRef = useRef<SVGSVGElement>(null);
+  // 드래그 팬 상태 — 클릭과 구분하려고 이동 여부(panned)를 기억한다.
+  const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(
+    null,
+  );
+  const panned = useRef(false);
 
   useEffect(() => {
     if (!root) {
@@ -55,11 +84,16 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const layout = useMemo(
-    () =>
-      graph
-        ? layoutGraph(graph, { width: WIDTH, height: HEIGHT })
-        : null,
+    () => (graph ? layoutGraph(graph, { width: WIDTH, height: HEIGHT }) : null),
     [graph],
+  );
+
+  const maxDegree = useMemo(
+    () =>
+      layout && layout.nodes.length
+        ? Math.max(1, ...layout.nodes.map((n) => n.degree))
+        : 1,
+    [layout],
   );
 
   // 호버한 노드의 인접 집합(엣지·노드 강조용)
@@ -68,6 +102,17 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     [graph, hover],
   );
 
+  // 검색어와 이름이 일치하는 노드 경로 집합
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || !layout) return null;
+    const set = new Set<string>();
+    for (const n of layout.nodes) {
+      if (n.name.toLowerCase().includes(q)) set.add(n.path);
+    }
+    return set;
+  }, [query, layout]);
+
   const posByPath = useMemo(() => {
     const m = new Map<string, { x: number; y: number }>();
     layout?.nodes.forEach((n) => m.set(n.path, { x: n.x, y: n.y }));
@@ -75,13 +120,68 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   }, [layout]);
 
   const isEmpty = !loading && (!layout || layout.nodes.length === 0);
+  const focusing = hover != null || matches != null;
+
+  // 한 노드가 현재 강조 대상인지: 검색 중이면 일치, 호버 중이면 본인·이웃
+  const isActive = (path: string) => {
+    if (matches) return matches.has(path);
+    if (hover) return path === hover || (neighbors?.has(path) ?? false);
+    return false;
+  };
+
+  const zoomAt = (vx: number, vy: number, factor: number) => {
+    setView((v) => {
+      const k = clamp(v.k * factor, MIN_ZOOM, MAX_ZOOM);
+      const f = k / v.k;
+      return { k, tx: vx - (vx - v.tx) * f, ty: vy - (vy - v.ty) * f };
+    });
+  };
+
+  // 휠 줌은 네이티브 non-passive 리스너로 — 합성 onWheel은 preventDefault가 막힐 수 있다.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * WIDTH;
+      const y = ((e.clientY - rect.top) / rect.height) * HEIGHT;
+      zoomAt(x, y, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [loading, isEmpty]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    panned.current = false;
+    drag.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
+    svgRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) panned.current = true;
+    setView((v) => ({
+      ...v,
+      tx: d.tx + (dx / rect.width) * WIDTH,
+      ty: d.ty + (dy / rect.height) * HEIGHT,
+    }));
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    drag.current = null;
+    svgRef.current?.releasePointerCapture(e.pointerId);
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal graph-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal graph-modal" onClick={(e) => e.stopPropagation()}>
         <div className="graph-header">
           <h2>{t("graph.title")}</h2>
           {layout && !loading && (
@@ -91,6 +191,18 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                 edges: layout.edges.length,
               })}
             </span>
+          )}
+          {!loading && !isEmpty && (
+            <label className="graph-search">
+              <SearchIcon size={14} />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("graph.searchPlaceholder")}
+                spellCheck={false}
+              />
+            </label>
           )}
           <button
             className="graph-close"
@@ -107,71 +219,123 @@ export function GraphView({ onClose }: { onClose: () => void }) {
         ) : isEmpty ? (
           <p className="graph-message">{t("graph.empty")}</p>
         ) : (
-          <svg
-            className="graph-canvas"
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            width="100%"
-            role="img"
-          >
-            {layout!.edges.map((e, i) => {
-              const a = posByPath.get(e.source);
-              const b = posByPath.get(e.target);
-              if (!a || !b) return null;
-              const active =
-                hover != null &&
-                (e.source === hover || e.target === hover);
-              return (
-                <line
-                  key={`${e.source}->${e.target}:${i}`}
-                  x1={a.x}
-                  y1={a.y}
-                  x2={b.x}
-                  y2={b.y}
-                  className={
-                    active ? "graph-edge graph-edge-active" : "graph-edge"
-                  }
-                />
-              );
-            })}
-            {layout!.nodes.map((n) => {
-              const isCurrent = n.path === activePath;
-              const isHovered = n.path === hover;
-              const isNeighbor = neighbors?.has(n.path) ?? false;
-              const dimmed =
-                hover != null && !isHovered && !isNeighbor;
-              const r = 5 + Math.min(6, n.degree);
-              const cls = [
-                "graph-node",
-                isCurrent ? "graph-node-current" : "",
-                isHovered ? "graph-node-hover" : "",
-                isNeighbor ? "graph-node-neighbor" : "",
-                dimmed ? "graph-node-dimmed" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <g
-                  key={n.path}
-                  className={cls}
-                  transform={`translate(${n.x} ${n.y})`}
-                  onMouseEnter={() => setHover(n.path)}
-                  onMouseLeave={() => setHover((h) => (h === n.path ? null : h))}
-                  onClick={() => {
-                    void openFileAt(n.path);
-                    onClose();
-                  }}
-                >
-                  <title>{n.name}</title>
-                  <circle r={r} className="graph-node-circle" />
-                  {(isCurrent || isHovered || isNeighbor) && (
-                    <text x={r + 3} y={4} className="graph-node-label">
-                      {n.name.replace(/\.(md|markdown)$/i, "")}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </svg>
+          <div className="graph-stage">
+            <svg
+              ref={svgRef}
+              className="graph-canvas"
+              viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+              width="100%"
+              role="img"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+            >
+              <g
+                transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}
+              >
+                {layout!.edges.map((e, i) => {
+                  const a = posByPath.get(e.source);
+                  const b = posByPath.get(e.target);
+                  if (!a || !b) return null;
+                  const active = isActive(e.source) || isActive(e.target);
+                  const dimmed = focusing && !active;
+                  return (
+                    <line
+                      key={`${e.source}->${e.target}:${i}`}
+                      x1={a.x}
+                      y1={a.y}
+                      x2={b.x}
+                      y2={b.y}
+                      vectorEffect="non-scaling-stroke"
+                      className={[
+                        "graph-edge",
+                        active ? "graph-edge-active" : "",
+                        dimmed ? "graph-edge-dimmed" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    />
+                  );
+                })}
+                {layout!.nodes.map((n) => {
+                  const isCurrent = n.path === activePath;
+                  const isHovered = n.path === hover;
+                  const active = isActive(n.path);
+                  const dimmed = focusing && !active && !isCurrent;
+                  const linked = n.degree > 0;
+                  const r = linked ? 5 + (n.degree / maxDegree) * 9 : 3.2;
+                  const showLabel =
+                    n.degree >= 2 || isCurrent || isHovered || active;
+                  const cls = [
+                    "graph-node",
+                    linked ? "graph-node-linked" : "graph-node-iso",
+                    isCurrent ? "graph-node-current" : "",
+                    active ? "graph-node-active" : "",
+                    dimmed ? "graph-node-dimmed" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <g
+                      key={n.path}
+                      className={cls}
+                      transform={`translate(${n.x} ${n.y})`}
+                      onMouseEnter={() => setHover(n.path)}
+                      onMouseLeave={() =>
+                        setHover((h) => (h === n.path ? null : h))
+                      }
+                      onClick={() => {
+                        if (panned.current) return;
+                        void openFileAt(n.path);
+                        onClose();
+                      }}
+                    >
+                      <title>{n.name}</title>
+                      {(linked || isCurrent) && (
+                        <circle r={r * 2.4} className="graph-node-halo" />
+                      )}
+                      <circle
+                        r={r}
+                        vectorEffect="non-scaling-stroke"
+                        className="graph-node-dot"
+                      />
+                      {showLabel && (
+                        <text x={r + 4} y={4} className="graph-node-label">
+                          {displayName(n.name)}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
+            </svg>
+
+            <div className="graph-zoom">
+              <button
+                onClick={() => zoomAt(WIDTH / 2, HEIGHT / 2, 1.25)}
+                title={t("graph.zoomIn")}
+                aria-label={t("graph.zoomIn")}
+              >
+                <PlusIcon size={15} />
+              </button>
+              <button
+                onClick={() => zoomAt(WIDTH / 2, HEIGHT / 2, 1 / 1.25)}
+                title={t("graph.zoomOut")}
+                aria-label={t("graph.zoomOut")}
+              >
+                <MinusIcon size={15} />
+              </button>
+              <button
+                onClick={() => setView({ k: 1, tx: 0, ty: 0 })}
+                title={t("graph.resetView")}
+                aria-label={t("graph.resetView")}
+              >
+                <RefreshIcon size={15} />
+              </button>
+            </div>
+
+            <p className="graph-hint">{t("graph.hint")}</p>
+          </div>
         )}
       </div>
     </div>
