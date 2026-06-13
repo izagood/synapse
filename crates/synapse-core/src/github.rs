@@ -11,6 +11,9 @@ pub trait Http {
     fn post_form(&self, url: &str, form: &[(&str, &str)]) -> Result<String, String>;
     fn get_json(&self, url: &str, token: &str) -> Result<String, String>;
     fn post_json(&self, url: &str, token: &str, body: &Value) -> Result<String, String>;
+    /// GET — 200이면 `Some(body)`, 404면 `None`, 그 외 오류는 `Err`.
+    /// (레포 존재 확인처럼 "없음"이 정상 결과인 호출에 쓴다.)
+    fn get_json_opt(&self, url: &str, token: &str) -> Result<Option<String>, String>;
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +139,13 @@ pub fn create_repo(
     })
 }
 
+/// `owner/repo` 레포가 존재하면 `true`. 404(없음)는 `false`,
+/// 그 외 네트워크/권한 오류는 `Err`. (새 기기 자동 연결의 config 레포 탐색용.)
+pub fn repo_exists(http: &dyn Http, token: &str, owner: &str, repo: &str) -> Result<bool, String> {
+    let url = format!("https://api.github.com/repos/{owner}/{repo}");
+    Ok(http.get_json_opt(&url, token)?.is_some())
+}
+
 // ---------- ureq 기반 실 구현 ----------
 
 pub struct UreqHttp;
@@ -180,6 +190,20 @@ impl Http for UreqHttp {
             .map_err(|e| format!("GitHub 요청 실패: {e}"))?
             .into_string()
             .map_err(|e| e.to_string())
+    }
+
+    fn get_json_opt(&self, url: &str, token: &str) -> Result<Option<String>, String> {
+        match agent()
+            .get(url)
+            .set("Accept", "application/vnd.github+json")
+            .set("Authorization", &format!("Bearer {token}"))
+            .set("User-Agent", USER_AGENT)
+            .call()
+        {
+            Ok(res) => res.into_string().map(Some).map_err(|e| e.to_string()),
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(e) => Err(format!("GitHub 요청 실패: {e}")),
+        }
     }
 
     fn post_json(&self, url: &str, token: &str, body: &Value) -> Result<String, String> {
@@ -234,6 +258,16 @@ mod tests {
         fn get_json(&self, url: &str, _token: &str) -> Result<String, String> {
             self.requests.borrow_mut().push(format!("GET {url}"));
             self.next()
+        }
+        fn get_json_opt(&self, url: &str, _token: &str) -> Result<Option<String>, String> {
+            self.requests.borrow_mut().push(format!("GET? {url}"));
+            // 테스트에서 404(없음)는 "__404__" 응답으로 흉내 낸다.
+            let body = self.next()?;
+            if body == "__404__" {
+                Ok(None)
+            } else {
+                Ok(Some(body))
+            }
         }
         fn post_json(&self, url: &str, _token: &str, body: &Value) -> Result<String, String> {
             self.requests
@@ -301,6 +335,19 @@ mod tests {
     fn get_login_extracts_username() {
         let http = FakeHttp::new(&[r#"{"login":"izagood","id":1}"#]);
         assert_eq!(get_login(&http, "tok").unwrap(), "izagood");
+    }
+
+    #[test]
+    fn repo_exists_true_when_found() {
+        let http = FakeHttp::new(&[r#"{"full_name":"izagood/synapse-config"}"#]);
+        assert!(repo_exists(&http, "tok", "izagood", "synapse-config").unwrap());
+        assert!(http.requests.borrow()[0].contains("repos/izagood/synapse-config"));
+    }
+
+    #[test]
+    fn repo_exists_false_on_404() {
+        let http = FakeHttp::new(&["__404__"]);
+        assert!(!repo_exists(&http, "tok", "izagood", "synapse-config").unwrap());
     }
 
     #[test]

@@ -470,6 +470,10 @@ export const mockIpc: SynapseIpc = {
   async configSyncStatus() {
     return structuredClone(mockConfigSync);
   },
+  async configSyncAutolink() {
+    // 목 모드에는 발견할 원격 레포가 없으니 현재 상태를 그대로 돌려준다(no-op).
+    return structuredClone(mockConfigSync);
+  },
   async linkConfigRepo(name) {
     const [owner, repo] = name.includes("/") ? name.split("/") : ["me", name];
     mockConfigSync = {

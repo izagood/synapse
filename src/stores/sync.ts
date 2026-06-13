@@ -47,6 +47,11 @@ interface SyncStoreState {
   pollLogin(): Promise<void>;
   cancelLogin(): void;
   logout(): Promise<void>;
+  /**
+   * 로그인 직후 새 기기 자동 연결: 계정에 synapse-config 레포가 있으면 연결하고
+   * 가져온 설정을 즉시 반영한다. 실패는 조용히 무시(수동 연결 가능).
+   */
+  autoLinkConfig(): Promise<void>;
 
   refreshStatus(root: string): Promise<void>;
   syncNow(root: string): Promise<void>;
@@ -127,6 +132,8 @@ export const useSync = create<SyncStoreState>((set, get) => ({
         const result = await ipc.githubLoginPoll();
         if (result.status === "ok") {
           set({ login: result.login, device: null });
+          // 새 기기라면 연결해둔 config 레포에서 설정을 자동으로 가져온다
+          void get().autoLinkConfig();
           return;
         }
         if (result.status === "failed") {
@@ -155,6 +162,16 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   async logout() {
     await ipc.githubLogout();
     set({ login: null });
+  },
+
+  async autoLinkConfig() {
+    try {
+      const status = await ipc.configSyncAutolink();
+      // 연결됐으면 클라우드에서 받아온 settings.json을 다시 읽어 즉시 반영
+      if (status.linked) await useSettings.getState().init();
+    } catch {
+      // 자동 연결 실패는 무시 — 설정 화면에서 수동으로 연결할 수 있다
+    }
   },
 
   async refreshStatus(root) {
