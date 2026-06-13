@@ -21,6 +21,10 @@ const STATE_FILE: &str = "config-sync.json";
 const CLOUD_SUBDIR: &str = "cloud";
 use crate::settings::SETTINGS_FILE;
 
+/// 새 기기에서 자동 탐색·연결할 기본 config 레포 이름(고정 규칙).
+/// GitHub 로그인만 하면 `{login}/{DEFAULT_CONFIG_REPO}`를 찾아 설정을 가져온다.
+pub const DEFAULT_CONFIG_REPO: &str = "synapse-config";
+
 /// 이 기기에서의 설정 동기화 연동 상태 (동기화 대상 아님).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

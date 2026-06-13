@@ -51,6 +51,46 @@ pub async fn config_sync_status() -> Result<ConfigSyncStatus, String> {
     .await
 }
 
+/// 새 기기 자동 연결 (1-E): GitHub 로그인 직후 호출한다.
+///
+/// 아직 연결돼 있지 않고, 로그인 계정에 기본 config 레포
+/// (`{login}/synapse-config`)가 있으면 자동으로 clone·연결해 설정을 가져온다.
+/// 연결할 레포가 없거나 이미 연결돼 있으면 현재 상태를 그대로 돌려준다
+/// (조용한 no-op — config 동기화를 안 쓰는 사용자를 방해하지 않는다).
+#[tauri::command]
+pub async fn config_sync_autolink() -> Result<ConfigSyncStatus, String> {
+    run_blocking(move || {
+        let cfg = config_dir()?;
+        let state = config_sync::load_state(&cfg);
+        if state.linked {
+            return Ok(status_for(&state)); // 이미 연결됨
+        }
+        let token = match stored_token() {
+            Some(t) => t,
+            None => return Ok(status_for(&state)), // 로그인 안 됨
+        };
+        let cloud = config_sync::cloud_dir(&cfg);
+        if cloud.exists() {
+            // 미연결인데 작업트리가 남아있으면(이전 잔여물) 건드리지 않는다.
+            return Ok(status_for(&state));
+        }
+        let login = github::get_login(&UreqHttp, &token)?;
+        let repo = config_sync::DEFAULT_CONFIG_REPO;
+        if !github::repo_exists(&UreqHttp, &token, &login, repo)? {
+            return Ok(status_for(&state)); // 가져올 config 레포 없음
+        }
+        let url = format!("https://github.com/{login}/{repo}.git");
+        GitWorkspace::clone(&url, &cloud, auth_header())?;
+        let new_state = ConfigSyncState {
+            linked: true,
+            repo_name: Some(format!("{login}/{repo}")),
+        };
+        config_sync::save_state(&cfg, &new_state).map_err(|e| e.to_string())?;
+        Ok(status_for(&new_state))
+    })
+    .await
+}
+
 /// 개인 config 레포를 연결한다.
 /// - `name`: "owner/repo" 또는 "repo"(이 경우 로그인 사용자를 owner로).
 /// - `create`: true면 새 private 레포를 만들어 현재 설정을 첫 게시, false면 기존 레포 clone.

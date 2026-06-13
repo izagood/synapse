@@ -308,6 +308,12 @@ export interface SynapseIpc {
   // ---- 설정 동기화: config 레포 (1-E) ----
   /** 현재 설정 동기화 연결 상태 */
   configSyncStatus(): Promise<ConfigSyncStatus>;
+  /**
+   * 새 기기 자동 연결: GitHub 로그인 직후 호출한다. 미연결 상태에서 로그인 계정에
+   * `{login}/synapse-config` 레포가 있으면 자동으로 clone·연결한다. 없거나 이미
+   * 연결돼 있으면 현재 상태를 그대로 돌려준다(no-op).
+   */
+  configSyncAutolink(): Promise<ConfigSyncStatus>;
   /** config 레포 연결. name="owner/repo" 또는 "repo". create=true면 새 private 레포 생성 */
   linkConfigRepo(name: string, create: boolean): Promise<ConfigSyncStatus>;
   /** 연결 해제. keepLocal이면 클라우드 설정을 로컬로 복사 보존 */
