@@ -256,5 +256,10 @@ export const ko = {
     loading: "그래프 만드는 중…",
     empty: "표시할 노트 링크가 없습니다",
     stats: "노트 {nodes}개 · 링크 {edges}개",
+    searchPlaceholder: "노트 검색…",
+    zoomIn: "확대",
+    zoomOut: "축소",
+    resetView: "보기 초기화",
+    hint: "드래그로 이동 · 스크롤로 확대/축소 · 클릭으로 노트 열기",
   },
 } as const;
