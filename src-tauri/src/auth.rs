@@ -1,5 +1,11 @@
-//! GitHub 로그인 글루: Device Flow 진행 상태 + OS 키체인 토큰 보관 (FR-4.1, NFR-4)
+//! GitHub 로그인 글루: Device Flow 진행 상태 + 토큰 보관 (FR-4.1, NFR-4)
+//!
+//! 토큰·API 키는 권한 0600 파일(`secrets.json`)에 보관한다. 셀프사인 서명
+//! 빌드에서 OS 키체인은 업데이트마다 "항상 허용"을 다시 묻기 때문이다
+//! (자세한 배경은 `synapse_core::secrets` 참고). 구버전이 키체인에 저장한
+//! 값은 최초 1회 파일로 옮기고 키체인 항목을 지운다.
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -13,14 +19,14 @@ const CLIENT_ID: &str = match option_env!("SYNAPSE_GITHUB_CLIENT_ID") {
     None => "",
 };
 
+/// 구버전 키체인 항목을 찾을 때 쓰는 서비스 이름 (마이그레이션 전용).
 const KEYRING_SERVICE: &str = "dev.synapse.app";
 
-/// 토큰+로그인명을 JSON으로 묶어 담는 단일 키체인 항목.
-/// macOS는 항목마다 접근 허용을 따로 묻기 때문에 항목을 하나만 쓴다.
+/// 토큰+로그인명을 JSON으로 묶어 담는 단일 항목.
 const ENTRY_GITHUB: &str = "github";
-/// 구버전이 쓰던 항목들 — 발견하면 통합 항목으로 옮기고 지운다.
+/// 더 옛날(키체인 항목 2개) 포맷 — 발견하면 통합 항목으로 옮기고 지운다.
 const LEGACY_ENTRIES: [&str; 2] = ["github-token", "github-login"];
-/// Anthropic API 키(2-D). settings.json 평문 대신 OS 키체인에 보관한다.
+/// Anthropic API 키(2-D). settings.json 평문 대신 0600 파일에 보관한다.
 const ENTRY_AGENT_API_KEY: &str = "agent-api-key";
 
 #[derive(Default)]
@@ -28,30 +34,49 @@ pub struct AuthState {
     pub pending_device_code: Mutex<Option<String>>,
 }
 
-fn entry(name: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, name).map_err(|e| e.to_string())
+/// 비밀 파일 경로: ~/.config/synapse/secrets.json
+fn secrets_path() -> Result<PathBuf, String> {
+    Ok(crate::commands::config_dir()?.join("secrets.json"))
+}
+
+/// 구버전 OS 키체인 항목 핸들 (마이그레이션·정리 전용).
+fn keychain_entry(name: &str) -> Option<keyring::Entry> {
+    keyring::Entry::new(KEYRING_SERVICE, name).ok()
 }
 
 fn store_credentials(creds: &Credentials) -> Result<(), String> {
-    entry(ENTRY_GITHUB)?.set_password(&creds.to_json()).map_err(|e| e.to_string())
+    let path = secrets_path()?;
+    synapse_core::secrets::write_secret(&path, ENTRY_GITHUB, &creds.to_json())
+        .map_err(|e| e.to_string())
 }
 
 fn stored_credentials() -> Option<Credentials> {
-    if let Ok(json) = entry(ENTRY_GITHUB).ok()?.get_password() {
+    let path = secrets_path().ok()?;
+    if let Some(json) = synapse_core::secrets::read_secret(&path, ENTRY_GITHUB) {
         return Credentials::from_json(&json).ok();
     }
-    // 구버전(항목 2개) 마이그레이션 — 옛 항목은 여기서 마지막으로 읽고 지운다
-    let token = entry(LEGACY_ENTRIES[0]).ok()?.get_password().ok()?;
-    let login = entry(LEGACY_ENTRIES[1])
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .unwrap_or_default();
-    let creds = Credentials { token, login };
-    if store_credentials(&creds).is_ok() {
-        for name in LEGACY_ENTRIES {
-            if let Ok(e) = entry(name) {
-                let _ = e.delete_credential();
-            }
+    // 파일에 없으면 구버전 OS 키체인에서 한 번만 옮겨온다.
+    migrate_github_from_keychain(&path)
+}
+
+/// 기존 키체인에 저장돼 있던 GitHub 자격증명을 파일로 옮긴다 (1회성).
+/// 통합 항목을 먼저 보고, 없으면 더 옛날 2-항목 포맷을 본다. 옮긴 뒤
+/// 키체인 잔재는 best-effort로 지운다.
+fn migrate_github_from_keychain(path: &std::path::Path) -> Option<Credentials> {
+    let creds = match keychain_entry(ENTRY_GITHUB).and_then(|e| e.get_password().ok()) {
+        Some(json) => Credentials::from_json(&json).ok()?,
+        None => {
+            let token = keychain_entry(LEGACY_ENTRIES[0])?.get_password().ok()?;
+            let login = keychain_entry(LEGACY_ENTRIES[1])
+                .and_then(|e| e.get_password().ok())
+                .unwrap_or_default();
+            Credentials { token, login }
+        }
+    };
+    let _ = synapse_core::secrets::write_secret(path, ENTRY_GITHUB, &creds.to_json());
+    for name in std::iter::once(ENTRY_GITHUB).chain(LEGACY_ENTRIES) {
+        if let Some(e) = keychain_entry(name) {
+            let _ = e.delete_credential();
         }
     }
     Some(creds)
@@ -130,25 +155,37 @@ pub fn github_user() -> Option<String> {
 
 #[tauri::command]
 pub fn github_logout() -> Result<(), String> {
+    if let Ok(path) = secrets_path() {
+        let _ = synapse_core::secrets::delete_secret(&path, ENTRY_GITHUB);
+    }
+    // 구버전 키체인 잔재도 함께 정리한다.
     for name in std::iter::once(ENTRY_GITHUB).chain(LEGACY_ENTRIES) {
-        if let Ok(e) = entry(name) {
+        if let Some(e) = keychain_entry(name) {
             let _ = e.delete_credential();
         }
     }
     Ok(())
 }
 
-// ---- Anthropic API 키 (2-D, github 토큰과 같은 키체인 패턴) ----
+// ---- Anthropic API 키 (2-D, github 토큰과 같은 파일 패턴) ----
 
-/// 키체인에서 Anthropic API 키를 읽는다. 없으면 None.
+/// 저장된 Anthropic API 키를 읽는다. 없으면 None.
 /// agent.rs가 apiKey 모드에서 ANTHROPIC_API_KEY 주입에 쓴다.
 pub fn stored_agent_api_key() -> Option<String> {
-    let key = entry(ENTRY_AGENT_API_KEY).ok()?.get_password().ok()?;
-    if key.is_empty() {
-        None
-    } else {
-        Some(key)
+    let path = secrets_path().ok()?;
+    if let Some(key) = synapse_core::secrets::read_secret(&path, ENTRY_AGENT_API_KEY) {
+        return Some(key);
     }
+    // 파일에 없으면 구버전 키체인에서 한 번만 옮겨온다.
+    let key = keychain_entry(ENTRY_AGENT_API_KEY)?.get_password().ok()?;
+    if key.is_empty() {
+        return None;
+    }
+    let _ = synapse_core::secrets::write_secret(&path, ENTRY_AGENT_API_KEY, &key);
+    if let Some(e) = keychain_entry(ENTRY_AGENT_API_KEY) {
+        let _ = e.delete_credential();
+    }
+    Some(key)
 }
 
 #[tauri::command]
@@ -157,15 +194,18 @@ pub fn set_agent_api_key(key: String) -> Result<(), String> {
     if key.is_empty() {
         return Err("API 키가 비어 있습니다".into());
     }
-    entry(ENTRY_AGENT_API_KEY)?
-        .set_password(key)
+    let path = secrets_path()?;
+    synapse_core::secrets::write_secret(&path, ENTRY_AGENT_API_KEY, key)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn clear_agent_api_key() -> Result<(), String> {
-    if let Ok(e) = entry(ENTRY_AGENT_API_KEY) {
-        // 항목이 없을 때의 NoEntry 오류는 성공으로 간주한다(idempotent).
+    if let Ok(path) = secrets_path() {
+        let _ = synapse_core::secrets::delete_secret(&path, ENTRY_AGENT_API_KEY);
+    }
+    // 구버전 키체인 잔재도 정리한다 (idempotent).
+    if let Some(e) = keychain_entry(ENTRY_AGENT_API_KEY) {
         let _ = e.delete_credential();
     }
     Ok(())

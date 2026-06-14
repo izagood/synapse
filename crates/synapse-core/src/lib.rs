@@ -9,6 +9,7 @@ pub mod paths;
 pub mod registry;
 pub mod retrieval;
 pub mod search;
+pub mod secrets;
 pub mod settings;
 pub mod tree;
 pub mod walk;
