@@ -234,6 +234,8 @@ export type RemoteConnectError =
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
+  /** OS 파일 선택 다이얼로그(예: SSH 개인키 선택). 취소 시 null */
+  pickFile(): Promise<string | null>;
   /**
    * 원격 SSH 호스트에 연결·인증하고 세션을 등록한다. 성공하면 절대경로로
    * 해소된 루트 URI를 돌려준다(빈 경로는 원격 홈으로 해소). 호스트키가
@@ -241,6 +243,7 @@ export interface SynapseIpc {
    */
   connectRemote(
     uri: string,
+    keyPath: string | null,
     password: string | null,
     passphrase: string | null,
     acceptNewHostKey: boolean,
