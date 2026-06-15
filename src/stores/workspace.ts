@@ -151,7 +151,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 새 창(⇧⌘N)은 다른 폴더를 열기 위한 것이므로 복원 없이 시작 화면에서 출발.
       const last = await ipc.getLastWorkspace();
       if (last && !get().root && !flags.__SYNAPSE_FRESH_WINDOW__) {
-        await get().openFolder(last);
+        if (last.startsWith("ssh://")) {
+          // 원격은 인증이 필요하다. 에이전트/키로 무인증 재연결만 시도하고
+          // (비밀번호는 자동 입력하지 않는다), 실패하면 조용히 시작 화면으로
+          // 폴백한다. 사용자는 시작 화면의 최근 목록에서 다시 연결할 수 있다.
+          const err = await get().openRemote(last, { acceptNewHostKey: false });
+          if (err) set({ loading: false, error: null });
+        } else {
+          await get().openFolder(last);
+        }
       }
     } catch (e) {
       set({ error: String(e) });
