@@ -12,6 +12,7 @@ pub mod search;
 pub mod secrets;
 pub mod settings;
 pub mod tree;
+pub mod vfs;
 pub mod walk;
 
 pub use collab::CollabStore;
@@ -26,3 +27,4 @@ pub use registry::{recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};
 pub use search::{search_workspace, SearchHit, SearchMatch, SearchOptions};
 pub use tree::{build_tree, FileNode, FileType, NodeKind};
+pub use vfs::{Backend, DirEntry, LocalBackend, Meta};
