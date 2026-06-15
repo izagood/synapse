@@ -7,6 +7,7 @@ import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { resolveInternalLink } from "./internalLink";
 import { insertImages, isImageFile } from "./images";
 import { FrontmatterPanel } from "./FrontmatterPanel";
+import { FindBar } from "./FindBar";
 import { useT } from "../../i18n";
 import { hasRoundtripContentLoss } from "./roundtripSafety";
 
@@ -108,6 +109,21 @@ export function MarkdownEditor({ path }: { path: string }) {
   const editorRef = useRef(editor);
   editorRef.current = editor;
 
+  // 문서 내 찾기 (Cmd/Ctrl+F) — 이미 열려 있으면 입력에 다시 포커스한다.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findFocus, setFindFocus] = useState(0);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFindOpen(true);
+        setFindFocus((n) => n + 1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // 속성 패널에서 frontmatter가 바뀌면: 새 frontmatter를 기준값으로 삼고,
   // 현재 본문과 합쳐 기존 저장 경로로 기록한다 (파일 직접 쓰기 없음).
   function handleFrontmatterChange(next: string) {
@@ -153,6 +169,16 @@ export function MarkdownEditor({ path }: { path: string }) {
 
   return (
     <div className="editor-wrap">
+      {findOpen && editor && (
+        <FindBar
+          editor={editor}
+          focusSignal={findFocus}
+          onClose={() => {
+            setFindOpen(false);
+            editor.commands.focus();
+          }}
+        />
+      )}
       {frontmatter && (
         <FrontmatterPanel
           // 외부 머지(synapse_id 주입 등)로 frontmatter가 통째로 바뀌면
