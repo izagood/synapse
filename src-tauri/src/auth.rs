@@ -96,9 +96,7 @@ pub enum PollResult {
 }
 
 #[tauri::command]
-pub async fn github_login_start(
-    state: tauri::State<'_, AuthState>,
-) -> Result<DeviceCode, String> {
+pub async fn github_login_start(state: tauri::State<'_, AuthState>) -> Result<DeviceCode, String> {
     if CLIENT_ID.is_empty() {
         return Err(
             "GitHub OAuth client_id가 설정되지 않았습니다. SYNAPSE_GITHUB_CLIENT_ID로 빌드하세요."
@@ -114,9 +112,7 @@ pub async fn github_login_start(
 }
 
 #[tauri::command]
-pub async fn github_login_poll(
-    state: tauri::State<'_, AuthState>,
-) -> Result<PollResult, String> {
+pub async fn github_login_poll(state: tauri::State<'_, AuthState>) -> Result<PollResult, String> {
     let device_code = state
         .pending_device_code
         .lock()
@@ -138,7 +134,10 @@ pub async fn github_login_poll(
             *state.pending_device_code.lock().unwrap() = None;
             let login = crate::sync::run_blocking(move || {
                 let login = github::get_login(&UreqHttp, &token)?;
-                store_credentials(&Credentials { token, login: login.clone() })?;
+                store_credentials(&Credentials {
+                    token,
+                    login: login.clone(),
+                })?;
                 Ok(login)
             })
             .await?;
@@ -150,7 +149,11 @@ pub async fn github_login_poll(
 #[tauri::command]
 pub fn github_user() -> Option<String> {
     let creds = stored_credentials()?;
-    if creds.login.is_empty() { None } else { Some(creds.login) }
+    if creds.login.is_empty() {
+        None
+    } else {
+        Some(creds.login)
+    }
 }
 
 #[tauri::command]
@@ -195,8 +198,7 @@ pub fn set_agent_api_key(key: String) -> Result<(), String> {
         return Err("API 키가 비어 있습니다".into());
     }
     let path = secrets_path()?;
-    synapse_core::secrets::write_secret(&path, ENTRY_AGENT_API_KEY, key)
-        .map_err(|e| e.to_string())
+    synapse_core::secrets::write_secret(&path, ENTRY_AGENT_API_KEY, key).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
