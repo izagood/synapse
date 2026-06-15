@@ -55,6 +55,22 @@ pub struct SshConfig {
     pub password: Option<String>,
 }
 
+/// 사용자가 입력한 경로의 선행 틸드(`~`, `~/...`)를 홈 디렉토리로 확장한다.
+///
+/// GUI 키 경로 필드에는 `~/.ssh/id_xxx`처럼 틸드 경로를 넣는 경우가 많은데,
+/// 셸이 아닌 곳에서는 `~`가 풀리지 않아 `Path::exists()`가 false가 되고
+/// 해당 키가 조용히 건너뛰어진다(=인증 실패). 여기서 미리 확장해 둔다.
+/// 셸과 달리 `~user` 형태는 다루지 않는다(앱 사용자 본인 홈만 대상).
+pub fn expand_tilde(raw: &str, home: &Path) -> PathBuf {
+    if raw == "~" {
+        return home.to_path_buf();
+    }
+    if let Some(rest) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
+        return home.join(rest);
+    }
+    PathBuf::from(raw)
+}
+
 impl SshConfig {
     /// 홈 디렉토리 기준 표준 경로로 기본 설정을 만든다.
     /// `~/.ssh/known_hosts`, `~/.ssh/{id_ed25519,id_ecdsa,id_rsa}`, 에이전트 사용.
@@ -427,6 +443,26 @@ mod tests {
             .contains(&PathBuf::from("/home/me/.ssh/id_ed25519")));
         assert!(cfg.use_agent);
         assert_eq!(cfg.host_key_policy, HostKeyPolicy::AcceptNew);
+    }
+
+    #[test]
+    fn expand_tilde_resolves_user_home() {
+        let home = Path::new("/home/me");
+        // 흔한 케이스: GUI에 `~/.ssh/...`를 입력 → 홈으로 확장돼 실제 키를 찾는다.
+        assert_eq!(
+            expand_tilde("~/.ssh/work_key", home),
+            PathBuf::from("/home/me/.ssh/work_key")
+        );
+        // 틸드 단독.
+        assert_eq!(expand_tilde("~", home), PathBuf::from("/home/me"));
+        // 절대 경로·상대 경로는 그대로 둔다.
+        assert_eq!(
+            expand_tilde("/etc/ssh/key", home),
+            PathBuf::from("/etc/ssh/key")
+        );
+        assert_eq!(expand_tilde("keys/id", home), PathBuf::from("keys/id"));
+        // 경로 중간의 틸드는 확장하지 않는다(선행 `~/`만 대상).
+        assert_eq!(expand_tilde("/a/~/b", home), PathBuf::from("/a/~/b"));
     }
 
     #[test]
