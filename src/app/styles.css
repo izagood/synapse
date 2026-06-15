@@ -2356,6 +2356,10 @@ select {
   max-height: 90vh;
   padding: 16px 18px 14px;
   gap: 12px;
+  /* 빈 공간 드래그 팬 중 네이티브 drag-to-select 로 헤더·노드 라벨이
+     통째로 선택되는 것을 막는다 (검색 입력은 아래에서 다시 허용). */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .graph-header {
@@ -2405,6 +2409,9 @@ select {
   color: var(--fg);
   font-size: 0.85rem;
   width: 150px;
+  /* 모달의 user-select: none 을 입력에서만 되돌려 검색어 선택·편집을 허용한다. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .graph-search input::placeholder {
