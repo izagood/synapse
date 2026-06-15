@@ -12,12 +12,21 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 use crate::collab::{self, CollabStore};
+use crate::sftp::SftpBackend;
+use crate::ssh::SshSession;
+use crate::vfs::{Backend, LocalBackend};
+
+/// git 명령 실행 위치. 로컬은 시스템 `git`, 원격은 SSH exec 채널에서 원격 `git`.
+enum GitExec {
+    Local,
+    Remote(Arc<SshSession>),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -93,8 +102,12 @@ pub enum ConflictChoice {
 
 pub struct GitWorkspace {
     root: PathBuf,
-    /// "AUTHORIZATION: basic …" 형태의 추가 헤더 (GitHub HTTPS 인증)
+    /// "AUTHORIZATION: basic …" 형태의 추가 헤더 (GitHub HTTPS 인증, 로컬 전용)
     auth_header: Option<String>,
+    /// git 명령 실행 위치(로컬 프로세스 또는 원격 SSH exec).
+    exec: GitExec,
+    /// 워킹트리 파일 I/O 백엔드(충돌 해결 시 머지 결과 쓰기 등). 로컬/원격 일치.
+    backend: Arc<dyn Backend>,
     /// CRDT·워킹트리를 만지는 로컬 구간에서만 잡는 락. 네트워크 구간
     /// (fetch/push)에서는 풀어 두어 저장(save_doc)이 동기화에 막히지 않는다.
     lock: &'static Mutex<()>,
@@ -179,6 +192,24 @@ impl GitWorkspace {
         GitWorkspace {
             root: root.into(),
             auth_header,
+            exec: GitExec::Local,
+            backend: Arc::new(LocalBackend),
+            lock: collab::workspace_lock(),
+            #[cfg(test)]
+            after_fetch: None,
+        }
+    }
+
+    /// 원격 SSH 호스트의 워크스페이스에 대한 git 작업. git 명령은 원격 호스트의
+    /// `git`을 SSH exec로 실행하고(원격 자격증명 사용), 워킹트리 파일은 SFTP로
+    /// 만진다. 로컬 git이 SFTP 트리를 직접 다룰 수 없으므로 필수 구조다.
+    pub fn new_remote(session: Arc<SshSession>, root: impl Into<PathBuf>) -> Self {
+        let backend: Arc<dyn Backend> = Arc::new(SftpBackend::new(session.clone()));
+        GitWorkspace {
+            root: root.into(),
+            auth_header: None,
+            exec: GitExec::Remote(session),
+            backend,
             lock: collab::workspace_lock(),
             #[cfg(test)]
             after_fetch: None,
@@ -226,11 +257,28 @@ impl GitWorkspace {
     }
 
     /// stdout을 바이트 그대로 돌려주는 변형 (`git show :N:경로`로 바이너리
-    /// 스테이지 내용을 읽을 때 손상되지 않도록)
+    /// 스테이지 내용을 읽을 때 손상되지 않도록). 로컬/원격 실행을 디스패치한다.
     fn run_bytes(&self, args: &[&str]) -> GitResult<(bool, Vec<u8>, String)> {
-        let mut cmd = self.base_cmd();
-        cmd.args(args);
-        run_command(cmd, network_timeout_for(args))
+        match &self.exec {
+            GitExec::Local => {
+                let mut cmd = self.base_cmd();
+                cmd.args(args);
+                run_command(cmd, network_timeout_for(args))
+            }
+            GitExec::Remote(session) => {
+                // 원격 git은 원격 호스트의 자격증명(원격 ~/.ssh·credential helper)을
+                // 쓴다. 로컬 GitHub 토큰(auth_header)은 원격에 전달하지 않는다.
+                let envs = [
+                    ("GIT_EDITOR", "true"),
+                    ("GIT_TERMINAL_PROMPT", "0"),
+                    ("GCM_INTERACTIVE", "never"),
+                ];
+                let root = self.root.to_string_lossy();
+                let command = crate::ssh::remote_git_command(&root, &envs, args);
+                let (ok, stdout, stderr) = session.exec(&command).map_err(|e| e.to_string())?;
+                Ok((ok, stdout, String::from_utf8_lossy(&stderr).into_owned()))
+            }
+        }
     }
 
     fn run_ok(&self, args: &[&str]) -> GitResult<String> {
@@ -455,23 +503,33 @@ impl GitWorkspace {
     /// 워크스페이스의 모든 .md를 훑어 CRDT와 어긋난 외부 편집(GitHub 웹,
     /// 다른 에디터 등)을 결정적으로 흡수한다. 개별 파일 실패는 무시한다.
     fn absorb_workspace(&self, store: &CollabStore) {
-        // 순회 정책은 walk 모듈 공통(숨김·심볼릭 링크 제외) — 앱의 다른 순회와 일치.
-        crate::walk::walk_files(&self.root, &mut |path, name| {
-            if name.ends_with(".md") {
-                if let Ok(text) = fs::read_to_string(path) {
-                    if let Some(id) = collab::extract_doc_id(&text) {
-                        let _ = store.absorb_external(&id, &text);
+        // 백엔드 트리(숨김·심볼릭 링크 제외 — .synapse도 제외됨)를 훑어 .md만 흡수.
+        // build_tree가 로컬/원격(SFTP) 공통 순회 정책을 제공한다.
+        let Ok(tree) = self.backend.build_tree(&self.root) else {
+            return;
+        };
+        let mut stack = vec![tree];
+        while let Some(node) = stack.pop() {
+            match node.children {
+                Some(children) => stack.extend(children),
+                None => {
+                    if node.name.ends_with(".md") {
+                        if let Ok(text) = self.backend.read_to_string(Path::new(&node.path)) {
+                            if let Some(id) = collab::extract_doc_id(&text) {
+                                let _ = store.absorb_external(&id, &text);
+                            }
+                        }
                     }
                 }
             }
-            true
-        });
+        }
     }
 
     fn rebase_in_progress(&self) -> GitResult<bool> {
         let merge = self.run_ok(&["rev-parse", "--git-path", "rebase-merge"])?;
         let apply = self.run_ok(&["rev-parse", "--git-path", "rebase-apply"])?;
-        Ok(self.root.join(merge.trim()).exists() || self.root.join(apply.trim()).exists())
+        Ok(self.backend.exists(&self.root.join(merge.trim()))
+            || self.backend.exists(&self.root.join(apply.trim())))
     }
 
     /// 충돌 스테이지(:1: base, :2: ours, :3: theirs)의 내용. 해당 스테이지가
@@ -541,9 +599,11 @@ impl GitWorkspace {
                 Some(bytes) => {
                     let abs = self.root.join(path);
                     if let Some(parent) = abs.parent() {
-                        let _ = fs::create_dir_all(parent);
+                        let _ = self.backend.create_dir_all(parent);
                     }
-                    fs::write(&abs, bytes).map_err(|e| e.to_string())?;
+                    self.backend
+                        .write(&abs, &bytes)
+                        .map_err(|e| e.to_string())?;
                     self.run_ok(&["add", "--", path])?;
                 }
                 None => {
@@ -626,7 +686,9 @@ impl GitWorkspace {
             merged = collab::inject_doc_id(&merged, &target);
             let _ = store.absorb_external(&target, &merged);
         }
-        fs::write(self.root.join(path), &merged).map_err(|e| e.to_string())?;
+        self.backend
+            .write(&self.root.join(path), merged.as_bytes())
+            .map_err(|e| e.to_string())?;
         self.run_ok(&["add", "--", path])?;
         Ok(())
     }
@@ -681,7 +743,8 @@ impl GitWorkspace {
                 // 3) 내 버전을 "이름 (conflict).ext"로 보존
                 for (file, content) in saved {
                     let conflict_name = conflict_copy_name(&file);
-                    fs::write(self.root.join(&conflict_name), content)
+                    self.backend
+                        .write(&self.root.join(&conflict_name), content.as_bytes())
                         .map_err(|e| e.to_string())?;
                 }
                 self.commit_all("synapse: 충돌한 내 버전을 (conflict) 사본으로 보존")?;

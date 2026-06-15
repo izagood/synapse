@@ -55,6 +55,21 @@ pub fn backend_for(state: &RemoteState, loc: &Location) -> Result<Arc<dyn Backen
     }
 }
 
+/// 위치에 연결된 SSH 세션을 돌려준다(로컬이면 None, 원격인데 미연결이면 에러).
+/// git/협업 커맨드가 run_blocking 진입 전에 세션을 꺼내 쓰기 위한 헬퍼다.
+pub fn remote_session(
+    state: &RemoteState,
+    loc: &Location,
+) -> Result<Option<Arc<SshSession>>, String> {
+    match loc {
+        Location::Local(_) => Ok(None),
+        Location::Ssh(s) => state
+            .get(s)
+            .map(Some)
+            .ok_or_else(|| "원격 세션이 연결되어 있지 않습니다. 먼저 연결하세요.".to_string()),
+    }
+}
+
 /// 위치 식별자에서 백엔드에 넘길 bare 파일시스템 경로를 뽑는다.
 pub fn fs_path(loc: &Location) -> PathBuf {
     match loc {
