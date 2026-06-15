@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
+import { ipc } from "../../ipc/ipc";
 import { useT } from "../../i18n";
 import type { RemoteConnectError } from "../../ipc/types";
 
@@ -38,6 +39,7 @@ export function RemoteConnect() {
   const [port, setPort] = useState("22");
   const [user, setUser] = useState("");
   const [path, setPath] = useState("");
+  const [keyPath, setKeyPath] = useState("");
   const [password, setPassword] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [pending, setPending] = useState<RemoteConnectError | null>(null);
@@ -49,6 +51,7 @@ export function RemoteConnect() {
     setError(null);
     const uri = buildSshUri(user, host, port, path);
     const result = await openRemote(uri, {
+      keyPath: keyPath || null,
       password: password || null,
       passphrase: passphrase || null,
       acceptNewHostKey,
@@ -112,6 +115,22 @@ export function RemoteConnect() {
         spellCheck={false}
         autoCapitalize="off"
       />
+      <div className="remote-key-row">
+        <input
+          value={keyPath}
+          onChange={(e) => setKeyPath(e.target.value)}
+          placeholder={t("start.remote.keyPath")}
+          spellCheck={false}
+          autoCapitalize="off"
+        />
+        <button
+          type="button"
+          onClick={() => void ipc.pickFile().then((p) => p && setKeyPath(p))}
+          disabled={loading}
+        >
+          {t("start.remote.browse")}
+        </button>
+      </div>
       <input
         type="password"
         value={password}
