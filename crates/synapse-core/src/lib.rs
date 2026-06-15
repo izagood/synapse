@@ -33,6 +33,8 @@ pub use registry::{recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};
 pub use search::{search_workspace, SearchHit, SearchMatch, SearchOptions};
 pub use sftp::SftpBackend;
-pub use ssh::{connect as ssh_connect, HostKeyPolicy, SshConfig, SshError, SshSession};
+pub use ssh::{
+    connect as ssh_connect, expand_tilde, HostKeyPolicy, SshConfig, SshError, SshSession,
+};
 pub use tree::{build_tree, FileNode, FileType, NodeKind};
 pub use vfs::{Backend, DirEntry, LocalBackend, Meta};
