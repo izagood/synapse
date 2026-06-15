@@ -3,6 +3,9 @@ name = "synapse"
 version = "0.4.29"
 edition = "2021"
 description = "Synapse — Notion-style note app that saves plain Markdown, synced via GitHub"
+authors = ["Jaebin Lee"]
+license = "Apache-2.0"
+repository = "https://github.com/izagood/synapse"
 
 [lib]
 name = "synapse_lib"

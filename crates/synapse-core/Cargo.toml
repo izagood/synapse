@@ -3,6 +3,9 @@ name = "synapse-core"
 version = "0.1.0"
 edition = "2021"
 description = "Synapse core logic: file tree, workspace registry, path guards (GUI-free, fully testable)"
+authors = ["Jaebin Lee"]
+license = "Apache-2.0"
+repository = "https://github.com/izagood/synapse"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
