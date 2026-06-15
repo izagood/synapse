@@ -215,9 +215,38 @@ export interface LinkGraph {
   edges: GraphEdge[];
 }
 
+// Rust remote::RemoteConnection 과 1:1 대응 (원격 SSH 워크스페이스)
+export interface RemoteConnection {
+  /** 절대경로로 해소된 워크스페이스 루트 URI (ssh://user@host[:port]/path) */
+  root: string;
+}
+
+/**
+ * connect_remote가 호스트키 문제로 실패할 때의 분류. 평범한 실패는 generic.
+ * unknownHostKey: known_hosts에 없는 새 호스트 — fingerprint를 보여 승인 후
+ * acceptNewHostKey=true로 재시도. mismatch: 기록과 다른 키(중간자 의심) — 거부.
+ */
+export type RemoteConnectError =
+  | { kind: "unknownHostKey"; fingerprint: string }
+  | { kind: "hostKeyMismatch"; fingerprint: string }
+  | { kind: "generic"; message: string };
+
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
+  /**
+   * 원격 SSH 호스트에 연결·인증하고 세션을 등록한다. 성공하면 절대경로로
+   * 해소된 루트 URI를 돌려준다(빈 경로는 원격 홈으로 해소). 호스트키가
+   * known_hosts에 없으면 acceptNewHostKey=false일 때 unknownHostKey로 거부된다.
+   */
+  connectRemote(
+    uri: string,
+    password: string | null,
+    passphrase: string | null,
+    acceptNewHostKey: boolean,
+  ): Promise<RemoteConnection>;
+  /** 원격 세션을 끊는다(같은 호스트의 공유 연결 종료) */
+  disconnectRemote(uri: string): Promise<void>;
   /** 폴더를 재귀 스캔해 파일 트리 반환 */
   listWorkspace(path: string): Promise<FileNode>;
   /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */

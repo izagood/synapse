@@ -216,6 +216,12 @@ export const mockIpc: SynapseIpc = {
   async pickFolder() {
     return MOCK_ROOT;
   },
+  async connectRemote() {
+    throw new Error("원격 연결은 데스크톱 앱에서만 가능합니다");
+  },
+  async disconnectRemote() {
+    // 브라우저 mock에서는 원격 세션이 없으므로 no-op
+  },
   async listWorkspace(path) {
     if (path !== MOCK_ROOT) throw new Error(`not a directory: ${path}`);
     return buildMockTree();
