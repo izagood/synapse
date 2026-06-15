@@ -1,47 +1,19 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// `candidate`가 `root`(워크스페이스 루트) 내부 경로인지 검증한다.
-///
-/// 프론트엔드에서 넘어온 경로를 그대로 신뢰하지 않기 위한 가드.
-/// 심볼릭 링크·`..`를 모두 해소한 실제 경로 기준으로 비교한다 (NFR-4).
+use crate::vfs::{Backend, LocalBackend};
+
+// 경로 가드 로직은 [`crate::vfs::Backend`]의 기본 제공 메서드로 옮겨졌다.
+// 아래 함수들은 로컬 파일시스템에 위임하는 얇은 래퍼다.
+
+/// `candidate`가 `root`(워크스페이스 루트) 내부 경로인지 검증한다 (NFR-4).
 pub fn ensure_within(root: &Path, candidate: &Path) -> io::Result<PathBuf> {
-    let root = root.canonicalize()?;
-    let resolved = candidate.canonicalize()?;
-    if resolved.starts_with(&root) {
-        Ok(resolved)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!(
-                "path escapes workspace root: {} (root: {})",
-                candidate.display(),
-                root.display()
-            ),
-        ))
-    }
+    LocalBackend.ensure_within(root, candidate)
 }
 
 /// 루트 내부로 검증된 경로를 git pathspec용 상대 경로(슬래시 구분)로 바꾼다.
-///
-/// `ensure_within` 검증을 포함한다. 루트 자신(빈 상대 경로)은 에러.
 pub fn rel_path_within(root: &Path, candidate: &Path) -> io::Result<String> {
-    let resolved = ensure_within(root, candidate)?;
-    let root_canon = root.canonicalize()?;
-    let rel = resolved
-        .strip_prefix(&root_canon)
-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e.to_string()))?
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/");
-    if rel.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "파일 경로가 비어 있습니다",
-        ));
-    }
-    Ok(rel)
+    LocalBackend.rel_path_within(root, candidate)
 }
 
 #[cfg(test)]
