@@ -3,7 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { mockIpc } from "./mock";
@@ -69,6 +69,7 @@ const tauriIpc: SynapseIpc = {
     invoke<string>("rename_path", { root, path, newName }),
   deletePath: (root, path) => invoke<void>("delete_path", { root, path }),
   duplicatePath: (root, path) => invoke<string>("duplicate_path", { root, path }),
+  revealPath: (path) => revealItemInDir(path),
   recentWorkspaces: () => invoke<string[]>("recent_workspaces"),
   recordWorkspaceOpened: (path) =>
     invoke<string[]>("record_workspace_opened", { path }),

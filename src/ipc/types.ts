@@ -297,6 +297,8 @@ export interface SynapseIpc {
   deletePath(root: string, path: string): Promise<void>;
   /** 파일을 "이름 2.ext"로 복제, 새 파일명 반환 */
   duplicatePath(root: string, path: string): Promise<string>;
+  /** OS 파일 매니저(Finder/탐색기)에서 해당 항목을 선택해 보여준다 */
+  revealPath(path: string): Promise<void>;
   /** 최근 연 폴더 (최신순) */
   recentWorkspaces(): Promise<string[]>;
   /** 폴더 열람 기록, 갱신된 최근 목록 반환 */
