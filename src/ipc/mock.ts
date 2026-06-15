@@ -356,6 +356,10 @@ export const mockIpc: SynapseIpc = {
     }
     throw new Error("too many name collisions");
   },
+  async revealPath(path) {
+    // 브라우저/테스트 환경에선 OS 파일 매니저가 없으므로 no-op
+    void path;
+  },
 
   async recentWorkspaces() {
     return [...recent];
