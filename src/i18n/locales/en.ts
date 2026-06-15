@@ -22,6 +22,8 @@ export const en: LocaleShape<KoMessages> = {
       port: "Port",
       user: "User",
       path: "Path (empty = home directory)",
+      keyPath: "SSH key path (optional)",
+      browse: "Browse…",
       password: "Password (optional)",
       passphrase: "Key passphrase (optional)",
       connect: "Connect",

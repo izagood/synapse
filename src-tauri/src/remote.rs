@@ -103,6 +103,7 @@ pub struct RemoteConnection {
 pub async fn connect_remote(
     state: tauri::State<'_, RemoteState>,
     uri: String,
+    key_path: Option<String>,
     password: Option<String>,
     passphrase: Option<String>,
     accept_new_host_key: bool,
@@ -115,6 +116,10 @@ pub async fn connect_remote(
 
     let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
     let mut cfg = SshConfig::with_defaults(&home);
+    // 사용자가 키 파일을 직접 지정하면 가장 먼저 시도한다(~/.ssh 기본 키보다 우선).
+    if let Some(key) = key_path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+        cfg.identity_files.insert(0, key.into());
+    }
     cfg.password = password;
     cfg.passphrase = passphrase;
     cfg.host_key_policy = if accept_new_host_key {
