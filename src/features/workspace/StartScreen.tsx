@@ -2,10 +2,18 @@ import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
 import { basename } from "../../shared/pathUtils";
 import { CloneForm } from "../sync/CloneForm";
+import { RemoteConnect } from "./RemoteConnect";
 
 export function StartScreen() {
-  const { recent, loading, error, openFolder } = useWorkspace();
+  const { recent, loading, error, openFolder, openRemote } = useWorkspace();
   const t = useT();
+
+  // 최근 목록 클릭: 원격(ssh://)은 에이전트/키로 재연결을 시도한다. 비밀번호가
+  // 필요한 호스트는 실패하므로, 그때는 "원격 폴더 열기" 폼으로 자격증명을 입력한다.
+  const openRecent = (path: string) =>
+    path.startsWith("ssh://")
+      ? void openRemote(path, { acceptNewHostKey: false })
+      : void openFolder(path);
 
   return (
     <div className="start-screen">
@@ -23,6 +31,8 @@ export function StartScreen() {
 
         {error && <p className="error">{error}</p>}
 
+        <RemoteConnect />
+
         <CloneForm />
 
         {recent.length > 0 && (
@@ -33,7 +43,7 @@ export function StartScreen() {
                 <li key={path}>
                   <button
                     className="recent-item"
-                    onClick={() => void openFolder(path)}
+                    onClick={() => openRecent(path)}
                     disabled={loading}
                     title={path}
                   >

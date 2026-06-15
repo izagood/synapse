@@ -1,8 +1,9 @@
-use std::fs;
 use std::io;
 use std::path::Path;
 
 use serde::Serialize;
+
+use crate::vfs::{Backend, LocalBackend};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -30,7 +31,7 @@ pub struct FileNode {
     pub children: Option<Vec<FileNode>>,
 }
 
-fn file_type_of(path: &Path) -> FileType {
+pub(crate) fn file_type_of(path: &Path) -> FileType {
     match path
         .extension()
         .and_then(|e| e.to_str())
@@ -43,74 +44,18 @@ fn file_type_of(path: &Path) -> FileType {
     }
 }
 
-/// 워크스페이스 폴더를 재귀적으로 읽어 파일 트리를 만든다.
+/// 워크스페이스 폴더를 재귀적으로 읽어 파일 트리를 만든다 (로컬 파일시스템).
 ///
-/// - 숨김 항목(`.`으로 시작, `.git` 포함)은 제외한다 (FR-1.6: 폴더를 오염시키지도, 보여주지도 않는다)
-/// - 심볼릭 링크 디렉토리는 순환 방지를 위해 내려가지 않는다
-/// - 정렬: 디렉토리 우선, 이름 대소문자 무시 오름차순
+/// 실제 트리 빌드 로직은 [`crate::vfs::Backend::build_tree`]에 있다.
+/// 원격(SFTP 등) 트리는 호출부에서 해당 백엔드의 trait 메서드를 직접 쓴다.
 pub fn build_tree(root: &Path) -> io::Result<FileNode> {
-    let meta = fs::metadata(root)?;
-    if !meta.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("not a directory: {}", root.display()),
-        ));
-    }
-    let name = root
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| root.display().to_string());
-    Ok(FileNode {
-        name,
-        path: root.display().to_string(),
-        kind: NodeKind::Dir,
-        file_type: FileType::Other,
-        children: Some(read_children(root)?),
-    })
-}
-
-fn read_children(dir: &Path) -> io::Result<Vec<FileNode>> {
-    let mut nodes: Vec<FileNode> = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') {
-            continue;
-        }
-        // symlink_metadata: 링크를 따라가지 않고 판별 (순환 방지)
-        let ft = entry.path().symlink_metadata()?.file_type();
-        let path = entry.path();
-        if ft.is_dir() {
-            nodes.push(FileNode {
-                name,
-                path: path.display().to_string(),
-                kind: NodeKind::Dir,
-                file_type: FileType::Other,
-                children: Some(read_children(&path)?),
-            });
-        } else if ft.is_file() {
-            nodes.push(FileNode {
-                file_type: file_type_of(&path),
-                name,
-                path: path.display().to_string(),
-                kind: NodeKind::File,
-                children: None,
-            });
-        }
-        // 심볼릭 링크는 제외
-    }
-    nodes.sort_by(|a, b| {
-        let rank = |n: &FileNode| if n.kind == NodeKind::Dir { 0 } else { 1 };
-        rank(a)
-            .cmp(&rank(b))
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    Ok(nodes)
+    LocalBackend.build_tree(root)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::fs::File;
 
     fn touch(p: &Path) {

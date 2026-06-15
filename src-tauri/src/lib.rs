@@ -3,6 +3,7 @@ mod auth;
 mod commands;
 mod config_sync;
 mod dock;
+mod remote;
 mod sync;
 
 pub fn run() {
@@ -18,8 +19,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(auth::AuthState::default())
         .manage(agent::AgentState::default())
+        .manage(remote::RemoteState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
+            remote::connect_remote,
+            remote::disconnect_remote,
             commands::read_file,
             commands::write_file,
             commands::save_doc,

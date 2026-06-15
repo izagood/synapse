@@ -69,15 +69,24 @@ fn agent_settings() -> synapse_core::settings::AgentSettings {
 fn emit(app: &AppHandle, run_id: &str, event: AgentEvent) {
     let _ = app.emit(
         EVENT_NAME,
-        AgentEventPayload { run_id: run_id.to_owned(), event },
+        AgentEventPayload {
+            run_id: run_id.to_owned(),
+            event,
+        },
     );
 }
 
 #[tauri::command]
 pub fn agent_status() -> AgentStatus {
     match claude_bin() {
-        Some(p) => AgentStatus { installed: true, path: Some(p.display().to_string()) },
-        None => AgentStatus { installed: false, path: None },
+        Some(p) => AgentStatus {
+            installed: true,
+            path: Some(p.display().to_string()),
+        },
+        None => AgentStatus {
+            installed: false,
+            path: None,
+        },
     }
 }
 
@@ -90,9 +99,8 @@ pub fn agent_send(
     session_id: Option<String>,
     run_id: String,
 ) -> Result<(), String> {
-    let bin = claude_bin().ok_or(
-        "claude CLI를 찾을 수 없습니다. 설치 후 `claude` 명령으로 로그인하세요.",
-    )?;
+    let bin = claude_bin()
+        .ok_or("claude CLI를 찾을 수 없습니다. 설치 후 `claude` 명령으로 로그인하세요.")?;
 
     // 인증 모드·모델·권한을 읽어 spawn에 적용할 인자/환경을 만든다(순수 로직은 core).
     let settings = agent_settings();
@@ -207,12 +215,21 @@ pub fn agent_send(
                     AgentEvent::Aborted
                 } else {
                     let mut message = match status {
-                        Some(Ok(s)) if !s.success() => format!("claude가 비정상 종료했습니다 ({s})"),
+                        Some(Ok(s)) if !s.success() => {
+                            format!("claude가 비정상 종료했습니다 ({s})")
+                        }
                         _ => "응답이 완료되지 않았습니다".to_owned(),
                     };
                     if let Ok(errs) = stderr_buf.lock() {
-                        let tail: String = errs.trim().chars().rev().take(300).collect::<Vec<_>>()
-                            .into_iter().rev().collect();
+                        let tail: String = errs
+                            .trim()
+                            .chars()
+                            .rev()
+                            .take(300)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect();
                         if !tail.is_empty() {
                             message.push_str(&format!(": {tail}"));
                         }

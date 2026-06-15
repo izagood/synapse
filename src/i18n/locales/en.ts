@@ -14,7 +14,24 @@ export const en: LocaleShape<KoMessages> = {
   start: {
     tagline: "Notion-style editing, Markdown files",
     openFolder: "Open Folder",
+    openRemote: "Open Remote Folder (SSH)",
     recentFolders: "Recent Folders",
+    remote: {
+      title: "Open Remote Folder (SSH)",
+      host: "Host",
+      port: "Port",
+      user: "User",
+      path: "Path (empty = home directory)",
+      password: "Password (optional)",
+      passphrase: "Key passphrase (optional)",
+      connect: "Connect",
+      connecting: "Connecting…",
+      cancel: "Cancel",
+      unknownHostKey: "First time connecting to this host. Verify the fingerprint:",
+      trustAndConnect: "Trust and Connect",
+      hostKeyMismatch:
+        "Warning: the host key differs from the record (fingerprint: {fingerprint}). Connection refused — possible man-in-the-middle.",
+    },
   },
   activity: {
     toggleSidebar: "Toggle Sidebar",

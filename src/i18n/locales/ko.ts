@@ -9,7 +9,24 @@ export const ko = {
   start: {
     tagline: "편집은 Notion처럼, 저장은 Markdown으로",
     openFolder: "폴더 열기",
+    openRemote: "원격 폴더 열기 (SSH)",
     recentFolders: "최근 폴더",
+    remote: {
+      title: "원격 폴더 열기 (SSH)",
+      host: "호스트",
+      port: "포트",
+      user: "사용자",
+      path: "경로 (비우면 홈 디렉토리)",
+      password: "비밀번호 (선택)",
+      passphrase: "키 passphrase (선택)",
+      connect: "연결",
+      connecting: "연결 중…",
+      cancel: "취소",
+      unknownHostKey: "처음 연결하는 호스트입니다. fingerprint를 확인하세요:",
+      trustAndConnect: "신뢰하고 연결",
+      hostKeyMismatch:
+        "경고: 호스트키가 기록과 다릅니다(fingerprint: {fingerprint}). 중간자 공격일 수 있어 연결을 거부했습니다.",
+    },
   },
   activity: {
     toggleSidebar: "사이드바 토글",

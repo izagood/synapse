@@ -18,6 +18,7 @@ import type {
   FileCommit,
   FileNode,
   PollResult,
+  RemoteConnection,
   RetrievalResult,
   SearchHit,
   Settings,
@@ -25,6 +26,7 @@ import type {
   SynapseIpc,
   WorkspaceSession,
 } from "./types";
+import type { RemoteConnectError } from "./types";
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -34,6 +36,14 @@ const tauriIpc: SynapseIpc = {
     const selected = await open({ directory: true, multiple: false });
     return typeof selected === "string" ? selected : null;
   },
+  connectRemote: (uri, password, passphrase, acceptNewHostKey) =>
+    invoke<RemoteConnection>("connect_remote", {
+      uri,
+      password,
+      passphrase,
+      acceptNewHostKey,
+    }),
+  disconnectRemote: (uri) => invoke<void>("disconnect_remote", { uri }),
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
   searchWorkspace: (root, query) =>
     invoke<SearchHit[]>("search_workspace", { root, query }),
@@ -146,4 +156,26 @@ export const ipc: SynapseIpc = isTauri ? tauriIpc : mockIpc;
 /** 로컬 절대 경로를 webview가 로드할 수 있는 URL로 변환 (Tauri asset protocol) */
 export function resolveAssetUrl(absolutePath: string): string {
   return isTauri ? convertFileSrc(absolutePath) : absolutePath;
+}
+
+/**
+ * connectRemote 실패를 분류한다. 백엔드는 호스트키 문제를
+ * `UNKNOWN_HOST_KEY:<fp>` / `HOST_KEY_MISMATCH:<fp>` 접두사로 전달한다.
+ */
+export function parseRemoteConnectError(err: unknown): RemoteConnectError {
+  const msg =
+    typeof err === "string"
+      ? err
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  const unknown = "UNKNOWN_HOST_KEY:";
+  const mismatch = "HOST_KEY_MISMATCH:";
+  if (msg.startsWith(unknown)) {
+    return { kind: "unknownHostKey", fingerprint: msg.slice(unknown.length) };
+  }
+  if (msg.startsWith(mismatch)) {
+    return { kind: "hostKeyMismatch", fingerprint: msg.slice(mismatch.length) };
+  }
+  return { kind: "generic", message: msg };
 }
