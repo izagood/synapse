@@ -328,9 +328,80 @@ async fn authenticate(
     ))
 }
 
+/// POSIX 셸 작은따옴표 인용. 임의 문자열을 한 인자로 안전하게 감싼다
+/// (공백·한글·`$`·따옴표 포함). git over SSH exec에서 인자 주입을 막는다.
+pub fn sh_single_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if c == '\'' {
+            // 작은따옴표는 인용을 닫고 escaped 따옴표를 넣은 뒤 다시 연다.
+            out.push_str("'\\''");
+        } else {
+            out.push(c);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+/// 원격 호스트에서 실행할 git 명령 문자열을 안전하게 조립한다.
+/// `cd <cwd> && env K=V … git <args…>` 형태이며 모든 동적 값은 셸 인용된다.
+pub fn remote_git_command(cwd: &str, envs: &[(&str, &str)], args: &[&str]) -> String {
+    let mut cmd = format!("cd {} && ", sh_single_quote(cwd));
+    if !envs.is_empty() {
+        cmd.push_str("env");
+        for (k, v) in envs {
+            cmd.push(' ');
+            cmd.push_str(k);
+            cmd.push('=');
+            cmd.push_str(&sh_single_quote(v));
+        }
+        cmd.push(' ');
+    }
+    cmd.push_str("git");
+    for a in args {
+        cmd.push(' ');
+        cmd.push_str(&sh_single_quote(a));
+    }
+    cmd
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sh_single_quote_escapes_special_chars() {
+        assert_eq!(sh_single_quote("a b"), "'a b'");
+        assert_eq!(sh_single_quote("note.md"), "'note.md'");
+        // 작은따옴표: 닫고-escaped-열기
+        assert_eq!(sh_single_quote("it's"), "'it'\\''s'");
+        // $ · 백틱 · 한글은 작은따옴표 안에서 리터럴로 보존된다
+        assert_eq!(sh_single_quote("$(rm -rf /)"), "'$(rm -rf /)'");
+        assert_eq!(sh_single_quote("메 모"), "'메 모'");
+    }
+
+    #[test]
+    fn remote_git_command_quotes_cwd_env_and_args() {
+        let cmd = remote_git_command(
+            "/srv/내 노트",
+            &[("GIT_TERMINAL_PROMPT", "0")],
+            &["commit", "-m", "메 시지 $x"],
+        );
+        assert_eq!(
+            cmd,
+            "cd '/srv/내 노트' && env GIT_TERMINAL_PROMPT='0' git 'commit' '-m' '메 시지 $x'"
+        );
+    }
+
+    #[test]
+    fn remote_git_command_without_env() {
+        assert_eq!(
+            remote_git_command("/srv/notes", &[], &["status", "--porcelain"]),
+            "cd '/srv/notes' && git 'status' '--porcelain'"
+        );
+    }
 
     #[test]
     fn default_config_uses_standard_ssh_paths() {

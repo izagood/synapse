@@ -89,24 +89,30 @@ pub async fn write_file(
 /// 그 사이 원격 머지나 외부 편집이 있었다면 돌려준 텍스트에 합쳐져 있다.
 #[tauri::command]
 pub async fn save_doc(
+    state: tauri::State<'_, RemoteState>,
     root: String,
     path: String,
     content: String,
     base: String,
 ) -> Result<String, String> {
-    // 협업(CRDT)은 아직 로컬 워크스페이스에서만 동작한다(원격은 Phase 4).
-    require_local(&parse_loc(&root)?)?;
+    let root_loc = parse_loc(&root)?;
+    let path_loc = parse_loc(&path)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let cand = fs_path(&path_loc);
     // 디스크 I/O와 락 대기(동기화의 로컬 구간과 경합)를 메인 스레드 밖에서
     crate::sync::run_blocking(move || {
         use synapse_core::collab;
 
-        let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
+        let resolved = backend
+            .ensure_writable_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
         let _guard = collab::workspace_lock()
             .lock()
             .map_err(|_| "workspace lock poisoned".to_string())?;
+        // actor-id는 설치본 식별자라 원격 워크스페이스에서도 로컬 config에서 읽는다.
         let actor = collab::load_or_create_actor_id(&config_dir()?).map_err(|e| e.to_string())?;
-        let store = synapse_core::CollabStore::new(Path::new(&root), actor);
+        let store = synapse_core::CollabStore::new(backend, root_path, actor);
         store
             .save_doc_file(&resolved, &content, &base)
             .map_err(|e| e.to_string())
@@ -120,23 +126,29 @@ pub async fn save_doc(
 /// base_content는 AI가 본 기준 텍스트, new_content는 적용 후 전체 텍스트다.
 #[tauri::command]
 pub async fn agent_edit_file(
+    state: tauri::State<'_, RemoteState>,
     root: String,
     path: String,
     new_content: String,
     base_content: String,
 ) -> Result<String, String> {
-    require_local(&parse_loc(&root)?)?;
+    let root_loc = parse_loc(&root)?;
+    let path_loc = parse_loc(&path)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let cand = fs_path(&path_loc);
     crate::sync::run_blocking(move || {
         use synapse_core::collab;
 
         // 새 파일(Write)도 만들 수 있어야 하므로 writable 가드를 쓴다 (루트 내부만)
-        let resolved = synapse_core::ensure_writable_within(Path::new(&root), Path::new(&path))
+        let resolved = backend
+            .ensure_writable_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
         let _guard = collab::workspace_lock()
             .lock()
             .map_err(|_| "workspace lock poisoned".to_string())?;
         // 고정 actor "ai-assistant" — 사용자 actor와 별도 로그로 분리된다
-        let store = synapse_core::CollabStore::new(Path::new(&root), "ai-assistant".to_string());
+        let store = synapse_core::CollabStore::new(backend, root_path, "ai-assistant".to_string());
         store
             .save_doc_file(&resolved, &new_content, &base_content)
             .map_err(|e| e.to_string())

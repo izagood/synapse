@@ -31,7 +31,7 @@ fn workspace(root: &str) -> GitWorkspace {
 fn collab_store(root: &str) -> Result<CollabStore, String> {
     let actor = collab::load_or_create_actor_id(&crate::commands::config_dir()?)
         .map_err(|e| e.to_string())?;
-    Ok(CollabStore::new(root, actor))
+    Ok(CollabStore::local(root, actor))
 }
 
 #[tauri::command]
