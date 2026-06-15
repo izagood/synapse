@@ -10,6 +10,7 @@ import { Markdown } from "tiptap-markdown";
 import type { AnyExtension, Editor } from "@tiptap/core";
 import { resolveAssetUrl } from "../../ipc/ipc";
 import { ko } from "../../i18n/locales/ko";
+import { SearchHighlight } from "./search";
 
 // 현재 편집 중인 노트의 디렉토리 — 상대 경로 이미지를 화면에 표시할 때만 사용.
 // 문서 모델(attrs.src)에는 항상 상대 경로가 남아 md 직렬화가 오염되지 않는다.
@@ -73,6 +74,8 @@ export function editorExtensions({
     // 표 보존 (FR-2.1) — 없으면 md 표가 텍스트로 뭉개진다
     TableKit.configure({ table: { resizable: false } }),
     WorkspaceImage,
+    // 문서 내 찾기 하이라이트 (Cmd/Ctrl+F) — md 직렬화에 관여하지 않음
+    SearchHighlight,
     ...(withPlaceholder
       ? [Placeholder.configure({ placeholder })]
       : []),
