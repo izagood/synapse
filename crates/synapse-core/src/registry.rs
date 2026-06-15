@@ -40,12 +40,19 @@ fn save(config_dir: &Path, registry: &Registry) -> io::Result<()> {
     crate::fs_io::atomic_write(&path, &text) // atomic write (NFR-2)
 }
 
+/// 워크스페이스 식별자가 목록에 남을 자격이 있는지.
+/// 로컬은 실제 폴더가 있어야 하고, 원격(`ssh://`)은 연결 없이 존재를 알 수 없으므로
+/// 항상 유지한다(연결은 사용자가 다시 시도).
+fn is_listable(id: &str) -> bool {
+    id.starts_with("ssh://") || Path::new(id).is_dir()
+}
+
 /// 최근 연 폴더 목록 (최신순)
 pub fn recent_workspaces(config_dir: &Path) -> Vec<String> {
     load(config_dir)
         .recent
         .into_iter()
-        .filter(|p| Path::new(p).is_dir())
+        .filter(|p| is_listable(p))
         .collect()
 }
 
@@ -62,11 +69,9 @@ pub fn record_opened(config_dir: &Path, workspace: &Path) -> io::Result<Vec<Stri
     Ok(registry.recent)
 }
 
-/// 앱 재시작 시 복원할 워크스페이스 (삭제된 폴더면 None)
+/// 앱 재시작 시 복원할 워크스페이스 (삭제된 로컬 폴더면 None, 원격은 유지)
 pub fn last_workspace(config_dir: &Path) -> Option<String> {
-    load(config_dir)
-        .last_workspace
-        .filter(|p| Path::new(p).is_dir())
+    load(config_dir).last_workspace.filter(|p| is_listable(p))
 }
 
 /// 사용자가 워크스페이스를 명시적으로 닫음 — 다음 시작은 시작 화면
@@ -139,6 +144,22 @@ mod tests {
         record_opened(config.path(), ws.path()).unwrap();
         drop(ws); // 폴더 삭제
         assert!(recent_workspaces(config.path()).is_empty());
+    }
+
+    #[test]
+    fn keeps_remote_ssh_uris_without_local_existence_check() {
+        let config = tempfile::tempdir().unwrap();
+        let remote = Path::new("ssh://me@host:2222/srv/notes");
+        record_opened(config.path(), remote).unwrap();
+        // 원격 URI는 로컬에 존재하지 않아도 최근 목록·복원 대상으로 유지된다
+        assert_eq!(
+            recent_workspaces(config.path()),
+            vec!["ssh://me@host:2222/srv/notes".to_string()]
+        );
+        assert_eq!(
+            last_workspace(config.path()),
+            Some("ssh://me@host:2222/srv/notes".to_string())
+        );
     }
 
     #[test]
