@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { ipc } from "../ipc/ipc";
-import type { FileNode, FileType } from "../ipc/types";
+import { ipc, parseRemoteConnectError } from "../ipc/ipc";
+import type { FileNode, FileType, RemoteConnectError } from "../ipc/types";
 import { ancestorDirsOf } from "../features/workspace/fileTreeUtils";
 import { basename, fileTypeOf } from "../shared/pathUtils";
 import { useSettings } from "./settings";
@@ -58,6 +58,19 @@ interface WorkspaceState {
 
   init(): Promise<void>;
   openFolder(path?: string): Promise<void>;
+  /**
+   * 원격 SSH 호스트에 연결한 뒤 해소된 루트를 워크스페이스로 연다.
+   * 성공하면 null, 실패하면 분류된 오류를 돌려준다(호스트키 미등록/불일치는
+   * UI가 fingerprint를 보여 처리). 성공 시 openFolder와 동일한 상태가 된다.
+   */
+  openRemote(
+    uri: string,
+    opts: {
+      password?: string | null;
+      passphrase?: string | null;
+      acceptNewHostKey?: boolean;
+    },
+  ): Promise<RemoteConnectError | null>;
   refreshTree(): Promise<void>;
   closeWorkspace(): void;
 
@@ -170,6 +183,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       await restoreSession(target, tree, get());
     } catch (e) {
       set({ error: String(e), loading: false });
+    }
+  },
+
+  async openRemote(uri, opts) {
+    set({ loading: true, error: null });
+    try {
+      const conn = await ipc.connectRemote(
+        uri,
+        opts.password ?? null,
+        opts.passphrase ?? null,
+        opts.acceptNewHostKey ?? false,
+      );
+      // 연결 성공 → 해소된 루트 URI로 평소처럼 트리를 연다.
+      await get().openFolder(conn.root);
+      return null;
+    } catch (e) {
+      set({ loading: false });
+      return parseRemoteConnectError(e);
     }
   },
 

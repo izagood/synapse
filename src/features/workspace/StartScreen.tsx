@@ -2,6 +2,7 @@ import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
 import { basename } from "../../shared/pathUtils";
 import { CloneForm } from "../sync/CloneForm";
+import { RemoteConnect } from "./RemoteConnect";
 
 export function StartScreen() {
   const { recent, loading, error, openFolder } = useWorkspace();
@@ -22,6 +23,8 @@ export function StartScreen() {
         </button>
 
         {error && <p className="error">{error}</p>}
+
+        <RemoteConnect />
 
         <CloneForm />
 
