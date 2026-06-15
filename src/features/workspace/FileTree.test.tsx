@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import type { FileNode } from "../../ipc/types";
 import { useWorkspace } from "../../stores/workspace";
+import { ipc } from "../../ipc/ipc";
 import { FileTree } from "./FileTree";
 
 let root: Root | null = null;
@@ -125,5 +126,104 @@ describe("FileTree 인라인 이름 변경", () => {
 
     expect(renameEntry).not.toHaveBeenCalled();
     expect(host.querySelector(".tree-rename-input")).toBeNull();
+  });
+});
+
+// 파일 행을 우클릭해 컨텍스트 메뉴를 연다.
+function openMenu() {
+  const row = host.querySelector(".tree-file") as HTMLElement;
+  act(() => {
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 }),
+    );
+  });
+}
+
+describe("FileTree 컨텍스트 메뉴 닫기", () => {
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    useWorkspace.setState({ tree: TREE, expandedDirs: {}, activePath: null });
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    host.remove();
+  });
+
+  it("메뉴 바깥을 누르면 메뉴가 닫힌다 — 전파를 막는 영역을 눌러도 닫힌다", () => {
+    render();
+    openMenu();
+    expect(host.querySelector(".context-menu")).toBeTruthy();
+
+    // 에디터처럼 mousedown 전파를 멈추는 바깥 영역을 흉내 낸다.
+    const outside = document.createElement("div");
+    outside.addEventListener("mousedown", (e) => e.stopPropagation());
+    document.body.appendChild(outside);
+    act(() => {
+      outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+
+    // 캡처 단계 리스너가 자식의 stopPropagation보다 먼저 실행되어 닫힌다.
+    expect(host.querySelector(".context-menu")).toBeNull();
+    outside.remove();
+  });
+
+  it("메뉴 안을 눌러도 닫히지 않는다", () => {
+    render();
+    openMenu();
+    const menu = host.querySelector(".context-menu") as HTMLElement;
+    act(() => {
+      menu.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    expect(host.querySelector(".context-menu")).toBeTruthy();
+  });
+
+  it("Escape를 누르면 메뉴가 닫힌다", () => {
+    render();
+    openMenu();
+    expect(host.querySelector(".context-menu")).toBeTruthy();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(host.querySelector(".context-menu")).toBeNull();
+  });
+});
+
+describe("FileTree 파일 매니저에서 보기", () => {
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    useWorkspace.setState({ tree: TREE, expandedDirs: {}, activePath: null });
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    host.remove();
+    vi.restoreAllMocks();
+  });
+
+  it("메뉴 항목을 누르면 해당 경로로 revealPath를 호출하고 메뉴를 닫는다", () => {
+    const revealPath = vi.spyOn(ipc, "revealPath").mockResolvedValue();
+    render();
+    openMenu();
+
+    const labels = ["Finder에서 보기", "탐색기에서 보기", "파일 매니저에서 보기"];
+    const revealBtn = [...host.querySelectorAll(".context-menu button")].find((b) =>
+      labels.includes(b.textContent ?? ""),
+    ) as HTMLButtonElement;
+    expect(revealBtn).toBeTruthy();
+    act(() => {
+      revealBtn.click();
+    });
+
+    expect(revealPath).toHaveBeenCalledWith(README.path);
+    expect(host.querySelector(".context-menu")).toBeNull();
   });
 });

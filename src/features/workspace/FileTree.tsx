@@ -6,6 +6,20 @@ import { useHistoryUi } from "../history/historyStore";
 import { useT } from "../../i18n";
 import { ChevronIcon, FileIcon, FileTextIcon, GlobeIcon } from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
+import { ipc } from "../../ipc/ipc";
+import { detectDesktopPlatform } from "../../shared/platform";
+
+// OS별로 "파일 매니저에서 보기" 라벨을 고른다 (macOS=Finder, Windows=탐색기)
+function revealLabelKey(): "fileTree.revealInFinder" | "fileTree.revealInExplorer" | "fileTree.revealInFileManager" {
+  switch (detectDesktopPlatform()) {
+    case "macos":
+      return "fileTree.revealInFinder";
+    case "windows":
+      return "fileTree.revealInExplorer";
+    default:
+      return "fileTree.revealInFileManager";
+  }
+}
 
 // jsdom 등 scrollIntoView가 없는 환경 대비 옵셔널 호출
 const scrollToRow = (el: HTMLButtonElement | null) =>
@@ -185,18 +199,31 @@ function TreeContextMenu({
   const openHistory = useHistoryUi((s) => s.open);
   const t = useT();
 
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 메뉴 바깥을 누르거나 Esc를 누르면 닫는다.
+  // 캡처 단계로 듣는 이유: 에디터(tiptap/ProseMirror) 같은 자식이 mousedown/click
+  // 전파를 멈추면 버블 단계 window 리스너는 호출되지 않아 메뉴가 안 닫힌다.
+  // 캡처 리스너는 자식보다 먼저 실행되므로 어디를 눌러도 항상 닫힌다.
   useEffect(() => {
-    const close = () => onClose();
-    window.addEventListener("click", close);
-    window.addEventListener("contextmenu", close);
+    const onOutside = (e: Event) => {
+      if (ref.current?.contains(e.target as Node)) return; // 메뉴 내부는 유지
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("mousedown", onOutside, true);
+    window.addEventListener("contextmenu", onOutside, true);
+    window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("contextmenu", close);
+      window.removeEventListener("mousedown", onOutside, true);
+      window.removeEventListener("contextmenu", onOutside, true);
+      window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
 
   // 메뉴가 창 밖으로 넘치면 안쪽으로 밀어 넣는다 (하단에서 '삭제'가 짤리던 문제)
-  const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: menu.x, y: menu.y });
   useLayoutEffect(() => {
     const el = ref.current;
@@ -221,12 +248,7 @@ function TreeContextMenu({
   };
 
   return (
-    <div
-      ref={ref}
-      className="context-menu"
-      style={{ left: pos.x, top: pos.y }}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div ref={ref} className="context-menu" style={{ left: pos.x, top: pos.y }}>
       {node.kind === "dir" && (
         <button onClick={() => run(() => void createNote(node.path))}>
           {t("fileTree.newNote")}
@@ -244,6 +266,9 @@ function TreeContextMenu({
         onClick={() => run(() => void navigator.clipboard?.writeText(node.path))}
       >
         {t("fileTree.copyPath")}
+      </button>
+      <button onClick={() => run(() => void ipc.revealPath(node.path))}>
+        {t(revealLabelKey())}
       </button>
       {node.kind === "file" && (
         <button onClick={() => run(() => openHistory(node.path))}>
