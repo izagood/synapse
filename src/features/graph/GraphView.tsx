@@ -10,7 +10,13 @@ import {
   RefreshIcon,
   SearchIcon,
 } from "../../shared/Icons";
-import { adjacencyOf, layoutGraph } from "./layout";
+import {
+  adjacencyOf,
+  estimateLabelWidth,
+  layoutGraph,
+  placeLabels,
+  type LabelCandidate,
+} from "./layout";
 
 const WIDTH = 900;
 const HEIGHT = 600;
@@ -27,6 +33,10 @@ const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
 
 const displayName = (name: string) => name.replace(/\.(md|markdown)$/i, "");
+
+// 연결 수(degree)에 비례한 노드 반지름 — 렌더와 라벨 배치가 함께 쓴다.
+const radiusOf = (degree: number, maxDegree: number) =>
+  degree > 0 ? 5 + (degree / maxDegree) * 9 : 3.2;
 
 // 노트 링크 그래프 시각화 모달 (FR-6.2).
 // 백링크 인덱스를 그래프(노드=노트, 엣지=링크)로 재사용한다.
@@ -128,6 +138,39 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     if (hover) return path === hover || (neighbors?.has(path) ?? false);
     return false;
   };
+
+  // 겹치지 않게 표시할 라벨 집합을 미리 계산한다.
+  // - 포커스 중(호버·검색): 포커스 집합만 후보 → 연결된 노트 제목이
+  //   배경 허브에 가리지 않고 우선 배치된다. 호버한 노드는 항상 표시.
+  // - 평상시: 허브(degree ≥ 2)와 현재 노트만 후보 → 빽빽한 중심부에서
+  //   겹치는 라벨은 숨겨 화면이 정돈된다.
+  const shownLabels = useMemo(() => {
+    if (!layout) return new Set<string>();
+    const cands: LabelCandidate[] = [];
+    for (const n of layout.nodes) {
+      const isCurrent = n.path === activePath;
+      const active = matches
+        ? matches.has(n.path)
+        : hover
+          ? n.path === hover || (neighbors?.has(n.path) ?? false)
+          : false;
+      const inFocus = active || isCurrent || n.path === hover;
+      const eligible = focusing ? inFocus : n.degree >= 2 || isCurrent;
+      if (!eligible) continue;
+      const force = focusing ? n.path === hover : isCurrent;
+      cands.push({
+        path: n.path,
+        x: n.x,
+        y: n.y,
+        r: radiusOf(n.degree, maxDegree),
+        width: estimateLabelWidth(displayName(n.name)),
+        // 현재 노트·이웃을 배경 허브보다 위로 — 큰 degree일수록 먼저 배치.
+        priority: n.degree + (isCurrent ? 1000 : 0) + (active ? 100 : 0),
+        force,
+      });
+    }
+    return placeLabels(cands);
+  }, [layout, focusing, hover, matches, neighbors, activePath, maxDegree]);
 
   const zoomAt = (vx: number, vy: number, factor: number) => {
     setView((v) => {
@@ -259,13 +302,11 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                 })}
                 {layout!.nodes.map((n) => {
                   const isCurrent = n.path === activePath;
-                  const isHovered = n.path === hover;
                   const active = isActive(n.path);
                   const dimmed = focusing && !active && !isCurrent;
                   const linked = n.degree > 0;
-                  const r = linked ? 5 + (n.degree / maxDegree) * 9 : 3.2;
-                  const showLabel =
-                    n.degree >= 2 || isCurrent || isHovered || active;
+                  const r = radiusOf(n.degree, maxDegree);
+                  const showLabel = shownLabels.has(n.path);
                   const cls = [
                     "graph-node",
                     linked ? "graph-node-linked" : "graph-node-iso",

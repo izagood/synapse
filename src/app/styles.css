@@ -2679,6 +2679,16 @@ select {
   stroke-linejoin: round;
 }
 
+/* 포커스(호버·검색 일치)·현재 노트 라벨은 또렷하게 강조 */
+.graph-node-active .graph-node-label {
+  font-weight: 600;
+}
+
+.graph-node-current .graph-node-label {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
 /* 떠 있는 줌 컨트롤 (우하단) */
 .graph-zoom {
   position: absolute;
