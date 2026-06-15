@@ -174,3 +174,88 @@ export function adjacencyOf(graph: LinkGraph, path: string): Set<string> {
   }
   return adj;
 }
+
+// ── 라벨 충돌 회피 ──────────────────────────────────────────────
+// 라벨은 노드 점 오른쪽에 그려진다. 노드가 빽빽하면 글자끼리 겹쳐
+// 읽을 수 없으므로(FR-6.2 개선), 우선순위가 높은 라벨부터 자리를 잡고
+// 이미 놓인 라벨 사각형과 겹치는 라벨은 숨긴다. 좌표는 레이아웃 공간
+// 기준 — 텍스트와 노드가 함께 확대되므로 줌과 무관하게 결정적이다.
+
+/** 라벨이 노드 점에서 떨어진 가로 간격(px, 레이아웃 공간). */
+export const LABEL_GAP = 4;
+/** 라벨 한 줄의 대략적 높이(px). 폰트 11 + 위아래 여유. */
+export const LABEL_HEIGHT = 14;
+/** 겹침 판정 시 라벨 사이에 두는 최소 여백(px). */
+const LABEL_MARGIN = 2;
+
+export interface LabelCandidate {
+  path: string;
+  /** 노드 중심 좌표 */
+  x: number;
+  y: number;
+  /** 노드 반지름 — 라벨은 x + r + LABEL_GAP 부터 시작 */
+  r: number;
+  /** 추정 글자 폭(px) */
+  width: number;
+  /** 클수록 먼저 자리를 잡는다(겹치면 우선) */
+  priority: number;
+  /** 항상 표시(겹쳐도 숨기지 않음) — 호버/현재 노트 등 */
+  force?: boolean;
+}
+
+/**
+ * 라벨 글자 폭을 추정한다(px). CJK 문자는 거의 정사각(1em),
+ * 라틴 문자는 약 0.55em 폭으로 잡는다 — 캔버스 측정 없이 충분히 근사.
+ */
+export function estimateLabelWidth(text: string, fontSize = 11): number {
+  let units = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    units += isWideChar(code) ? 1 : 0.55;
+  }
+  return units * fontSize;
+}
+
+/** 동아시아 전각(CJK·한글·가나 등) 문자인지 대략 판정. */
+function isWideChar(code: number): boolean {
+  return (
+    (code >= 0x1100 && code <= 0x115f) || // 한글 자모
+    (code >= 0x2e80 && code <= 0xa4cf) || // CJK 부수~한글 이전
+    (code >= 0xac00 && code <= 0xd7a3) || // 한글 음절
+    (code >= 0xf900 && code <= 0xfaff) || // CJK 호환 한자
+    (code >= 0xff00 && code <= 0xff60) || // 전각 영숫자·기호
+    (code >= 0x20000 && code <= 0x3fffd) // CJK 확장
+  );
+}
+
+/**
+ * 겹치지 않게 표시할 라벨 집합을 고른다. 우선순위(force 우선, 그다음
+ * priority)가 높은 라벨부터 자리를 잡고, 이미 놓인 라벨과 겹치면 숨긴다.
+ * force 라벨은 겹쳐도 표시하되 자리는 차지해 다른 라벨이 피하게 한다.
+ *
+ * 순수·결정적: 같은 입력이면 항상 같은 집합을 돌려준다.
+ * @returns 표시할 노드 path 집합
+ */
+export function placeLabels(cands: LabelCandidate[]): Set<string> {
+  const order = [...cands].sort((a, b) => {
+    if (!!b.force !== !!a.force) return a.force ? -1 : 1;
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+  });
+
+  const placed: { l: number; t: number; r: number; b: number }[] = [];
+  const shown = new Set<string>();
+  for (const c of order) {
+    const left = c.x + c.r + LABEL_GAP - LABEL_MARGIN;
+    const right = c.x + c.r + LABEL_GAP + c.width + LABEL_MARGIN;
+    const top = c.y - LABEL_HEIGHT / 2 - LABEL_MARGIN;
+    const bottom = c.y + LABEL_HEIGHT / 2 + LABEL_MARGIN;
+    const collides =
+      !c.force &&
+      placed.some((p) => left < p.r && right > p.l && top < p.b && bottom > p.t);
+    if (collides) continue;
+    placed.push({ l: left, t: top, r: right, b: bottom });
+    shown.add(c.path);
+  }
+  return shown;
+}
