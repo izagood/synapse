@@ -5,6 +5,7 @@ pub mod fs_io;
 pub mod git;
 pub mod github;
 pub mod links;
+pub mod location;
 pub mod paths;
 pub mod registry;
 pub mod retrieval;
@@ -22,6 +23,7 @@ pub use fs_io::{
 };
 pub use git::{ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, SyncState, SyncStatus};
 pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, LinkGraph};
+pub use location::{Location, LocationError, SshLocation, DEFAULT_SSH_PORT};
 pub use paths::{ensure_within, rel_path_within};
 pub use registry::{recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};
