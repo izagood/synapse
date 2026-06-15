@@ -21,6 +21,10 @@ export function setImageBaseDir(dir: string) {
 
 function displayImageSrc(src: string): string {
   if (/^(https?:|data:|asset:|blob:)/i.test(src) || !imageBaseDir) return src;
+  // 원격(ssh://) 워크스페이스의 상대 경로 이미지는 asset protocol로 직접 못 읽는다
+  // (SFTP). 깨진 asset URL을 만드는 대신 상대 경로를 그대로 둬 깔끔히 degrade한다.
+  // 원격 이미지 인라인 렌더링(SFTP→로컬 캐시)은 후속 작업이다.
+  if (imageBaseDir.startsWith("ssh://")) return src;
   let rel = src.replace(/^\.\//, "");
   // markdown-it이 파싱 시 목적지를 %인코딩하므로(한글 파일명 등),
   // 디스크의 실제 파일명으로 되돌려 asset URL을 만든다.
