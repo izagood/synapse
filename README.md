@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/izagood/synapse/actions/workflows/ci.yml/badge.svg)](https://github.com/izagood/synapse/actions/workflows/ci.yml)
 [![Release](https://github.com/izagood/synapse/actions/workflows/release-desktop.yml/badge.svg)](https://github.com/izagood/synapse/actions/workflows/release-desktop.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 A desktop Markdown note app with Notion-style editing, safe HTML viewing, and
 GitHub-based sync.
@@ -252,7 +253,8 @@ See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) and the plan documents in
 
 ## Contributing
 
-Issues and pull requests are welcome.
+Issues and pull requests are welcome. By submitting a pull request, you agree
+to license your contribution under the [Apache License 2.0](LICENSE).
 
 Before opening a pull request, run the relevant checks:
 
@@ -279,8 +281,10 @@ cargo test
 - [Packaging](docs/PACKAGING.md)
 - [Plan v0.2](docs/PLAN-v0.2.md)
 - [Plan v0.4](docs/PLAN-v0.4.md)
+- [Plan i18n](docs/PLAN-i18n.md)
 
 ## License
 
-No license file is included yet. Until a license is added, the project is not
-licensed for redistribution or reuse by default.
+Synapse is released under the [Apache License 2.0](LICENSE).
+
+Copyright (c) 2026 Jaebin Lee.
