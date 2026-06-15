@@ -117,8 +117,14 @@ pub async fn connect_remote(
     let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
     let mut cfg = SshConfig::with_defaults(&home);
     // 사용자가 키 파일을 직접 지정하면 가장 먼저 시도한다(~/.ssh 기본 키보다 우선).
-    if let Some(key) = key_path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
-        cfg.identity_files.insert(0, key.into());
+    // GUI에 흔히 입력하는 `~/.ssh/...` 틸드 경로를 홈으로 확장한다 — 확장하지 않으면
+    // `Path::exists()`가 false가 돼 해당 키가 조용히 스킵되고 인증이 실패한다.
+    if let Some(key) = key_path
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+    {
+        cfg.identity_files
+            .insert(0, synapse_core::expand_tilde(&key, &home));
     }
     cfg.password = password;
     cfg.passphrase = passphrase;
