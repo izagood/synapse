@@ -8,6 +8,8 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::tree::FileNode;
+
 /// SSH 원격 위치: `ssh://user@host:port/path`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SshLocation {
@@ -92,6 +94,31 @@ impl Location {
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.to_uri())
+    }
+}
+
+/// 이 위치(워크스페이스 루트)를 기준으로, 백엔드가 만든 절대경로(로컬은 OS 경로,
+/// 원격은 POSIX 경로)를 프론트가 다시 열 수 있는 식별자로 바꾼다.
+/// 로컬은 경로 그대로, 원격은 같은 호스트의 `ssh://` URI로 감싼다.
+pub fn path_to_uri(root: &Location, bare_abs_path: &str) -> String {
+    match root {
+        Location::Local(_) => bare_abs_path.to_string(),
+        Location::Ssh(s) => {
+            let mut child = s.clone();
+            child.path = bare_abs_path.to_string();
+            Location::Ssh(child).to_uri()
+        }
+    }
+}
+
+/// [`crate::vfs::Backend::build_tree`]가 만든 트리의 모든 `path`를 [`path_to_uri`]로
+/// 바꾼다. 원격 트리의 노드를 프론트가 URI로 다시 열 수 있게 한다(로컬은 무변경).
+pub fn urify_tree(root: &Location, node: &mut FileNode) {
+    node.path = path_to_uri(root, &node.path);
+    if let Some(children) = node.children.as_mut() {
+        for child in children {
+            urify_tree(root, child);
+        }
     }
 }
 
@@ -245,6 +272,46 @@ mod tests {
             Location::parse("ssh://me@host:notaport/x"),
             Err(LocationError::InvalidPort(_))
         ));
+    }
+
+    #[test]
+    fn path_to_uri_wraps_remote_keeps_local() {
+        let local = Location::parse("/root").unwrap();
+        assert_eq!(path_to_uri(&local, "/root/sub/a.md"), "/root/sub/a.md");
+
+        let remote = Location::parse("ssh://me@host/srv").unwrap();
+        assert_eq!(
+            path_to_uri(&remote, "/srv/sub/a.md"),
+            "ssh://me@host/srv/sub/a.md"
+        );
+
+        let remote_port = Location::parse("ssh://me@host:2222/srv").unwrap();
+        assert_eq!(
+            path_to_uri(&remote_port, "/srv/a.md"),
+            "ssh://me@host:2222/srv/a.md"
+        );
+    }
+
+    #[test]
+    fn urify_tree_rewrites_all_node_paths_for_remote() {
+        use crate::tree::{FileType, NodeKind};
+        let mut tree = FileNode {
+            name: "srv".into(),
+            path: "/srv".into(),
+            kind: NodeKind::Dir,
+            file_type: FileType::Other,
+            children: Some(vec![FileNode {
+                name: "a.md".into(),
+                path: "/srv/a.md".into(),
+                kind: NodeKind::File,
+                file_type: FileType::Markdown,
+                children: None,
+            }]),
+        };
+        let root = Location::parse("ssh://me@host/srv").unwrap();
+        urify_tree(&root, &mut tree);
+        assert_eq!(tree.path, "ssh://me@host/srv");
+        assert_eq!(tree.children.unwrap()[0].path, "ssh://me@host/srv/a.md");
     }
 
     #[test]
