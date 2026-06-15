@@ -399,6 +399,163 @@ impl Backend for LocalBackend {
     }
 }
 
+/// 인메모리 백엔드 (테스트용). 실제 파일시스템 없이 [`Backend`] 위에서 도는
+/// 로직(특히 collab CRDT)이 백엔드에 독립적인지 검증한다 — 원격(SFTP)에서도
+/// 같은 코드가 동작함을 sshd 없이 보장한다.
+#[cfg(test)]
+#[derive(Default)]
+pub struct InMemoryBackend {
+    state: std::sync::Mutex<MemState>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct MemState {
+    files: std::collections::HashMap<PathBuf, Vec<u8>>,
+    dirs: std::collections::HashSet<PathBuf>,
+}
+
+#[cfg(test)]
+impl InMemoryBackend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[cfg(test)]
+fn not_found() -> io::Error {
+    io::Error::new(io::ErrorKind::NotFound, "no such path")
+}
+
+#[cfg(test)]
+fn register_ancestors(dirs: &mut std::collections::HashSet<PathBuf>, path: &Path) {
+    let mut cur = path.parent();
+    while let Some(d) = cur {
+        if d.as_os_str().is_empty() {
+            break;
+        }
+        dirs.insert(d.to_path_buf());
+        cur = d.parent();
+    }
+}
+
+#[cfg(test)]
+impl Backend for InMemoryBackend {
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        let st = self.state.lock().unwrap();
+        st.files.get(path).cloned().ok_or_else(not_found)
+    }
+
+    fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut st = self.state.lock().unwrap();
+        register_ancestors(&mut st.dirs, path);
+        st.files.insert(path.to_path_buf(), bytes.to_vec());
+        Ok(())
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let mut st = self.state.lock().unwrap();
+        let bytes = st.files.remove(from).ok_or_else(not_found)?;
+        register_ancestors(&mut st.dirs, to);
+        st.files.insert(to.to_path_buf(), bytes); // POSIX: 덮어쓰기 허용
+        Ok(())
+    }
+
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        let mut st = self.state.lock().unwrap();
+        st.files.remove(path).map(|_| ()).ok_or_else(not_found)
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        let mut st = self.state.lock().unwrap();
+        st.files.retain(|k, _| !k.starts_with(path));
+        st.dirs.retain(|d| !d.starts_with(path));
+        Ok(())
+    }
+
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        let mut st = self.state.lock().unwrap();
+        register_ancestors(&mut st.dirs, path);
+        st.dirs.insert(path.to_path_buf());
+        Ok(())
+    }
+
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+        let st = self.state.lock().unwrap();
+        let is_dir = st.dirs.contains(path);
+        let mut out = Vec::new();
+        let mut push = |child: &Path| {
+            if child.parent() == Some(path) {
+                if let Some(name) = child.file_name() {
+                    out.push(DirEntry {
+                        name: name.to_string_lossy().into_owned(),
+                        path: child.to_path_buf(),
+                    });
+                }
+            }
+        };
+        for k in st.files.keys() {
+            push(k);
+        }
+        for d in st.dirs.iter() {
+            push(d);
+        }
+        if !is_dir && out.is_empty() {
+            return Err(not_found());
+        }
+        Ok(out)
+    }
+
+    fn metadata(&self, path: &Path) -> io::Result<Meta> {
+        let st = self.state.lock().unwrap();
+        if let Some(bytes) = st.files.get(path) {
+            Ok(Meta {
+                is_dir: false,
+                is_file: true,
+                is_symlink: false,
+                len: bytes.len() as u64,
+            })
+        } else if st.dirs.contains(path) {
+            Ok(Meta {
+                is_dir: true,
+                is_file: false,
+                is_symlink: false,
+                len: 0,
+            })
+        } else {
+            Err(not_found())
+        }
+    }
+
+    fn symlink_metadata(&self, path: &Path) -> io::Result<Meta> {
+        self.metadata(path)
+    }
+
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        Ok(path.to_path_buf())
+    }
+
+    fn create_new(&self, path: &Path, bytes: &[u8]) -> io::Result<bool> {
+        let mut st = self.state.lock().unwrap();
+        if st.files.contains_key(path) || st.dirs.contains(path) {
+            return Ok(false);
+        }
+        register_ancestors(&mut st.dirs, path);
+        st.files.insert(path.to_path_buf(), bytes.to_vec());
+        Ok(true)
+    }
+
+    fn append(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut st = self.state.lock().unwrap();
+        register_ancestors(&mut st.dirs, path);
+        st.files
+            .entry(path.to_path_buf())
+            .or_default()
+            .extend_from_slice(bytes);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +567,30 @@ mod tests {
         assert!(LocalBackend.create_new(&p, b"v1").unwrap());
         assert!(!LocalBackend.create_new(&p, b"v2").unwrap());
         assert_eq!(LocalBackend.read(&p).unwrap(), b"v1");
+    }
+
+    #[test]
+    fn inmemory_roundtrip_create_append_readdir() {
+        let b = InMemoryBackend::new();
+        b.create_dir_all(Path::new("/ws/docs")).unwrap();
+        assert!(b.create_new(Path::new("/ws/docs/a.y"), b"v1").unwrap());
+        // 같은 경로 재생성은 충돌(false)
+        assert!(!b.create_new(Path::new("/ws/docs/a.y"), b"x").unwrap());
+        b.append(Path::new("/ws/docs/a.y"), b"v2").unwrap();
+        assert_eq!(b.read(Path::new("/ws/docs/a.y")).unwrap(), b"v1v2");
+        // read_dir은 직속 자식만
+        let names: Vec<_> = b
+            .read_dir(Path::new("/ws/docs"))
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["a.y".to_string()]);
+        // write_atomic(기본 제공)이 rename 폴백 없이도 동작
+        b.write_atomic(Path::new("/ws/docs/a.y"), b"v3").unwrap();
+        assert_eq!(b.read(Path::new("/ws/docs/a.y")).unwrap(), b"v3");
+        // 없는 경로 read_dir은 에러
+        assert!(b.read_dir(Path::new("/ws/none")).is_err());
     }
 
     #[test]

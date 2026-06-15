@@ -21,7 +21,9 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use crate::vfs::{Backend, LocalBackend};
 
 use yrs::updates::decoder::Decode;
 use yrs::{
@@ -242,6 +244,8 @@ fn deterministic_client(parts: &[&[u8]]) -> ClientID {
 // ---------------------------------------------------------------------------
 
 pub struct CollabStore {
+    /// `.synapse/` 데이터 I/O 백엔드(로컬 또는 원격 SFTP).
+    backend: Arc<dyn Backend>,
     root: PathBuf,
     actor: String,
     compact_threshold: u64,
@@ -255,17 +259,25 @@ type LoadedDoc = (
 );
 
 impl CollabStore {
-    pub fn new(root: impl Into<PathBuf>, actor: String) -> Self {
+    /// 임의 백엔드(로컬/원격)로 협업 저장소를 만든다.
+    pub fn new(backend: Arc<dyn Backend>, root: impl Into<PathBuf>, actor: String) -> Self {
         CollabStore {
+            backend,
             root: root.into(),
             actor,
             compact_threshold: COMPACT_THRESHOLD,
         }
     }
 
+    /// 로컬 파일시스템 협업 저장소(편의 생성자).
+    pub fn local(root: impl Into<PathBuf>, actor: String) -> Self {
+        Self::new(Arc::new(LocalBackend), root, actor)
+    }
+
     #[cfg(test)]
     fn with_threshold(root: impl Into<PathBuf>, actor: String, threshold: u64) -> Self {
         CollabStore {
+            backend: Arc::new(LocalBackend),
             root: root.into(),
             actor,
             compact_threshold: threshold,
@@ -281,7 +293,12 @@ impl CollabStore {
     }
 
     pub fn has_doc(&self, id: &str) -> bool {
-        valid_id(id) && self.doc_dir(id).is_dir()
+        valid_id(id)
+            && self
+                .backend
+                .metadata(&self.doc_dir(id))
+                .map(|m| m.is_dir)
+                .unwrap_or(false)
     }
 
     /// 스냅샷 + 모든 로그를 합쳐 문서를 복원한다
@@ -294,23 +311,23 @@ impl CollabStore {
         let dir = self.doc_dir(id);
         let mut found = false;
         let mut snaps = Vec::new();
-        let entries = match fs::read_dir(&dir) {
+        let entries = match self.backend.read_dir(&dir) {
             Ok(e) => e,
             Err(_) => return Ok((doc, text, false, snaps)),
         };
         let mut txn = doc.transact_mut();
-        for entry in entries.filter_map(Result::ok) {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let path = entry.path();
+        for entry in entries {
+            let name = entry.name;
+            let path = entry.path;
             if name.starts_with("snap-") && name.ends_with(".y") {
-                if let Ok(bytes) = fs::read(&path) {
+                if let Ok(bytes) = self.backend.read(&path) {
                     if apply_bytes(&mut txn, &bytes) {
                         found = true;
                     }
                     snaps.push(path);
                 }
             } else if name.starts_with("log-") && name.ends_with(".y") {
-                if let Ok(bytes) = fs::read(&path) {
+                if let Ok(bytes) = self.backend.read(&path) {
                     for frame in parse_frames(&bytes) {
                         if apply_bytes(&mut txn, frame) {
                             found = true;
@@ -394,13 +411,13 @@ impl CollabStore {
             }
         };
         // 에디터가 모르는 디스크상의 외부 편집을 먼저 흡수해 유실을 막는다
-        if let Ok(disk) = fs::read_to_string(file) {
+        if let Ok(disk) = self.backend.read_to_string(file) {
             if disk != base {
                 let _ = self.absorb_external(&id, &disk);
             }
         }
         let merged = self.save_text(&id, base, content)?;
-        crate::fs_io::atomic_write(file, &merged)?;
+        self.backend.write_atomic(file, merged.as_bytes())?;
         Ok(merged)
     }
 
@@ -505,23 +522,20 @@ impl CollabStore {
             return Ok(());
         }
         let path = self.own_log(id);
-        fs::create_dir_all(path.parent().unwrap())?;
+        if let Some(parent) = path.parent() {
+            self.backend.create_dir_all(parent)?;
+        }
         let mut frame = Vec::with_capacity(4 + update.len());
         frame.extend_from_slice(&(update.len() as u32).to_le_bytes());
         frame.extend_from_slice(update);
-        use std::io::Write;
-        let mut f = fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&path)?;
-        f.write_all(&frame)
+        self.backend.append(&path, &frame)
     }
 
     /// 자기 로그가 임계치를 넘으면 전체 상태를 스냅샷으로 굳히고
     /// 자기 로그를 비운다. 방금 읽어들인(=포함된) 옛 스냅샷은 지운다.
     fn maybe_compact(&self, id: &str, doc: &Doc, loaded_snaps: &[PathBuf]) -> io::Result<()> {
         let own = self.own_log(id);
-        let size = fs::metadata(&own).map(|m| m.len()).unwrap_or(0);
+        let size = self.backend.metadata(&own).map(|m| m.len).unwrap_or(0);
         if size <= self.compact_threshold {
             return Ok(());
         }
@@ -530,13 +544,13 @@ impl CollabStore {
             .encode_state_as_update_v1(&StateVector::default());
         let name = format!("snap-{:016x}.y", fnv1a64(&[&snapshot]));
         let path = self.doc_dir(id).join(&name);
-        if !path.exists() {
-            crate::fs_io::atomic_write_bytes(&path, &snapshot)?;
+        if !self.backend.exists(&path) {
+            self.backend.write_atomic(&path, &snapshot)?;
         }
-        fs::write(&own, [])?; // 자기 로그 truncate (자기 파일이므로 충돌 없음)
+        self.backend.write(&own, &[])?; // 자기 로그 truncate (자기 파일이므로 충돌 없음)
         for old in loaded_snaps {
             if old != &path {
-                let _ = fs::remove_file(old);
+                let _ = self.backend.remove_file(old);
             }
         }
         Ok(())
@@ -653,7 +667,7 @@ mod tests {
     use super::*;
 
     fn store(dir: &Path, actor: &str) -> CollabStore {
-        CollabStore::new(dir, actor.to_string())
+        CollabStore::local(dir, actor.to_string())
     }
 
     /// git 머지를 모사: 두 워크스페이스의 .synapse 파일을 합집합으로 맞춘다
@@ -685,6 +699,27 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn collab_works_on_non_local_backend() {
+        // 인메모리 백엔드(=비-로컬)에서도 같은 CRDT 로직이 동작함을 확인한다.
+        // 원격 SFTP 백엔드도 같은 trait를 구현하므로, 이 테스트가 sshd 없이
+        // "원격에서도 협업이 동작한다"를 보장한다.
+        use crate::vfs::InMemoryBackend;
+        let backend = Arc::new(InMemoryBackend::new());
+        let root = PathBuf::from("/ws");
+        let file = PathBuf::from("/ws/note.md");
+
+        let store = CollabStore::new(backend.clone(), root.clone(), "actor-a".to_string());
+        // 첫 저장: synapse_id 발급 + .md 원자 기록
+        let v1 = store.save_doc_file(&file, "# 제목\n내용", "").unwrap();
+        let id = extract_doc_id(&v1).expect("id가 주입되어야 한다");
+        assert_eq!(backend.read_to_string(&file).unwrap(), v1);
+
+        // 같은 백엔드를 공유하는 새 스토어로 CRDT를 다시 로드해도 동일하다
+        let store2 = CollabStore::new(backend, root, "actor-a".to_string());
+        assert_eq!(store2.doc_text(&id).unwrap(), v1);
     }
 
     #[test]

@@ -1069,7 +1069,7 @@ mod tests {
     fn crdt_auto_resolves_concurrent_md_edits() {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
-        let store_a = CollabStore::new(&ws_a, "actor-aaaa-1111".to_string());
+        let store_a = CollabStore::local(&ws_a, "actor-aaaa-1111".to_string());
 
         let base = doc_text("# 회의록\n\n- 안건 하나\n");
         save_via_store(&store_a, &ws_a, "note.md", "", &base);
@@ -1080,7 +1080,7 @@ mod tests {
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
         let git_b = GitWorkspace::new(&ws_b, None);
-        let store_b = CollabStore::new(&ws_b, "actor-bbbb-2222".to_string());
+        let store_b = CollabStore::local(&ws_b, "actor-bbbb-2222".to_string());
 
         // A와 B가 같은 문서의 다른 부분을 동시에 편집
         let a_edit = base.replace("# 회의록", "# 회의록 (A 제목 수정)");
@@ -1133,7 +1133,7 @@ mod tests {
     fn non_md_conflict_still_reports_conflict() {
         let (tmp, remote, ws_a) = setup();
         let git_a = GitWorkspace::new(&ws_a, None);
-        let store_a = CollabStore::new(&ws_a, "actor-aaaa-1111".to_string());
+        let store_a = CollabStore::local(&ws_a, "actor-aaaa-1111".to_string());
         write(&ws_a, "data.txt", "기준");
         git_a
             .publish(&remote.display().to_string(), "init")
@@ -1142,7 +1142,7 @@ mod tests {
         let ws_b = tmp.path().join("clone-b");
         GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
         let git_b = GitWorkspace::new(&ws_b, None);
-        let store_b = CollabStore::new(&ws_b, "actor-bbbb-2222".to_string());
+        let store_b = CollabStore::local(&ws_b, "actor-bbbb-2222".to_string());
 
         write(&ws_a, "data.txt", "A의 수정");
         git_a.sync_with_collab("A", Some(&store_a)).unwrap();
@@ -1159,7 +1159,7 @@ mod tests {
     fn sync_absorbs_external_md_edits() {
         let (_tmp, remote, ws) = setup();
         let git = GitWorkspace::new(&ws, None);
-        let store = CollabStore::new(&ws, "actor-aaaa-1111".to_string());
+        let store = CollabStore::local(&ws, "actor-aaaa-1111".to_string());
 
         let base = doc_text("원래 내용\n");
         save_via_store(&store, &ws, "note.md", "", &base);
