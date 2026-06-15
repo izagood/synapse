@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { adjacencyOf, layoutGraph } from "./layout";
+import {
+  adjacencyOf,
+  estimateLabelWidth,
+  layoutGraph,
+  placeLabels,
+  type LabelCandidate,
+} from "./layout";
 import { computeGraph } from "../editor/backlinks";
 import type { LinkGraph } from "../../ipc/types";
 
@@ -106,6 +112,61 @@ describe("layoutGraph", () => {
       edges: [{ source: `${ROOT}/a.md`, target: `${ROOT}/ghost.md` }],
     });
     expect(layout.edges).toHaveLength(0);
+  });
+});
+
+describe("estimateLabelWidth", () => {
+  it("grows with text length", () => {
+    expect(estimateLabelWidth("abcd")).toBeGreaterThan(estimateLabelWidth("ab"));
+  });
+
+  it("counts CJK characters wider than latin ones", () => {
+    // 같은 글자 수라도 한글이 더 넓게 추정돼야 한다.
+    expect(estimateLabelWidth("가나다")).toBeGreaterThan(
+      estimateLabelWidth("abc"),
+    );
+  });
+
+  it("returns 0 for an empty string", () => {
+    expect(estimateLabelWidth("")).toBe(0);
+  });
+});
+
+describe("placeLabels", () => {
+  const at = (
+    path: string,
+    x: number,
+    y: number,
+    extra: Partial<LabelCandidate> = {},
+  ): LabelCandidate => ({ path, x, y, r: 5, width: 40, priority: 0, ...extra });
+
+  it("shows labels that are far apart", () => {
+    const shown = placeLabels([at("a", 0, 0), at("b", 0, 200)]);
+    expect(shown).toEqual(new Set(["a", "b"]));
+  });
+
+  it("hides the lower-priority label when two overlap", () => {
+    const shown = placeLabels([
+      at("a", 0, 0, { priority: 1 }),
+      at("b", 1, 1, { priority: 5 }),
+    ]);
+    expect(shown).toEqual(new Set(["b"])); // b가 우선순위 높아 자리 차지
+  });
+
+  it("always shows forced labels even when overlapping", () => {
+    const shown = placeLabels([
+      at("a", 0, 0, { priority: 9 }),
+      at("b", 1, 1, { force: true, priority: 0 }),
+    ]);
+    expect(shown.has("b")).toBe(true);
+    // force 라벨이 자리를 차지하므로 겹치는 일반 라벨은 숨는다.
+    expect(shown.has("a")).toBe(false);
+  });
+
+  it("is deterministic regardless of input order", () => {
+    const a = at("a", 0, 0, { priority: 3 });
+    const b = at("b", 1, 1, { priority: 3 });
+    expect(placeLabels([a, b])).toEqual(placeLabels([b, a]));
   });
 });
 
