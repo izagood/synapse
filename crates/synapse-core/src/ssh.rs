@@ -13,8 +13,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use russh::client::{self, AuthResult, Config, Handle};
-use russh::keys::agent::client::AgentClient;
-use russh::keys::agent::AgentIdentity;
 use russh::keys::ssh_key::{HashAlg, PublicKey};
 use russh::keys::{known_hosts, load_secret_key, PrivateKeyWithHashAlg};
 use russh_sftp::client::SftpSession;
@@ -281,24 +279,9 @@ async fn authenticate(
     user: &str,
     cfg: &SshConfig,
 ) -> Result<(), SshError> {
-    // 1. SSH 에이전트
-    if cfg.use_agent {
-        if let Ok(mut agent) = AgentClient::connect_env().await {
-            if let Ok(identities) = agent.request_identities().await {
-                for identity in identities {
-                    if let AgentIdentity::PublicKey { key, .. } = identity {
-                        if let Ok(result) = handle
-                            .authenticate_publickey_with(user, key, None, &mut agent)
-                            .await
-                        {
-                            if result.success() {
-                                return Ok(());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    // 1. SSH 에이전트 (플랫폼별: unix는 SSH_AUTH_SOCK, Windows는 현재 미지원)
+    if cfg.use_agent && try_agent_auth(handle, user).await {
+        return Ok(());
     }
 
     // 2. ~/.ssh 키 파일
@@ -326,6 +309,38 @@ async fn authenticate(
     Err(SshError::Auth(
         "사용 가능한 인증 수단으로 로그인하지 못했습니다(에이전트/키/비밀번호)".into(),
     ))
+}
+
+/// SSH 에이전트로 공개키 인증을 시도한다. 성공하면 true.
+/// 에이전트 소켓 접근 방식이 플랫폼마다 달라 cfg로 분기한다.
+#[cfg(unix)]
+async fn try_agent_auth(handle: &mut Handle<Verifier>, user: &str) -> bool {
+    use russh::keys::agent::client::AgentClient;
+    use russh::keys::agent::AgentIdentity;
+
+    let Ok(mut agent) = AgentClient::connect_env().await else {
+        return false;
+    };
+    let Ok(identities) = agent.request_identities().await else {
+        return false;
+    };
+    for identity in identities {
+        if let AgentIdentity::PublicKey { key, .. } = identity {
+            if let Ok(AuthResult::Success) = handle
+                .authenticate_publickey_with(user, key, None, &mut agent)
+                .await
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 비-unix(Windows 등): SSH 에이전트(Pageant)는 현재 미지원 — 키 파일/비밀번호로 인증한다.
+#[cfg(not(unix))]
+async fn try_agent_auth(_handle: &mut Handle<Verifier>, _user: &str) -> bool {
+    false
 }
 
 /// POSIX 셸 작은따옴표 인용. 임의 문자열을 한 인자로 안전하게 감싼다
