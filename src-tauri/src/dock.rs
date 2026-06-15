@@ -27,8 +27,7 @@ pub fn install(app: AppHandle) {
     let Some(delegate) = ns_app.delegate() else {
         return;
     };
-    let delegate_obj: &AnyObject =
-        unsafe { &*(Retained::as_ptr(&delegate) as *const AnyObject) };
+    let delegate_obj: &AnyObject = unsafe { &*(Retained::as_ptr(&delegate) as *const AnyObject) };
     let class: &AnyClass = delegate_obj.class();
     let cls = class as *const AnyClass as *mut AnyClass;
 
@@ -110,11 +109,7 @@ extern "C-unwind" fn action_new_window(_this: *mut AnyObject, _sel: Sel, _sender
     }
 }
 
-extern "C-unwind" fn action_open_recent(
-    _this: *mut AnyObject,
-    _sel: Sel,
-    sender: *mut AnyObject,
-) {
+extern "C-unwind" fn action_open_recent(_this: *mut AnyObject, _sel: Sel, sender: *mut AnyObject) {
     let Some(app) = APP.get() else { return };
     let sender = unsafe { &*(sender as *const NSMenuItem) };
     let path = sender

@@ -1,156 +1,49 @@
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::vfs::{Backend, LocalBackend};
+
+// 이 모듈의 파일 연산 헬퍼들은 [`crate::vfs::Backend`]의 기본 제공 메서드로
+// 옮겨졌다. 아래 함수들은 로컬 파일시스템([`LocalBackend`])에 위임하는 얇은
+// 래퍼로, 기존 호출부와의 호환을 위해 유지한다. 원격(SFTP 등) 경로는
+// 호출부에서 적절한 백엔드를 골라 trait 메서드를 직접 호출한다.
+
+pub use crate::vfs::is_safe_file_name;
+
 /// 같은 디렉토리에 임시 파일을 쓴 뒤 rename 하여 원자적으로 저장한다 (NFR-2).
-/// 크래시가 나도 기존 파일은 온전하거나 새 내용으로 완전히 교체된 상태만 남는다.
 pub fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
-    atomic_write_bytes(path, content.as_bytes())
+    LocalBackend.write_atomic(path, content.as_bytes())
 }
 
 /// `atomic_write`의 바이너리 버전 (CRDT 스냅샷 등)
 pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> io::Result<()> {
-    let parent = path.parent().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "path has no parent directory")
-    })?;
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?
-        .to_string_lossy();
-    let tmp = parent.join(format!(".{file_name}.synapse-tmp"));
-    fs::write(&tmp, content)?;
-    match fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = fs::remove_file(&tmp);
-            Err(e)
-        }
-    }
+    LocalBackend.write_atomic(path, content)
 }
 
 /// 아직 존재하지 않을 수 있는 파일의 쓰기 경로를 검증한다.
-///
-/// `ensure_within`은 대상 파일을 canonicalize 하므로 새 파일에는 쓸 수 없다.
-/// 대신 부모 디렉토리가 워크스페이스 루트 안인지 확인하고,
-/// 파일명에 경로 구분자가 섞여 들어오는 것을 차단한다.
 pub fn ensure_writable_within(root: &Path, candidate: &Path) -> io::Result<PathBuf> {
-    let root = root.canonicalize()?;
-    let parent = candidate
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?
-        .canonicalize()?;
-    if !parent.starts_with(&root) {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("path escapes workspace root: {}", candidate.display()),
-        ));
-    }
-    let name = candidate
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-    let name_str = name.to_string_lossy();
-    if name_str == "." || name_str == ".." {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid file name",
-        ));
-    }
-    Ok(parent.join(name))
+    LocalBackend.ensure_writable_within(root, candidate)
 }
 
 /// `dir` 안에서 겹치지 않는 새 노트 파일을 만들고 경로를 돌려준다.
-/// "새 노트.md", "새 노트 2.md", … 순서로 시도한다.
 pub fn create_unique_note(dir: &Path) -> io::Result<PathBuf> {
-    for i in 1..1000 {
-        let name = if i == 1 {
-            "새 노트.md".to_string()
-        } else {
-            format!("새 노트 {i}.md")
-        };
-        let path = dir.join(name);
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(_) => return Ok(path),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Err(io::Error::other("too many untitled notes"))
+    LocalBackend.create_unique_note(dir)
 }
 
 /// `dir` 안에 `desired_name`으로 바이너리를 쓴다. 같은 이름이 이미 있으면
-/// "이름{sep}2.ext", "이름{sep}3.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
-/// sep: 사본 만들기는 Finder식 " ", 이미지는 md 링크 목적지에 공백이
-/// 들어갈 수 없으므로 "-"를 쓴다.
+/// "이름{sep}2.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
 pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8], sep: &str) -> io::Result<String> {
-    let (stem, ext) = match desired_name.rsplit_once('.') {
-        Some((s, e)) if !s.is_empty() => (s.to_string(), Some(e.to_string())),
-        _ => (desired_name.to_string(), None),
-    };
-    for i in 1..1000 {
-        let name = match (&ext, i) {
-            (Some(e), 1) => format!("{stem}.{e}"),
-            (Some(e), n) => format!("{stem}{sep}{n}.{e}"),
-            (None, 1) => stem.clone(),
-            (None, n) => format!("{stem}{sep}{n}"),
-        };
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(dir.join(&name))
-        {
-            Ok(mut f) => {
-                use std::io::Write;
-                f.write_all(bytes)?;
-                return Ok(name);
-            }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Err(io::Error::other("too many name collisions"))
-}
-
-/// 한 단계 파일/폴더 이름으로 안전한지 검증한다 (경로 트래버설 차단).
-/// 구분자(`/`, `\`)가 금지되므로 "a..b" 같은 이름은 탈출이 불가능해 허용된다.
-pub fn is_safe_file_name(name: &str) -> bool {
-    !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != "." && name != ".."
+    LocalBackend.write_unique(dir, desired_name, bytes, sep)
 }
 
 /// 파일/폴더 이름 변경. 같은 디렉토리 안에서만, 기존 항목을 덮어쓰지 않는다.
-/// 새 전체 경로를 돌려준다.
 pub fn rename_entry(path: &Path, new_name: &str) -> io::Result<PathBuf> {
-    if !is_safe_file_name(new_name) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid name"));
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no parent"))?;
-    let target = parent.join(new_name);
-    if target.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!("이미 존재합니다: {new_name}"),
-        ));
-    }
-    fs::rename(path, &target)?;
-    Ok(target)
+    LocalBackend.rename_entry(path, new_name)
 }
 
 /// 파일을 같은 폴더에 "이름 2.ext" 식으로 복제하고 새 파일명을 돌려준다.
 pub fn duplicate_file(path: &Path) -> io::Result<String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no parent"))?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?
-        .to_string_lossy();
-    let bytes = fs::read(path)?;
-    write_unique(parent, &name, &bytes, " ")
+    LocalBackend.duplicate_file(path)
 }
 
 /// base64 표준 알파벳 인코더 (의존성 없이 — git Basic 인증 헤더 등)
@@ -219,6 +112,7 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn atomic_write_replaces_content_and_leaves_no_tmp() {

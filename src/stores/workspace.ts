@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { ipc } from "../ipc/ipc";
-import type { FileNode, FileType } from "../ipc/types";
+import { ipc, parseRemoteConnectError } from "../ipc/ipc";
+import type { FileNode, FileType, RemoteConnectError } from "../ipc/types";
 import { ancestorDirsOf } from "../features/workspace/fileTreeUtils";
 import { basename, fileTypeOf } from "../shared/pathUtils";
 import { useSettings } from "./settings";
@@ -58,6 +58,19 @@ interface WorkspaceState {
 
   init(): Promise<void>;
   openFolder(path?: string): Promise<void>;
+  /**
+   * 원격 SSH 호스트에 연결한 뒤 해소된 루트를 워크스페이스로 연다.
+   * 성공하면 null, 실패하면 분류된 오류를 돌려준다(호스트키 미등록/불일치는
+   * UI가 fingerprint를 보여 처리). 성공 시 openFolder와 동일한 상태가 된다.
+   */
+  openRemote(
+    uri: string,
+    opts: {
+      password?: string | null;
+      passphrase?: string | null;
+      acceptNewHostKey?: boolean;
+    },
+  ): Promise<RemoteConnectError | null>;
   refreshTree(): Promise<void>;
   closeWorkspace(): void;
 
@@ -138,7 +151,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 새 창(⇧⌘N)은 다른 폴더를 열기 위한 것이므로 복원 없이 시작 화면에서 출발.
       const last = await ipc.getLastWorkspace();
       if (last && !get().root && !flags.__SYNAPSE_FRESH_WINDOW__) {
-        await get().openFolder(last);
+        if (last.startsWith("ssh://")) {
+          // 원격은 인증이 필요하다. 에이전트/키로 무인증 재연결만 시도하고
+          // (비밀번호는 자동 입력하지 않는다), 실패하면 조용히 시작 화면으로
+          // 폴백한다. 사용자는 시작 화면의 최근 목록에서 다시 연결할 수 있다.
+          const err = await get().openRemote(last, { acceptNewHostKey: false });
+          if (err) set({ loading: false, error: null });
+        } else {
+          await get().openFolder(last);
+        }
       }
     } catch (e) {
       set({ error: String(e) });
@@ -170,6 +191,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       await restoreSession(target, tree, get());
     } catch (e) {
       set({ error: String(e), loading: false });
+    }
+  },
+
+  async openRemote(uri, opts) {
+    set({ loading: true, error: null });
+    try {
+      const conn = await ipc.connectRemote(
+        uri,
+        opts.password ?? null,
+        opts.passphrase ?? null,
+        opts.acceptNewHostKey ?? false,
+      );
+      // 연결 성공 → 해소된 루트 URI로 평소처럼 트리를 연다.
+      await get().openFolder(conn.root);
+      return null;
+    } catch (e) {
+      set({ loading: false });
+      return parseRemoteConnectError(e);
     }
   },
 
