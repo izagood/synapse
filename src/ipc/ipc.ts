@@ -36,9 +36,14 @@ const tauriIpc: SynapseIpc = {
     const selected = await open({ directory: true, multiple: false });
     return typeof selected === "string" ? selected : null;
   },
-  connectRemote: (uri, password, passphrase, acceptNewHostKey) =>
+  async pickFile() {
+    const selected = await open({ directory: false, multiple: false });
+    return typeof selected === "string" ? selected : null;
+  },
+  connectRemote: (uri, keyPath, password, passphrase, acceptNewHostKey) =>
     invoke<RemoteConnection>("connect_remote", {
       uri,
+      keyPath,
       password,
       passphrase,
       acceptNewHostKey,

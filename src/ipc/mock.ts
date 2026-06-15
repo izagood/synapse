@@ -216,6 +216,9 @@ export const mockIpc: SynapseIpc = {
   async pickFolder() {
     return MOCK_ROOT;
   },
+  async pickFile() {
+    return null;
+  },
   async connectRemote() {
     throw new Error("원격 연결은 데스크톱 앱에서만 가능합니다");
   },

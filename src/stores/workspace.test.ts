@@ -289,6 +289,29 @@ describe("workspace store (mock ipc)", () => {
     expect(s.error).toContain("not a directory");
   });
 
+  it("openRemote forwards the SSH key path to connectRemote", async () => {
+    const spy = vi
+      .spyOn(ipc, "connectRemote")
+      .mockResolvedValue({ root: MOCK_ROOT });
+    try {
+      const err = await useWorkspace.getState().openRemote("ssh://me@host", {
+        keyPath: "/home/me/.ssh/work_key",
+        acceptNewHostKey: false,
+      });
+      expect(err).toBeNull();
+      // 인자 순서: uri, keyPath, password, passphrase, acceptNewHostKey
+      expect(spy).toHaveBeenCalledWith(
+        "ssh://me@host",
+        "/home/me/.ssh/work_key",
+        null,
+        null,
+        false,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   describe("파일 트리 자동 reveal", () => {
     it("toggleDir로 폴더를 펼치고 접는다", () => {
       const dir = `${MOCK_ROOT}/daily`;

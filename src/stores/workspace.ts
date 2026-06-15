@@ -66,6 +66,7 @@ interface WorkspaceState {
   openRemote(
     uri: string,
     opts: {
+      keyPath?: string | null;
       password?: string | null;
       passphrase?: string | null;
       acceptNewHostKey?: boolean;
@@ -199,6 +200,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     try {
       const conn = await ipc.connectRemote(
         uri,
+        opts.keyPath ?? null,
         opts.password ?? null,
         opts.passphrase ?? null,
         opts.acceptNewHostKey ?? false,

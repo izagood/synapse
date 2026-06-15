@@ -17,6 +17,8 @@ export const ko = {
       port: "포트",
       user: "사용자",
       path: "경로 (비우면 홈 디렉토리)",
+      keyPath: "SSH 키 경로 (선택)",
+      browse: "찾아보기…",
       password: "비밀번호 (선택)",
       passphrase: "키 passphrase (선택)",
       connect: "연결",
