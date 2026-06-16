@@ -23,6 +23,7 @@ export function fileTypeOf(name: string): FileType {
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "pdf") return "pdf";
   if (ext && IMAGE_EXTS.has(ext)) return "image";
+  if (ext === "drawio" || ext === "dio") return "drawio";
   return "other";
 }
 

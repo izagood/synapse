@@ -4,6 +4,7 @@ import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
 import { HtmlViewer } from "../html-viewer/HtmlViewer";
 import { PdfViewer } from "../pdf-viewer/PdfViewer";
 import { ImageViewer } from "../image-viewer/ImageViewer";
+import { DrawioViewer } from "../drawio-viewer/DrawioViewer";
 import { BacklinksPanel } from "./BacklinksPanel";
 
 export function ContentPane() {
@@ -65,7 +66,11 @@ export function ContentPane() {
     return <ImageViewer key={activePath} path={activePath} />;
   }
 
-  // html 소스 보기 및 기타 파일은 원문으로 표시
+  if (tab?.fileType === "drawio" && !sourceMode) {
+    return <DrawioViewer key={activePath} path={activePath} />;
+  }
+
+  // html/drawio 소스 보기 및 기타 파일은 원문으로 표시
   return (
     <div className="preview">
       <div className="preview-path">{activePath}</div>

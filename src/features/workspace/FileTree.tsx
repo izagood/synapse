@@ -4,7 +4,15 @@ import { useWorkspace } from "../../stores/workspace";
 import { useSettings } from "../../stores/settings";
 import { useHistoryUi } from "../history/historyStore";
 import { useT } from "../../i18n";
-import { ChevronIcon, FileIcon, FilePdfIcon, FileTextIcon, GlobeIcon, ImageIcon } from "../../shared/Icons";
+import {
+  ChevronIcon,
+  DiagramIcon,
+  FileIcon,
+  FilePdfIcon,
+  FileTextIcon,
+  GlobeIcon,
+  ImageIcon,
+} from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
 import { ipc } from "../../ipc/ipc";
 import { detectDesktopPlatform } from "../../shared/platform";
@@ -31,6 +39,7 @@ function FileTypeIcon({ node }: { node: FileNode }) {
   if (node.fileType === "html") return <GlobeIcon size={size} />;
   if (node.fileType === "pdf") return <FilePdfIcon size={size} />;
   if (node.fileType === "image") return <ImageIcon size={size} />;
+  if (node.fileType === "drawio") return <DiagramIcon size={size} />;
   return <FileIcon size={size} />;
 }
 
