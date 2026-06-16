@@ -2,6 +2,7 @@ import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
 import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
 import { HtmlViewer } from "../html-viewer/HtmlViewer";
+import { PdfViewer } from "../pdf-viewer/PdfViewer";
 import { ImageViewer } from "../image-viewer/ImageViewer";
 import { BacklinksPanel } from "./BacklinksPanel";
 
@@ -54,6 +55,10 @@ export function ContentPane() {
 
   if (tab?.fileType === "html" && !sourceMode) {
     return <HtmlViewer key={activePath} path={activePath} />;
+  }
+
+  if (tab?.fileType === "pdf") {
+    return <PdfViewer key={activePath} path={activePath} />;
   }
 
   if (tab?.fileType === "image") {

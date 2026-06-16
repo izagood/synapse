@@ -1416,6 +1416,13 @@ body.resizing-sidebar {
   background: #fff;
 }
 
+.pdf-viewer {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #525659;
+}
+
 .image-viewer {
   height: 100%;
   display: flex;
