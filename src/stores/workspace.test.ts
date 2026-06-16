@@ -90,6 +90,48 @@ describe("workspace store (mock ipc)", () => {
     readSpy.mockRestore();
   });
 
+  it("stale fileType('other')로 들어온 PDF/이미지 탭을 파일명으로 재분류한다", async () => {
+    // 구버전(PDF/이미지 분류 이전)에서 저장된 세션은 .pdf/.png 탭을 fileType:"other"로
+    // 굳혀 둔다. 그 값을 그대로 믿으면 바이너리 분기를 못 타고 readFile→UTF-8 디코드
+    // 에러("invalid utf-8 sequence")가 난다. openFile은 파일명으로 재계산해 교정한다.
+    const spy = vi.spyOn(ipc, "readFile");
+    await useWorkspace.getState().openFile({
+      path: `${MOCK_ROOT}/report.pdf`,
+      name: "report.pdf",
+      kind: "file",
+      fileType: "other", // ← 구버전이 저장한 stale 값
+    });
+    let s = useWorkspace.getState();
+    expect(s.tabs.find((t) => t.name === "report.pdf")?.fileType).toBe("pdf");
+    expect(s.docs[`${MOCK_ROOT}/report.pdf`].error).toBeNull();
+
+    const image = findNode("diagram.png");
+    await useWorkspace.getState().openFile({ ...image, fileType: "other" });
+    s = useWorkspace.getState();
+    expect(s.tabs.find((t) => t.name === "diagram.png")?.fileType).toBe("image");
+    expect(s.docs[image.path].error).toBeNull();
+    expect(spy).not.toHaveBeenCalled(); // 바이너리는 끝까지 readFile 금지
+    spy.mockRestore();
+  });
+
+  it("세션 복원 시 stale fileType('other')인 바이너리 탭도 텍스트로 읽지 않는다", async () => {
+    // 사용자 버그 재현: 구버전에서 .png 탭을 연 채 종료 → 세션에 fileType:"other"로
+    // 저장 → 신버전에서 복원하면 readFile→UTF-8 에러. 복원 경로도 교정되어야 한다.
+    const image = findNode("diagram.png");
+    mockSessionControl.states.set(MOCK_ROOT, {
+      openTabs: [{ path: image.path, name: image.name, fileType: "other" }],
+      activePath: image.path,
+    });
+    const spy = vi.spyOn(ipc, "readFile");
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+    const s = useWorkspace.getState();
+    expect(s.tabs.find((t) => t.name === "diagram.png")?.fileType).toBe("image");
+    expect(s.docs[image.path].error).toBeNull();
+    expect(s.docs[image.path].loading).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it("openFileAt opens a file in the tree by absolute path (internal link)", async () => {
     const opened = await useWorkspace.getState().openFileAt(`${MOCK_ROOT}/daily/2026-06-10.md`);
     expect(opened).toBe(true);

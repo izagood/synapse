@@ -243,9 +243,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const { root, tabs, docs } = get();
     if (!root || node.kind !== "file") return;
 
+    // fileType은 항상 파일명으로 재계산한다. 세션 복원(restoreSession)은 디스크에
+    // 저장된 옛 fileType을 넘기는데, 구버전에서 저장된 .png/.pdf 탭은 "other"로
+    // 굳어 있어 그대로 믿으면 아래 바이너리 분기를 못 타고 readFile→UTF-8 디코드
+    // 에러가 난다. 파일명 기준으로 정규화해 모든 호출 경로(트리 클릭·복원·퀵오픈·
+    // 내부 링크)를 한 곳에서 교정한다.
+    const fileType = fileTypeOf(node.name);
+
     if (!tabs.some((t) => t.path === node.path)) {
       set({
-        tabs: [...tabs, { path: node.path, name: node.name, fileType: node.fileType }],
+        tabs: [...tabs, { path: node.path, name: node.name, fileType }],
       });
     }
     set({ activePath: node.path });
@@ -254,7 +261,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
     // PDF·이미지 등 바이너리는 텍스트로 읽지 않는다 (UTF-8 디코드 실패). 뷰어가
     // 경로를 asset URL로 직접 렌더링하므로 content 없이 곧장 준비 완료로 둔다.
-    if (node.fileType === "pdf" || node.fileType === "image") {
+    if (fileType === "pdf" || fileType === "image") {
       set((s) => ({
         docs: {
           ...s.docs,
