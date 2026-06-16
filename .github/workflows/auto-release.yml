@@ -1,4 +1,6 @@
-# main에서 CI가 성공하면(= PR이 CI를 통과하고 merge되면) 자동으로 릴리스한다.
+# PR이 CI를 통과하고 main에 merge되면 자동으로 릴리스한다.
+# CI는 PR에서만 돌고(ci.yml), merge로 생긴 main push는 CI를 다시 돌리지 않고
+# 곧바로 이 워크플로로 릴리스만 진행한다.
 #
 # 동작:
 #   1. package.json의 버전이 이미 태그로 존재하면 patch 버전을 자동 증가
@@ -9,13 +11,12 @@
 #
 # 주의: GITHUB_TOKEN으로 푸시한 커밋/태그는 다른 워크플로를 트리거하지 않으므로
 #   (GitHub의 재귀 방지 정책) 태그 푸시 대신 workflow_call로 릴리스를 실행하며,
-#   같은 이유로 버전 bump 커밋이 CI → 릴리스를 다시 트리거하는 루프도 생기지 않는다.
+#   같은 이유로 버전 bump 커밋이 이 워크플로를 다시 트리거하는 루프도 생기지 않는다.
 name: Auto Release
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
+    branches: [main]
 
 permissions:
   contents: write # 버전 bump 커밋 + 태그 푸시
@@ -29,11 +30,6 @@ concurrency:
 
 jobs:
   prepare-release:
-    # main 브랜치 push(= PR merge)로 돌았던 CI가 성공한 경우에만
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
