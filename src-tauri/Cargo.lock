@@ -4734,7 +4734,7 @@ dependencies = [
 
 [[package]]
 name = "synapse"
-version = "0.4.49"
+version = "0.4.50"
 dependencies = [
  "dirs 5.0.1",
  "keyring",
