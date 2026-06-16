@@ -250,6 +250,7 @@ export const en: LocaleShape<KoMessages> = {
     lossyWarning:
       "This document contains elements the editor may not fully preserve, such as HTML. Use source mode to avoid losing those parts. The file will not change unless you edit it.",
     dismissWarning: "Dismiss",
+    mermaidError: "Diagram error",
     find: {
       placeholder: "Find in document…",
       count: "{current}/{total}",

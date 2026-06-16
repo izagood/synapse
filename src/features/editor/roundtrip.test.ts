@@ -42,6 +42,11 @@ const CASES: Record<string, { input: string; mustContain: string[] }> = {
     input: '```rust\nfn main() {\n    println!("{}", 1 + 1);\n}\n```',
     mustContain: ["```rust", "fn main() {", 'println!("{}", 1 + 1);'],
   },
+  // mermaid 블록은 다이어그램으로 렌더링되지만 직렬화는 코드 블록 그대로 보존돼야 한다
+  mermaid: {
+    input: "```mermaid\ngraph TD\n  A[시작] --> B[끝]\n```",
+    mustContain: ["```mermaid", "graph TD", "A[시작] --> B[끝]"],
+  },
   blockquoteAndHr: {
     input: "> 인용문입니다\n\n---\n\n다음 문단",
     mustContain: ["> 인용문입니다", "---", "다음 문단"],

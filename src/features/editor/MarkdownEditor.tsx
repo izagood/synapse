@@ -23,6 +23,7 @@ export function MarkdownEditor({ path }: { path: string }) {
   const updateContent = useWorkspace((s) => s.updateContent);
   const t = useT();
   const placeholder = t("editor.placeholder");
+  const mermaidErrorLabel = t("editor.mermaidError");
 
   // 마운트 시점의 원본 전문과 frontmatter를 보존 (FR-2.9 1단계).
   // 원격 머지가 반영되면(externalRev) 아래 effect가 이 기준들을 갱신한다.
@@ -41,7 +42,7 @@ export function MarkdownEditor({ path }: { path: string }) {
   setImageBaseDir(path.slice(0, path.lastIndexOf("/")));
 
   const editor = useEditor({
-    extensions: editorExtensions({ placeholder }),
+    extensions: editorExtensions({ placeholder, mermaidErrorLabel }),
     content: initial.body,
     autofocus: true,
     onCreate({ editor }) {
@@ -104,7 +105,7 @@ export function MarkdownEditor({ path }: { path: string }) {
       if (keepNlRef.current && !markdown.endsWith("\n")) markdown += "\n";
       updateContent(path, joinFrontmatter(fmRef.current, markdown));
     },
-  }, [path, placeholder]);
+  }, [path, placeholder, mermaidErrorLabel]);
 
   const editorRef = useRef(editor);
   editorRef.current = editor;
