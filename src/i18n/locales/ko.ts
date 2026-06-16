@@ -67,6 +67,7 @@ export const ko = {
   },
   fileTree: {
     newNote: "새 노트",
+    newDrawing: "새 드로잉",
     duplicate: "사본 만들기",
     rename: "이름 변경",
     copyPath: "경로 복사",
@@ -258,6 +259,7 @@ export const ko = {
   viewer: {
     preparing: "렌더링 준비 중…",
     imageError: "이미지를 불러올 수 없습니다",
+    excalidrawError: "이 파일은 올바른 Excalidraw 드로잉이 아닙니다",
     zoomToFit: "화면에 맞추기",
     zoomToActual: "실제 크기로 보기",
   },

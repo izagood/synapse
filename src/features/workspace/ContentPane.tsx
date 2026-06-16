@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
 import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
@@ -6,6 +7,9 @@ import { PdfViewer } from "../pdf-viewer/PdfViewer";
 import { ImageViewer } from "../image-viewer/ImageViewer";
 import { DrawioViewer } from "../drawio-viewer/DrawioViewer";
 import { BacklinksPanel } from "./BacklinksPanel";
+
+// Excalidraw 번들은 무거우므로(수 MB) 드로잉을 열 때만 동적으로 불러온다.
+const ExcalidrawEditor = lazy(() => import("../excalidraw/ExcalidrawEditor"));
 
 export function ContentPane() {
   const activePath = useWorkspace((s) => s.activePath);
@@ -68,6 +72,21 @@ export function ContentPane() {
 
   if (tab?.fileType === "drawio" && !sourceMode) {
     return <DrawioViewer key={activePath} path={activePath} />;
+  }
+
+  if (tab?.fileType === "excalidraw") {
+    // externalRev를 key에 넣어 외부 변경(원격 머지 등) 시에만 초기 장면을 새로 읽는다.
+    return (
+      <Suspense
+        fallback={
+          <div className="preview-placeholder">
+            <p>{t("common.loading")}</p>
+          </div>
+        }
+      >
+        <ExcalidrawEditor key={`${activePath}:${doc.externalRev}`} path={activePath} />
+      </Suspense>
+    );
   }
 
   // html/drawio 소스 보기 및 기타 파일은 원문으로 표시

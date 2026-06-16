@@ -26,6 +26,12 @@ describe("fileTypeOf", () => {
     expect(fileTypeOf("diagram.dio")).toBe("drawio");
     expect(fileTypeOf("Architecture.DRAWIO")).toBe("drawio");
   });
+  it("Excalidraw 확장자를 분류한다", () => {
+    expect(fileTypeOf("drawing.excalidraw")).toBe("excalidraw");
+    expect(fileTypeOf("Sketch.EXCALIDRAW")).toBe("excalidraw");
+    // Obsidian의 `.excalidraw.md`는 마지막 확장자(.md) 기준으로 마크다운
+    expect(fileTypeOf("note.excalidraw.md")).toBe("markdown");
+  });
   it("그 외는 other", () => {
     expect(fileTypeOf("data.json")).toBe("other");
     expect(fileTypeOf("noext")).toBe("other");
