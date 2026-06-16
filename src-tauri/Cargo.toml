@@ -30,3 +30,13 @@ dirs = "5"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
 objc2-foundation = { version = "0.3", features = ["NSString"] }
+
+# 릴리스 바이너리 경량화 (Tauri 공식 App Size 가이드 권장값).
+# strip(심볼 제거)·LTO·단일 codegen-unit·크기 우선 최적화로 .dmg 크기를 줄인다.
+# 빌드 시간이 늘지만 릴리스 빌드는 드물게 돌므로 트레이드오프가 타당하다.
+[profile.release]
+opt-level = "s"      # 크기 우선 최적화
+lto = true           # 링크 타임 최적화 (데드코드 제거)
+codegen-units = 1    # 교차 모듈 인라이닝 최대화 (크기↓)
+strip = true         # 디버그 심볼 제거 — 단독으로도 효과 큼
+panic = "abort"      # 패닉 언와인딩 테이블 제거

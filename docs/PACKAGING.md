@@ -6,7 +6,7 @@
 |---|---|---|
 | **A. 맥에서 직접 빌드** | 개발 중 빠른 확인 | `Synapse.app` + `.dmg` (내 아키텍처용) |
 | **B. Windows에서 직접 빌드** | Windows 설치 파일 확인 | `.msi` |
-| **C. GitHub Actions 릴리스** | 배포·설치용 (권장) | 유니버설 `.dmg` + Windows `.msi`, GitHub Releases 자동 업로드 |
+| **C. GitHub Actions 릴리스** | 배포·설치용 (권장) | 아키텍처별 `.dmg`(Apple Silicon·Intel) + Windows `.msi`, GitHub Releases 자동 업로드 |
 
 서명/공증은 선택 사항이다(§5). 서명 없이도 설치·사용 가능하지만 첫 실행 시 macOS Gatekeeper 또는 Windows SmartScreen 우회가 필요할 수 있다.
 
@@ -79,7 +79,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-약 10~20분 뒤 GitHub Releases에 유니버설 `.dmg`와 Windows `.msi`가 올라온다.
+약 10~20분 뒤 GitHub Releases에 아키텍처별 `.dmg`(Apple Silicon `_aarch64`, Intel `_x64`)와 Windows `.msi`가 올라온다.
 
 ## 4. 설치 후 첫 실행 (서명 없는 빌드)
 
