@@ -256,6 +256,9 @@ export const ko = {
   },
   viewer: {
     preparing: "렌더링 준비 중…",
+    imageError: "이미지를 불러올 수 없습니다",
+    zoomToFit: "화면에 맞추기",
+    zoomToActual: "실제 크기로 보기",
   },
   backlinks: {
     title: "백링크",

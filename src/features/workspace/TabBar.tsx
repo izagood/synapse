@@ -168,7 +168,7 @@ export function TabBar() {
             <GlobeIcon size={15} />
           </button>
         )}
-        {activeTab && activeTab.fileType !== "other" && (
+        {activeTab && (activeTab.fileType === "markdown" || activeTab.fileType === "html") && (
           <button
             className={sourceMode ? "active" : ""}
             onClick={toggleSourceMode}

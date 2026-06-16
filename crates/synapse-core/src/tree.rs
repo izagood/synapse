@@ -17,6 +17,7 @@ pub enum NodeKind {
 pub enum FileType {
     Markdown,
     Html,
+    Image,
     Other,
 }
 
@@ -40,6 +41,8 @@ pub(crate) fn file_type_of(path: &Path) -> FileType {
     {
         Some("md") | Some("markdown") => FileType::Markdown,
         Some("html") | Some("htm") => FileType::Html,
+        Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp") | Some("svg")
+        | Some("bmp") | Some("ico") | Some("avif") => FileType::Image,
         _ => FileType::Other,
     }
 }
@@ -88,6 +91,18 @@ mod tests {
         let inner = alpha.children.as_ref().unwrap();
         assert_eq!(inner.len(), 1);
         assert_eq!(inner[0].name, "inner.md");
+    }
+
+    #[test]
+    fn detects_image_file_type() {
+        use std::path::PathBuf;
+        for ext in [
+            "png", "JPG", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif",
+        ] {
+            let p = PathBuf::from(format!("a.{ext}"));
+            assert_eq!(file_type_of(&p), FileType::Image, "ext={ext}");
+        }
+        assert_eq!(file_type_of(&PathBuf::from("a.txt")), FileType::Other);
     }
 
     #[test]
