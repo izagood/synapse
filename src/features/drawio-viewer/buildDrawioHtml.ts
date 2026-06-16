@@ -17,33 +17,30 @@ function escapeAttr(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-// drawio 에디터의 다크 캔버스 색(Editor.darkColor)과 맞춘다.
-const DARK_BG = "#121212";
-
-function viewerStyle(dark: boolean): string {
-  return `
-  html, body { margin: 0; height: 100%; background: ${dark ? DARK_BG : "#fff"}; }
+const VIEWER_STYLE = `
+  html, body { margin: 0; height: 100%; background: #fff; }
   body { font-family: -apple-system, "Pretendard", "Noto Sans KR", sans-serif; }
   .mxgraph { max-width: 100%; }
   /* 빈/깨진 다이어그램일 때 뷰어가 남기는 에러 텍스트 */
   .mxgraph:empty::before { content: ""; }
 `;
-}
 
 /**
  * drawio XML을 받아 뷰어 iframe에 넣을 완성된 HTML 문서를 만든다.
+ *
+ * 다이어그램은 작성 당시의 색을 그대로 쓰므로 앱 테마와 무관하게 항상 흰
+ * 캔버스로 렌더링한다. drawio의 다크 모드는 캔버스/크롬만 어둡게 할 뿐 도형 색은
+ * 바꾸지 않아, 라이트로 그린 다이어그램이 어두운 캔버스 위에서 검정-위-검정으로
+ * 안 보이는 문제가 있다. (drawioEmbed.buildEditorUrl 도 같은 이유로 dark 미적용.)
  *
  * @param xml    `.drawio` 파일 원문 (`<mxfile>...` 또는 `<mxGraphModel>...`).
  *               압축(base64+deflate)된 diagram 내용도 뷰어 런타임이 직접 푼다.
  * @param viewerScriptUrl  번들된 viewer-static.min.js의 (캐시) asset URL.
  *               iframe과 같은 출처여야 로드된다.
- * @param dark   다크 모드로 렌더링할지. true면 GraphViewer가 캔버스를 어둡게
- *               칠하고(setDarkMode), 페이지 배경도 다크 캔버스 색과 맞춘다.
  */
-export function buildDrawioHtml(xml: string, viewerScriptUrl: string, dark = false): string {
+export function buildDrawioHtml(xml: string, viewerScriptUrl: string): string {
   // GraphViewer는 data-mxgraph 속성에 JSON 설정을 기대한다. xml 자체를 그 안에
   // 문자열로 담는다. (lightbox는 새 창을 열어 sandbox에서 막히므로 끈다.)
-  // dark:true면 뷰어 런타임이 setDarkMode를 호출해 에디터와 같은 다크 캔버스로 그린다.
   const config = {
     highlight: "#3572b0",
     nav: true,
@@ -51,7 +48,6 @@ export function buildDrawioHtml(xml: string, viewerScriptUrl: string, dark = fal
     lightbox: false,
     "toolbar-position": "top",
     toolbar: "zoom layers tags pages",
-    ...(dark ? { dark: true } : {}),
     xml,
   };
   // JSON을 단일 인용 속성에 넣는다 — 내부 큰따옴표는 그대로 두고, 속성/HTML 파싱을
@@ -64,7 +60,7 @@ export function buildDrawioHtml(xml: string, viewerScriptUrl: string, dark = fal
 
   return (
     `<!doctype html><html><head><meta charset="utf-8">` +
-    `<style>${viewerStyle(dark)}</style></head><body>` +
+    `<style>${VIEWER_STYLE}</style></head><body>` +
     `<div class="mxgraph" data-mxgraph='${dataAttr}'></div>` +
     `<script src="${escapeAttr(viewerScriptUrl)}"></script>` +
     `</body></html>`
