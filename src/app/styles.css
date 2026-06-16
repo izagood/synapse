@@ -480,16 +480,21 @@ select {
   background: var(--accent);
 }
 
-/* 사이드바 리사이즈 드래그 중에는 텍스트 선택을 막고 커서를 고정한다 */
+/* 사이드바 리사이즈 드래그 중에는 텍스트 선택을 막고 커서를 고정한다.
+   macOS Tauri(WKWebView)에서는 -webkit 접두사가 있어야 선택이 막힌다. */
 body.resizing-sidebar {
   cursor: col-resize;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ----- 파일 트리 ----- */
 .file-tree {
   padding: 2px 6px 16px;
   font-size: 0.88rem;
+  /* 파일 트리 항목은 텍스트 선택 대상이 아니다(드래그 시 선택 방지) */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .tree-row {
