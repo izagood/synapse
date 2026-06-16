@@ -480,6 +480,12 @@ select {
   background: var(--accent);
 }
 
+/* 사이드바 리사이즈 드래그 중에는 텍스트 선택을 막고 커서를 고정한다 */
+body.resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* ----- 파일 트리 ----- */
 .file-tree {
   padding: 2px 6px 16px;
