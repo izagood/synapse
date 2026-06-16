@@ -14,6 +14,12 @@ function render(path: string) {
   });
 }
 
+function contentScale(): number {
+  const content = host.querySelector(".zoom-content") as HTMLElement;
+  const m = /scale\(([-0-9.]+)\)/.exec(content?.style.transform ?? "");
+  return m ? Number(m[1]) : NaN;
+}
+
 describe("ImageViewer", () => {
   beforeEach(() => {
     host = document.createElement("div");
@@ -33,15 +39,30 @@ describe("ImageViewer", () => {
     expect(img.getAttribute("src")).toBe("/notes/assets/diagram.png");
   });
 
-  it("클릭하면 실제 크기 모드를 토글한다", () => {
+  it("ctrl+휠(트랙패드 핀치)로 확대한다", () => {
     render("/notes/a.png");
-    const container = host.querySelector(".image-viewer") as HTMLElement;
-    const img = host.querySelector("img.image-viewer-img") as HTMLImageElement;
-    expect(container.classList.contains("is-actual")).toBe(false);
-    act(() => img.click());
-    expect(host.querySelector(".image-viewer")!.classList.contains("is-actual")).toBe(true);
-    act(() => (host.querySelector("img.image-viewer-img") as HTMLImageElement).click());
-    expect(host.querySelector(".image-viewer")!.classList.contains("is-actual")).toBe(false);
+    const surface = host.querySelector(".image-viewer") as HTMLElement;
+    expect(contentScale()).toBeCloseTo(1, 5);
+    act(() => {
+      surface.dispatchEvent(
+        new WheelEvent("wheel", { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(contentScale()).toBeGreaterThan(1);
+  });
+
+  it("더블클릭으로 맞춤↔확대를 토글한다", () => {
+    render("/notes/a.png");
+    const surface = host.querySelector(".image-viewer") as HTMLElement;
+    act(() => surface.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(contentScale()).toBeGreaterThan(1);
+    expect(surface.classList.contains("is-zoomed")).toBe(true);
+    act(() =>
+      (host.querySelector(".image-viewer") as HTMLElement).dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    expect(contentScale()).toBeCloseTo(1, 5);
   });
 
   it("로드 실패 시 에러 메시지를 보여준다", () => {
