@@ -21,6 +21,11 @@ describe("fileTypeOf", () => {
     }
     expect(fileTypeOf("PIC.PNG")).toBe("image");
   });
+  it("drawio 확장자를 분류한다", () => {
+    expect(fileTypeOf("diagram.drawio")).toBe("drawio");
+    expect(fileTypeOf("diagram.dio")).toBe("drawio");
+    expect(fileTypeOf("Architecture.DRAWIO")).toBe("drawio");
+  });
   it("그 외는 other", () => {
     expect(fileTypeOf("data.json")).toBe("other");
     expect(fileTypeOf("noext")).toBe("other");
