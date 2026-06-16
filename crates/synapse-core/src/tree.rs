@@ -20,6 +20,7 @@ pub enum FileType {
     Pdf,
     Image,
     Drawio,
+    Excalidraw,
     Other,
 }
 
@@ -44,6 +45,7 @@ pub(crate) fn file_type_of(path: &Path) -> FileType {
         Some("md") | Some("markdown") => FileType::Markdown,
         Some("html") | Some("htm") => FileType::Html,
         Some("pdf") => FileType::Pdf,
+        Some("excalidraw") => FileType::Excalidraw,
         Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp") | Some("svg")
         | Some("bmp") | Some("ico") | Some("avif") => FileType::Image,
         Some("drawio") | Some("dio") => FileType::Drawio,
@@ -121,6 +123,24 @@ mod tests {
             assert_eq!(file_type_of(&p), FileType::Image, "ext={ext}");
         }
         assert_eq!(file_type_of(&PathBuf::from("a.txt")), FileType::Other);
+    }
+
+    #[test]
+    fn detects_excalidraw_file_type() {
+        use std::path::PathBuf;
+        assert_eq!(
+            file_type_of(&PathBuf::from("drawing.excalidraw")),
+            FileType::Excalidraw
+        );
+        assert_eq!(
+            file_type_of(&PathBuf::from("Sketch.EXCALIDRAW")),
+            FileType::Excalidraw
+        );
+        // Obsidian의 `.excalidraw.md`는 마크다운으로 분류된다 (마지막 확장자 기준).
+        assert_eq!(
+            file_type_of(&PathBuf::from("note.excalidraw.md")),
+            FileType::Markdown
+        );
     }
 
     #[test]

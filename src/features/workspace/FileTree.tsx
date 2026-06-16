@@ -12,6 +12,7 @@ import {
   FileTextIcon,
   GlobeIcon,
   ImageIcon,
+  PencilIcon,
 } from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
 import { ipc } from "../../ipc/ipc";
@@ -40,6 +41,7 @@ function FileTypeIcon({ node }: { node: FileNode }) {
   if (node.fileType === "pdf") return <FilePdfIcon size={size} />;
   if (node.fileType === "image") return <ImageIcon size={size} />;
   if (node.fileType === "drawio") return <DiagramIcon size={size} />;
+  if (node.fileType === "excalidraw") return <PencilIcon size={size} />;
   return <FileIcon size={size} />;
 }
 
@@ -206,6 +208,7 @@ function TreeContextMenu({
   onDelete: (node: FileNode) => void;
 }) {
   const createNote = useWorkspace((s) => s.createNote);
+  const createDrawing = useWorkspace((s) => s.createDrawing);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
   const openHistory = useHistoryUi((s) => s.open);
   const t = useT();
@@ -263,6 +266,11 @@ function TreeContextMenu({
       {node.kind === "dir" && (
         <button onClick={() => run(() => void createNote(node.path))}>
           {t("fileTree.newNote")}
+        </button>
+      )}
+      {node.kind === "dir" && (
+        <button onClick={() => run(() => void createDrawing(node.path))}>
+          {t("fileTree.newDrawing")}
         </button>
       )}
       {node.kind === "file" && (

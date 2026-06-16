@@ -16,12 +16,13 @@ const IMAGE_EXTS = new Set([
   "avif",
 ]);
 
-/** 파일명 확장자로 노트/HTML/PDF/이미지/기타를 분류한다. (Rust tree::file_type_of 와 동일) */
+/** 파일명 확장자로 노트/HTML/PDF/이미지/드로잉/기타를 분류한다. (Rust tree::file_type_of 와 동일) */
 export function fileTypeOf(name: string): FileType {
   const ext = name.split(".").pop()?.toLowerCase();
   if (ext === "md" || ext === "markdown") return "markdown";
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "pdf") return "pdf";
+  if (ext === "excalidraw") return "excalidraw";
   if (ext && IMAGE_EXTS.has(ext)) return "image";
   if (ext === "drawio" || ext === "dio") return "drawio";
   return "other";

@@ -72,6 +72,7 @@ export const en: LocaleShape<KoMessages> = {
   },
   fileTree: {
     newNote: "New Note",
+    newDrawing: "New Drawing",
     duplicate: "Duplicate",
     rename: "Rename",
     copyPath: "Copy Path",
@@ -263,6 +264,7 @@ export const en: LocaleShape<KoMessages> = {
   viewer: {
     preparing: "Preparing render…",
     imageError: "Failed to load image",
+    excalidrawError: "This file is not a valid Excalidraw drawing",
     zoomToFit: "Fit to screen",
     zoomToActual: "Actual size",
   },
