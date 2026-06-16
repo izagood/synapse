@@ -72,6 +72,28 @@ export function shouldPersistDrawio(newXml: string, initialXml: string): boolean
   return true;
 }
 
+/**
+ * iframe → host 메시지가 이 에디터의 iframe 에서 온 것으로 신뢰할 수 있는지 본다.
+ *
+ * 정상 브라우저에선 MessageEvent.source 가 iframe 의 contentWindow 와 같아서
+ * `source === frame` 으로 거르면 된다. 그러나 macOS 의 WKWebView(Tauri 셸)는
+ * iframe→부모 postMessage 에서 source 를 null 로 주는 버그가 있다. 그 경우
+ * 엄격히 비교하면 drawio 가 보내는 init 이 통째로 버려지고 load 핸드셰이크가
+ * 끝내 완료되지 않아, 에디터가 빈 캔버스로 멈춘 채 파일이 로드되지 않는다
+ * (그래서 뷰어는 멀쩡한데 에디터만 빈칸으로 보였다).
+ *
+ * 따라서 source 가 있으면 그대로 일치를 요구하고, source 가 없을 때(WKWebView)는
+ * 통과시킨다 — 데스크톱 앱이라 신뢰 못 할 외부 프레임이 없고, 실제 drawio embed
+ * 이벤트인지는 handleEmbedEvent 가 한 번 더 거른다.
+ */
+export function isFromEmbedFrame(
+  source: MessageEventSource | null,
+  frame: Window | null | undefined,
+): boolean {
+  if (source == null) return true; // WKWebView: source 미제공 → 신뢰
+  return source === frame;
+}
+
 export interface EmbedContext {
   /** 에디터를 처음 띄울 때 로드할 .drawio XML 원문. */
   initialXml: string;
