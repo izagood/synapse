@@ -261,6 +261,9 @@ export const en: LocaleShape<KoMessages> = {
   },
   viewer: {
     preparing: "Preparing render…",
+    imageError: "Failed to load image",
+    zoomToFit: "Fit to screen",
+    zoomToActual: "Actual size",
   },
   backlinks: {
     title: "Backlinks",

@@ -251,6 +251,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ activePath: node.path });
 
     if (docs[node.path]) return; // 이미 로드됨 (편집 중 상태 유지)
+
+    // 이미지는 바이너리라 텍스트로 읽지 않는다. 뷰어가 경로를 asset URL로
+    // 직접 렌더링하므로 content 없이 로드 완료 상태만 만들어 둔다.
+    if (node.fileType === "image") {
+      set((s) => ({
+        docs: {
+          ...s.docs,
+          [node.path]: { content: "", savedContent: "", externalRev: 0, loading: false, error: null },
+        },
+      }));
+      return;
+    }
+
     set((s) => ({
       docs: {
         ...s.docs,
@@ -425,6 +438,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     for (const path of Object.keys(get().docs)) {
       const doc = get().docs[path];
       if (!doc || doc.loading) continue;
+      // 이미지는 바이너리라 텍스트로 읽지 않는다. 뷰어가 경로를 직접 렌더링하고,
+      // 파일이 바뀌면 트리 갱신만으로 충분하다.
+      if (fileTypeOf(basename(path)) === "image") continue;
       if (isDirty(doc)) {
         // 편집 중이면 저장 경로가 곧 머지 경로다 (CRDT 3-way)
         await get().saveDoc(path);
