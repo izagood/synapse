@@ -21,6 +21,17 @@ use synapse_core::agent::{
 };
 use tauri::{AppHandle, Emitter, State};
 
+/// Windows에서 GUI 앱이 콘솔 자식 프로세스(claude CLI)를 spawn할 때 콘솔 창이
+/// 깜빡이는 것을 막는다. `CREATE_NO_WINDOW`(0x0800_0000). 다른 OS에선 무동작.
+#[cfg(windows)]
+fn suppress_console_window(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000);
+}
+
+#[cfg(not(windows))]
+fn suppress_console_window(_cmd: &mut Command) {}
+
 const EVENT_NAME: &str = "agent:event";
 /// 읽기 전용 도구 + 편집 도구. 편집(Edit/Write)은 control 프로토콜의 승인
 /// 게이트를 반드시 통과해야만 실행된다 (claude CLI가 권한을 물어본다).
@@ -125,6 +136,7 @@ pub fn agent_send(
     );
 
     let mut cmd = Command::new(bin);
+    suppress_console_window(&mut cmd);
     cmd.arg("-p")
         .arg(&prompt)
         .args(["--output-format", "stream-json", "--verbose"])

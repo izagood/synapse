@@ -129,12 +129,25 @@ fn network_timeout_for(args: &[&str]) -> Option<Duration> {
     }
 }
 
+/// Windows에서 GUI 앱(`windows_subsystem = "windows"`)이 콘솔 자식 프로세스
+/// (`git` 등)를 spawn할 때마다 콘솔 창이 깜빡이는 것을 막는다.
+/// `CREATE_NO_WINDOW`(0x0800_0000). 다른 OS에선 콘솔 창 개념이 없어 무동작.
+#[cfg(windows)]
+fn suppress_console_window(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000);
+}
+
+#[cfg(not(windows))]
+fn suppress_console_window(_cmd: &mut Command) {}
+
 /// 타임아웃이 있으면 프로세스를 폴링하다가 초과 시 kill 한다.
 /// stdout/stderr는 별도 스레드로 빨아들여 파이프 버퍼 교착을 막는다.
 fn run_command(
     mut cmd: Command,
     timeout: Option<Duration>,
 ) -> Result<(bool, Vec<u8>, String), String> {
+    suppress_console_window(&mut cmd);
     let Some(timeout) = timeout else {
         let out = cmd
             .output()
@@ -295,7 +308,10 @@ impl GitWorkspace {
     }
 
     pub fn git_available() -> bool {
-        Command::new("git").arg("--version").output().is_ok()
+        let mut cmd = Command::new("git");
+        cmd.arg("--version");
+        suppress_console_window(&mut cmd);
+        cmd.output().is_ok()
     }
 
     pub fn is_repo(&self) -> bool {
