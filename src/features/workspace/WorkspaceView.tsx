@@ -93,6 +93,8 @@ export function WorkspaceView() {
   const onHandleDown = useCallback((e: React.PointerEvent) => {
     dragging.current = true;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    // 드래그 중 파일 트리 등의 텍스트가 선택되는 것을 막는다
+    document.body.classList.add("resizing-sidebar");
   }, []);
 
   const onHandleMove = useCallback((e: React.PointerEvent) => {
@@ -105,6 +107,7 @@ export function WorkspaceView() {
   const onHandleUp = useCallback(() => {
     if (!dragging.current) return;
     dragging.current = false;
+    document.body.classList.remove("resizing-sidebar");
     setSidebarWidth((w) => {
       localStorage.setItem(SIDEBAR_KEY, String(w));
       return w;
@@ -115,6 +118,14 @@ export function WorkspaceView() {
     setSidebarWidth(SIDEBAR_DEFAULT);
     localStorage.setItem(SIDEBAR_KEY, String(SIDEBAR_DEFAULT));
   }, []);
+
+  // 드래그 도중 핸들이 언마운트(예: Ctrl+B로 사이드바 숨김)되어도 클래스가 남지 않도록 정리
+  useEffect(
+    () => () => {
+      document.body.classList.remove("resizing-sidebar");
+    },
+    [],
+  );
 
   const folderName = root ? basename(root) : root;
 
