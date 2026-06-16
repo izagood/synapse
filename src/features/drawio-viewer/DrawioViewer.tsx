@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
+import { effectiveTheme, useSettings } from "../../stores/settings";
 import { useT } from "../../i18n";
 import { buildDrawioHtml } from "./buildDrawioHtml";
 
@@ -41,17 +42,21 @@ function ensureViewerScript(): Promise<string> {
 // drawio 뷰어 런타임에 맡긴다.
 export function DrawioViewer({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
+  const theme = useSettings((s) => s.settings.appearance.theme);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const t = useT();
 
   const content = doc?.content ?? "";
+  const dark = effectiveTheme(theme) === "dark";
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
     ensureViewerScript()
-      .then((scriptUrl) => ipc.prepareHtmlView(cacheNameFor(path), buildDrawioHtml(content, scriptUrl)))
+      .then((scriptUrl) =>
+        ipc.prepareHtmlView(cacheNameFor(path), buildDrawioHtml(content, scriptUrl, dark)),
+      )
       .then((url) => {
         if (!cancelled) setFrameSrc(url);
       })
@@ -61,7 +66,7 @@ export function DrawioViewer({ path }: { path: string }) {
     return () => {
       cancelled = true;
     };
-  }, [content, path]);
+  }, [content, path, dark]);
 
   if (error) {
     return (
@@ -81,7 +86,7 @@ export function DrawioViewer({ path }: { path: string }) {
 
   return (
     <iframe
-      className="html-viewer"
+      className="html-viewer drawio-viewer"
       title={path}
       // 렌더링에 스크립트(뷰어 런타임)가 필요하다. 같은 출처/탑 네비게이션은 차단.
       sandbox="allow-scripts"

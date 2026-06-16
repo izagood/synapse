@@ -1428,6 +1428,12 @@ body.resizing-sidebar {
   border: none;
   background: #fff;
 }
+/* 다크 모드에선 drawio 캔버스(에디터/뷰어)와 같은 어두운 배경으로 맞춰
+   iframe 내용이 칠해지기 전 흰색이 새지 않게 한다. */
+:root[data-theme="dark"] .drawio-editor,
+:root[data-theme="dark"] .drawio-viewer {
+  background: #121212;
+}
 .drawio-mode-toggle {
   position: absolute;
   right: 12px;
