@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
 import { useSettings } from "../../stores/settings";
 import { useT } from "../../i18n";
@@ -13,6 +13,9 @@ import {
 // 출처라 iframe 안 문서는 메인 윈도우 CSP 제약을 받지 않고 그대로 동작한다.
 const APP_PATH = "vendor/drawio-app/index.html";
 
+// [임시 진단] embed 핸드셰이크가 어디서 끊기는지 화면에 찍는다. 원인 확정 후 제거.
+const DRAWIO_DEBUG = true;
+
 // `.drawio` 파일을 번들된 drawio 에디터로 편집한다. 저장은 embed 프로토콜의
 // autosave/save 이벤트로 들어온 XML을 워크스페이스 스토어에 흘려보내면, 스토어가
 // (마크다운이 아니므로) 평문 writeFile 경로로 파일에 그대로 쓴다 — frontmatter
@@ -23,6 +26,7 @@ export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => vo
   const lang = useSettings((s) => s.settings.appearance.language);
   const t = useT();
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const [log, setLog] = useState<string[]>([]);
 
   // 시드(편집 시작 내용)는 파일 내용이 실제로 로드된 뒤에만 한 번 캡처한다.
   // 로딩 중(content="")에 잡으면 빈 시드로 에디터가 떠서, 그 빈 내용이 곧장
@@ -45,11 +49,28 @@ export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => vo
   useEffect(() => {
     if (seed === null) return; // 시드가 아직 준비 안 됨 — iframe 도 안 떠 있다.
     const loadedSeed = seed; // 아래 콜백 클로저에서 string 으로 좁혀 쓰기 위해 고정.
+    const dbg = (line: string) =>
+      setLog((prev) => [...prev.slice(-20), line]);
+    if (DRAWIO_DEBUG) dbg(`mount: seed.len=${loadedSeed.length}`);
     function onMessage(e: MessageEvent) {
       const frame = frameRef.current;
+      if (DRAWIO_DEBUG) {
+        const src =
+          e.source == null
+            ? "null"
+            : e.source === frame?.contentWindow
+              ? "frame"
+              : "other";
+        const raw =
+          typeof e.data === "string" ? e.data.slice(0, 40) : typeof e.data;
+        dbg(`recv src=${src} data=${raw}`);
+      }
       // macOS WKWebView 는 e.source 를 null 로 줄 때가 있어 엄격 비교만 하면
       // init 이 버려진다(에디터가 빈 채로 멈춤). isFromEmbedFrame 으로 흡수한다.
-      if (!frame || !isFromEmbedFrame(e.source, frame.contentWindow)) return;
+      if (!frame || !isFromEmbedFrame(e.source, frame.contentWindow)) {
+        if (DRAWIO_DEBUG) dbg(`  -> dropped (source check)`);
+        return;
+      }
       let data: unknown = e.data;
       if (typeof data === "string") {
         if (data.length === 0) return; // drawio 가 가끔 빈 문자열을 먼저 보냄
@@ -62,6 +83,7 @@ export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => vo
       const outcome = handleEmbedEvent(data, { initialXml: loadedSeed });
       if (!outcome) return;
       if (outcome.reply) {
+        if (DRAWIO_DEBUG) dbg(`  -> posting load (xml.len=${loadedSeed.length})`);
         frame.contentWindow?.postMessage(JSON.stringify(outcome.reply), "*");
       }
       // 시드에 내용이 있었는데 빈 다이어그램이 들어오면 저장하지 않는다(손실 방지).
@@ -82,5 +104,34 @@ export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => vo
     );
   }
 
-  return <iframe ref={frameRef} className="drawio-editor" title={path} src={src.current} />;
+  return (
+    <>
+      <iframe ref={frameRef} className="drawio-editor" title={path} src={src.current} />
+      {DRAWIO_DEBUG && (
+        <pre
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 8,
+            zIndex: 9999,
+            maxWidth: "60%",
+            maxHeight: "70%",
+            overflow: "auto",
+            margin: 0,
+            padding: "6px 8px",
+            fontSize: 11,
+            lineHeight: 1.35,
+            color: "#0f0",
+            background: "rgba(0,0,0,0.8)",
+            border: "1px solid #0f0",
+            borderRadius: 4,
+            pointerEvents: "none",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {`drawio handshake debug\n${log.join("\n")}`}
+        </pre>
+      )}
+    </>
+  );
 }
