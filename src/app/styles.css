@@ -1216,6 +1216,44 @@ body.resizing-sidebar {
   color: var(--code-builtin);
 }
 
+/* mermaid 다이어그램 블록: 위쪽 미리보기 + 아래쪽 편집 가능한 소스 */
+.tiptap .mermaid-block {
+  margin: 1em 0;
+}
+
+.tiptap .mermaid-block .mermaid-preview {
+  display: flex;
+  justify-content: center;
+  /* mermaid 기본 테마는 밝은 색이라 다크 모드에서도 흰 배경 위에 둔다 */
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 6px;
+  overflow-x: auto;
+}
+
+.tiptap .mermaid-block .mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.tiptap .mermaid-block .mermaid-preview.mermaid-error {
+  justify-content: flex-start;
+  background: var(--bg-panel);
+  color: var(--code-string, #c0392b);
+  font-family: var(--mono-font);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+}
+
+/* mermaid 소스는 보조적으로, 살짝 줄여서 표시 */
+.tiptap .mermaid-block pre {
+  margin: 0;
+  font-size: 0.85em;
+  opacity: 0.85;
+}
+
 .tiptap hr {
   border: none;
   border-top: 1px solid var(--border);
