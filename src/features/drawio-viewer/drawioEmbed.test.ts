@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildEditorUrl, handleEmbedEvent } from "./drawioEmbed";
+import {
+  buildEditorUrl,
+  handleEmbedEvent,
+  isBlankDrawio,
+  shouldPersistDrawio,
+} from "./drawioEmbed";
 
 describe("buildEditorUrl", () => {
   it("enables embed/json protocol and offline-safe params", () => {
@@ -14,17 +19,68 @@ describe("buildEditorUrl", () => {
     expect(url.startsWith("vendor/drawio-app/index.html?")).toBe(true);
   });
 
-  it("adds dark and lang only when requested", () => {
+  it("never enables drawio dark mode (always light canvas)", () => {
     const plain = new URL(buildEditorUrl({ basePath: "a" }), "http://x/").searchParams;
     expect(plain.get("dark")).toBeNull();
-    expect(plain.get("lang")).toBeNull();
+    const withLang = new URL(buildEditorUrl({ basePath: "a", lang: "ko" }), "http://x/").searchParams;
+    expect(withLang.get("dark")).toBeNull();
+  });
 
-    const themed = new URL(
-      buildEditorUrl({ basePath: "a", dark: true, lang: "ko" }),
-      "http://x/",
-    ).searchParams;
-    expect(themed.get("dark")).toBe("1");
-    expect(themed.get("lang")).toBe("ko");
+  it("adds lang only when requested", () => {
+    const plain = new URL(buildEditorUrl({ basePath: "a" }), "http://x/").searchParams;
+    expect(plain.get("lang")).toBeNull();
+    const withLang = new URL(buildEditorUrl({ basePath: "a", lang: "ko" }), "http://x/").searchParams;
+    expect(withLang.get("lang")).toBe("ko");
+  });
+});
+
+const SEEDED = '<mxfile><diagram><mxGraphModel><root>' +
+  '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+  '<mxCell id="2" value="A" vertex="1" parent="1"/>' +
+  "</root></mxGraphModel></diagram></mxfile>";
+const EMPTY_MODEL = '<mxfile><diagram><mxGraphModel><root>' +
+  '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
+  "</root></mxGraphModel></diagram></mxfile>";
+
+describe("isBlankDrawio", () => {
+  it("treats empty/whitespace/non-string as blank", () => {
+    expect(isBlankDrawio("")).toBe(true);
+    expect(isBlankDrawio("   \n ")).toBe(true);
+    expect(isBlankDrawio(null)).toBe(true);
+    expect(isBlankDrawio(undefined)).toBe(true);
+  });
+
+  it("treats a default-skeleton model (no user cells) as blank", () => {
+    expect(isBlankDrawio(EMPTY_MODEL)).toBe(true);
+  });
+
+  it("treats a model with user shapes/edges/objects as non-blank", () => {
+    expect(isBlankDrawio(SEEDED)).toBe(false);
+    expect(isBlankDrawio('<mxGraphModel><root><mxCell edge="1"/></root></mxGraphModel>')).toBe(false);
+    expect(isBlankDrawio("<mxfile><diagram><object label='x'/></diagram></mxfile>")).toBe(false);
+  });
+
+  it("treats a compressed <diagram> payload as non-blank", () => {
+    expect(isBlankDrawio("<mxfile><diagram>jVNNb9swDP0rgs5x4qTd0KKx0XbY1g==</diagram></mxfile>")).toBe(
+      false,
+    );
+  });
+});
+
+describe("shouldPersistDrawio", () => {
+  it("refuses to overwrite a non-blank file with a blank diagram", () => {
+    expect(shouldPersistDrawio(EMPTY_MODEL, SEEDED)).toBe(false);
+    expect(shouldPersistDrawio("", SEEDED)).toBe(false);
+  });
+
+  it("allows real edits", () => {
+    expect(shouldPersistDrawio(SEEDED, EMPTY_MODEL)).toBe(true);
+    expect(shouldPersistDrawio(SEEDED, SEEDED)).toBe(true);
+  });
+
+  it("allows a blank save when the file started blank", () => {
+    expect(shouldPersistDrawio(EMPTY_MODEL, "")).toBe(true);
+    expect(shouldPersistDrawio("", "")).toBe(true);
   });
 });
 

@@ -29,25 +29,15 @@ describe("buildDrawioHtml", () => {
     expect(config.lightbox).toBe(false);
   });
 
-  it("기본(light)에서는 흰 배경이고 dark 설정을 켜지 않는다", () => {
+  it("앱 테마와 무관하게 항상 흰 캔버스로 렌더링하고 dark 설정을 켜지 않는다", () => {
     const html = buildDrawioHtml(SAMPLE_XML, "asset://viewer.js");
     expect(html).toContain("background: #fff");
+    expect(html).not.toContain("#121212");
     const m = html.match(/data-mxgraph='([^']*)'/);
     const config = JSON.parse(
       m![1].replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"),
     );
     expect(config.dark).toBeUndefined();
-  });
-
-  it("dark=true면 다크 캔버스 배경과 GraphViewer dark 설정을 켠다", () => {
-    const html = buildDrawioHtml(SAMPLE_XML, "asset://viewer.js", true);
-    expect(html).toContain("background: #121212");
-    expect(html).not.toContain("background: #fff");
-    const m = html.match(/data-mxgraph='([^']*)'/);
-    const config = JSON.parse(
-      m![1].replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"),
-    );
-    expect(config.dark).toBe(true);
   });
 
   it("XML이나 URL의 따옴표가 속성을 깨뜨리지 않는다", () => {
