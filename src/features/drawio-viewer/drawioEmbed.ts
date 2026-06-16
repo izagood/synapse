@@ -12,13 +12,17 @@
 export interface EmbedUrlOptions {
   /** 번들된 에디터 진입점 경로. 보통 "vendor/drawio-app/index.html". */
   basePath: string;
-  /** 다크 테마로 띄울지. */
-  dark?: boolean;
   /** UI 언어 (번들된 resources/dia_<lang>.txt 가 있을 때만 적용됨). */
   lang?: string;
 }
 
-/** embed 모드 진입 URL을 만든다. */
+/**
+ * embed 모드 진입 URL을 만든다.
+ *
+ * 다크는 일부러 켜지 않는다 — drawio 다크 모드는 캔버스/크롬만 어둡게 할 뿐 도형
+ * 색은 그대로라, 라이트로 그린 다이어그램이 검정-위-검정으로 안 보인다.
+ * 앱 테마와 무관하게 항상 라이트 캔버스로 편집한다. (buildDrawioHtml 도 동일.)
+ */
 export function buildEditorUrl(opts: EmbedUrlOptions): string {
   const params = new URLSearchParams({
     embed: "1",
@@ -31,9 +35,41 @@ export function buildEditorUrl(opts: EmbedUrlOptions): string {
     offline: "1", // 클라우드/스토리지 기능 비활성
     stealth: "1", // 외부 네트워크 요청 차단 (오프라인 보장)
   });
-  if (opts.dark) params.set("dark", "1");
   if (opts.lang) params.set("lang", opts.lang);
   return `${opts.basePath}?${params.toString()}`;
+}
+
+/**
+ * mxGraph XML 이 "빈 다이어그램"인지 판단한다 — 비었거나 공백뿐이거나, 사용자가
+ * 그린 도형/엣지/객체가 하나도 없는 기본 골격(default layer cell 만)인 경우.
+ *
+ * 압축 저장된 `<diagram>base64…</diagram>`(내부에 `<` 가 없는 페이로드)은
+ * 내용이 있는 것으로 본다 — 잘못 빈 것으로 판정해 보호를 못 하는 일이 없도록
+ * 보수적으로 처리한다.
+ */
+export function isBlankDrawio(xml: string | null | undefined): boolean {
+  if (typeof xml !== "string") return true;
+  const trimmed = xml.trim();
+  if (trimmed === "") return true;
+  // 압축(deflate+base64) 페이로드: <diagram> 안에 마크업(<) 없이 텍스트만 들어 있다.
+  const diagram = trimmed.match(/<diagram\b[^>]*>([\s\S]*?)<\/diagram>/i);
+  if (diagram && !diagram[1].includes("<") && diagram[1].replace(/\s/g, "").length > 16) {
+    return false;
+  }
+  // 사용자 도형/엣지/객체가 하나라도 있으면 내용 있음.
+  return !/vertex\s*=\s*"1"|edge\s*=\s*"1"|<(?:object|UserObject)\b/i.test(trimmed);
+}
+
+/**
+ * 에디터가 보낸 새 XML 을 파일에 저장해도 되는지 판단한다.
+ *
+ * 시드(initialXml)에 내용이 있었는데 새 XML 이 빈 다이어그램이면, 로드 실패나
+ * 초기화 사고로 보고 저장을 거부한다 — 기존 파일이 빈 내용으로 덮어써지는
+ * 데이터 손실을 막는 안전장치. (원래 빈 파일에서 시작했다면 빈 저장도 허용.)
+ */
+export function shouldPersistDrawio(newXml: string, initialXml: string): boolean {
+  if (isBlankDrawio(newXml)) return isBlankDrawio(initialXml);
+  return true;
 }
 
 export interface EmbedContext {

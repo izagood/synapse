@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useWorkspace } from "../../stores/workspace";
-import { effectiveTheme, useSettings } from "../../stores/settings";
-import { buildEditorUrl, handleEmbedEvent } from "./drawioEmbed";
+import { useSettings } from "../../stores/settings";
+import { useT } from "../../i18n";
+import { buildEditorUrl, handleEmbedEvent, shouldPersistDrawio } from "./drawioEmbed";
 
 // 앱에 번들된 drawio 에디터 웹앱(public/ → dist 루트로 복사됨). 앱과 같은
 // 출처라 iframe 안 문서는 메인 윈도우 CSP 제약을 받지 않고 그대로 동작한다.
@@ -14,25 +15,31 @@ const APP_PATH = "vendor/drawio-app/index.html";
 export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => void }) {
   const doc = useWorkspace((s) => s.docs[path]);
   const updateContent = useWorkspace((s) => s.updateContent);
-  const theme = useSettings((s) => s.settings.appearance.theme);
   const lang = useSettings((s) => s.settings.appearance.language);
+  const t = useT();
   const frameRef = useRef<HTMLIFrameElement>(null);
 
-  // 마운트 시점의 내용을 한 번만 캡처한다. 이후 autosave 가 스토어 content 를
-  // 갱신해도 에디터를 다시 로드하지 않는다(에디터가 진실의 원천).
-  const initialXml = useRef(doc?.content ?? "");
+  // 시드(편집 시작 내용)는 파일 내용이 실제로 로드된 뒤에만 한 번 캡처한다.
+  // 로딩 중(content="")에 잡으면 빈 시드로 에디터가 떠서, 그 빈 내용이 곧장
+  // autosave 되며 기존 파일을 덮어쓰는 데이터 손실이 난다. 캡처 전까지는 iframe 을
+  // 띄우지 않고 대기한다. 한 번 잡은 뒤엔 이후 autosave 가 스토어 content 를
+  // 갱신해도 다시 읽지 않는다(에디터가 진실의 원천).
+  const initialXml = useRef<string | null>(null);
+  if (initialXml.current === null && doc && !doc.loading && doc.error === null) {
+    initialXml.current = doc.content ?? "";
+  }
+  const seed = initialXml.current;
 
-  // src 는 마운트 시 한 번만 계산한다. 편집 중 테마/언어가 바뀌어 iframe 이
+  // src 는 시드 준비 후 한 번만 계산한다. 편집 중 언어가 바뀌어 iframe 이
   // 리로드되며 작업이 끊기지 않도록 의존성에서 제외한다.
-  const src = useRef(
-    buildEditorUrl({
-      basePath: APP_PATH,
-      dark: effectiveTheme(theme) === "dark",
-      lang,
-    }),
-  );
+  const src = useRef<string | null>(null);
+  if (src.current === null && seed !== null) {
+    src.current = buildEditorUrl({ basePath: APP_PATH, lang });
+  }
 
   useEffect(() => {
+    if (seed === null) return; // 시드가 아직 준비 안 됨 — iframe 도 안 떠 있다.
+    const loadedSeed = seed; // 아래 콜백 클로저에서 string 으로 좁혀 쓰기 위해 고정.
     function onMessage(e: MessageEvent) {
       const frame = frameRef.current;
       if (!frame || e.source !== frame.contentWindow) return;
@@ -45,19 +52,28 @@ export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => vo
           return;
         }
       }
-      const outcome = handleEmbedEvent(data, { initialXml: initialXml.current });
+      const outcome = handleEmbedEvent(data, { initialXml: loadedSeed });
       if (!outcome) return;
       if (outcome.reply) {
         frame.contentWindow?.postMessage(JSON.stringify(outcome.reply), "*");
       }
-      if (typeof outcome.saveXml === "string") {
+      // 시드에 내용이 있었는데 빈 다이어그램이 들어오면 저장하지 않는다(손실 방지).
+      if (typeof outcome.saveXml === "string" && shouldPersistDrawio(outcome.saveXml, loadedSeed)) {
         updateContent(path, outcome.saveXml);
       }
       if (outcome.exit) onExit?.();
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [path, updateContent, onExit]);
+  }, [path, updateContent, onExit, seed]);
+
+  if (seed === null || src.current === null) {
+    return (
+      <div className="preview-placeholder">
+        <p>{t("viewer.preparing")}</p>
+      </div>
+    );
+  }
 
   return <iframe ref={frameRef} className="drawio-editor" title={path} src={src.current} />;
 }

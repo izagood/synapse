@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
-import { effectiveTheme, useSettings } from "../../stores/settings";
 import { useT } from "../../i18n";
 import { buildDrawioHtml } from "./buildDrawioHtml";
 
@@ -42,21 +41,17 @@ function ensureViewerScript(): Promise<string> {
 // drawio 뷰어 런타임에 맡긴다.
 export function DrawioViewer({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
-  const theme = useSettings((s) => s.settings.appearance.theme);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const t = useT();
 
   const content = doc?.content ?? "";
-  const dark = effectiveTheme(theme) === "dark";
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
     ensureViewerScript()
-      .then((scriptUrl) =>
-        ipc.prepareHtmlView(cacheNameFor(path), buildDrawioHtml(content, scriptUrl, dark)),
-      )
+      .then((scriptUrl) => ipc.prepareHtmlView(cacheNameFor(path), buildDrawioHtml(content, scriptUrl)))
       .then((url) => {
         if (!cancelled) setFrameSrc(url);
       })
@@ -66,7 +61,7 @@ export function DrawioViewer({ path }: { path: string }) {
     return () => {
       cancelled = true;
     };
-  }, [content, path, dark]);
+  }, [content, path]);
 
   if (error) {
     return (

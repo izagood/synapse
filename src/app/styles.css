@@ -1422,17 +1422,15 @@ body.resizing-sidebar {
   width: 100%;
   height: 100%;
 }
-.drawio-editor {
+/* drawio 는 앱 테마와 무관하게 항상 흰 캔버스로 렌더링한다(다크 모드 미적용 —
+   drawio 다크는 도형 색을 안 바꿔 검정-위-검정으로 안 보인다). iframe 내용이
+   칠해지기 전 깜빡임이 없도록 컨테이너도 흰색으로 맞춘다. */
+.drawio-editor,
+.drawio-viewer {
   width: 100%;
   height: 100%;
   border: none;
   background: #fff;
-}
-/* 다크 모드에선 drawio 캔버스(에디터/뷰어)와 같은 어두운 배경으로 맞춰
-   iframe 내용이 칠해지기 전 흰색이 새지 않게 한다. */
-:root[data-theme="dark"] .drawio-editor,
-:root[data-theme="dark"] .drawio-viewer {
-  background: #121212;
 }
 .drawio-mode-toggle {
   position: absolute;
