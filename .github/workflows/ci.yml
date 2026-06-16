@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+# 같은 ref(브랜치/PR)에 대한 중복·구버전 실행을 하나로 합친다.
+# - GitHub이 한 머지에 push 이벤트를 중복 전달하는 경우 CI가 2번 도는 것을 막고,
+# - PR에 연속 푸시하면 이전 실행을 취소해 최신 커밋만 검증한다.
+# push 트리거는 main에만 걸려 있어, 머지 후 더 새 main 커밋이 오면 이전 실행이
+# 취소되고 최신 main이 release-dry-run까지 다시 검증된다(릴리스 게이트 안전).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
