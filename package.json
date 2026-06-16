@@ -5,7 +5,10 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "sync:excalidraw-assets": "node scripts/copy-excalidraw-assets.mjs",
+    "predev": "npm run sync:excalidraw-assets",
     "dev": "vite",
+    "prebuild": "npm run sync:excalidraw-assets",
     "build": "tsc --noEmit && vite build",
     "lint": "eslint \"src/**/*.{ts,tsx}\" vite.config.ts --max-warnings=0",
     "preview": "vite preview",
@@ -14,6 +17,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-opener": "^2.5.4",

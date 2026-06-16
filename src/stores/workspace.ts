@@ -10,6 +10,7 @@ import {
   markdownToStandaloneHtml,
   titleFromPath,
 } from "../features/html/markdownToHtml";
+import { emptySceneJson } from "../features/excalidraw/scene";
 
 export interface TabInfo {
   path: string;
@@ -95,6 +96,8 @@ interface WorkspaceState {
   /** sync 후 열린 문서에 원격 변경을 반영 — 깨끗하면 다시 읽고, 편집 중이면 CRDT 머지 저장 */
   reloadAfterSync(): Promise<void>;
   createNote(dir?: string): Promise<void>;
+  /** dir 안에 빈 `.excalidraw` 드로잉을 만들어 연다 */
+  createDrawing(dir?: string): Promise<void>;
   /**
    * HTML 텍스트(AI 산출물 등)를 정화·변환해 새 마크다운 노트로 가져온다 (FR-3.4).
    * 생성된 노트를 열고, 생성 경로를 반환한다.
@@ -495,6 +498,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  async createDrawing(dir) {
+    const { root, tree } = get();
+    if (!root || !tree) return;
+    try {
+      const path = uniqueDrawingPath(dir ?? root, collectFilePaths(tree));
+      await ipc.writeFile(root, path, emptySceneJson());
+      await get().refreshTree();
+      await get().openFile({
+        path,
+        name: basename(path),
+        kind: "file",
+        fileType: "excalidraw",
+      });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
   async importHtmlAsNote(html, dir) {
     const { root } = get();
     if (!root) return null;
@@ -648,6 +669,16 @@ function collectFilePaths(tree: FileNode, into = new Set<string>()): Set<string>
   if (tree.kind === "file") into.add(tree.path);
   tree.children?.forEach((c) => collectFilePaths(c, into));
   return into;
+}
+
+/** dir 안에서 겹치지 않는 `드로잉.excalidraw` 계열 경로를 고른다 (create_unique_note의 .excalidraw 판) */
+function uniqueDrawingPath(dir: string, existing: Set<string>): string {
+  const base = `${dir}/드로잉`;
+  let candidate = `${base}.excalidraw`;
+  for (let i = 2; existing.has(candidate); i++) {
+    candidate = `${base} ${i}.excalidraw`;
+  }
+  return candidate;
 }
 
 /** 저장된 세션의 탭들을 다시 연다 — 사라진 파일은 건너뛴다 */

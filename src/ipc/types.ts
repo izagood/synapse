@@ -1,6 +1,13 @@
 // Rust synapse-core::tree::FileNode 의 serde(camelCase) 직렬화와 1:1 대응
 export type NodeKind = "dir" | "file";
-export type FileType = "markdown" | "html" | "pdf" | "image" | "drawio" | "other";
+export type FileType =
+  | "markdown"
+  | "html"
+  | "pdf"
+  | "image"
+  | "drawio"
+  | "excalidraw"
+  | "other";
 
 export interface FileNode {
   name: string;

@@ -37,6 +37,14 @@ export const FileTextIcon = (p: IconProps) => (
   </Svg>
 );
 
+// 연필(드로잉/Excalidraw 파일용)
+export const PencilIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3z" />
+    <line x1="9.5" y1="4" x2="12" y2="6.5" />
+  </Svg>
+);
+
 export const GraphIcon = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="3.5" cy="12" r="1.8" />
