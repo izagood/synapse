@@ -5,7 +5,7 @@ import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
 import { HtmlViewer } from "../html-viewer/HtmlViewer";
 import { PdfViewer } from "../pdf-viewer/PdfViewer";
 import { ImageViewer } from "../image-viewer/ImageViewer";
-import { DrawioViewer } from "../drawio-viewer/DrawioViewer";
+import { DrawioPane } from "../drawio-viewer/DrawioPane";
 import { BacklinksPanel } from "./BacklinksPanel";
 
 // Excalidraw 번들은 무거우므로(수 MB) 드로잉을 열 때만 동적으로 불러온다.
@@ -71,7 +71,7 @@ export function ContentPane() {
   }
 
   if (tab?.fileType === "drawio" && !sourceMode) {
-    return <DrawioViewer key={activePath} path={activePath} />;
+    return <DrawioPane key={activePath} path={activePath} />;
   }
 
   if (tab?.fileType === "excalidraw") {
