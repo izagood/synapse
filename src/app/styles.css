@@ -1454,21 +1454,61 @@ body.resizing-sidebar {
   opacity: 1;
 }
 
+/* PDF: pdf.js 캔버스 렌더링. 컨테이너는 줌 컨트롤 오버레이의 기준(position) 역할. */
 .pdf-viewer {
+  position: relative;
   width: 100%;
   height: 100%;
-  border: none;
   background: #525659;
+  overflow: hidden;
 }
 
-.image-viewer {
+.pdf-scroll {
+  width: 100%;
   height: 100%;
+  overflow: auto;
+  /* 한 손가락 스크롤은 네이티브로, 두 손가락 핀치는 JS로 처리한다 */
+  touch-action: pan-x pan-y;
+}
+
+.pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  min-width: min-content;
+}
+
+.pdf-page {
+  display: block;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  background: #fff;
+}
+
+/* 이미지: transform 기반 핀치 줌/팬 표면. 콘텐츠 박스가 뷰포트를 채우고
+   그 위에서 translate+scale 한다. 줌 수학(clampTranslate)이 좌표계를 가정한다. */
+.image-viewer {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-dim, #1a1a1a);
+  touch-action: none;
+  cursor: grab;
+}
+
+.image-viewer.is-zoomed {
+  cursor: grab;
+}
+
+.image-viewer .zoom-content {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
-  padding: 16px;
-  background: var(--bg-dim, #1a1a1a);
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 /* Excalidraw 드로잉 편집기. 라이브러리가 자체적으로 패닝/줌/스크롤을 다루므로
@@ -1484,7 +1524,9 @@ body.resizing-sidebar {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
   /* 체커보드 배경으로 투명 영역을 드러낸다 */
   background-image:
     linear-gradient(45deg, rgba(128, 128, 128, 0.15) 25%, transparent 25%),
@@ -1495,16 +1537,50 @@ body.resizing-sidebar {
   background-position: 0 0, 0 10px, 10px -10px, -10px 0;
 }
 
-/* 실제 크기 모드: 원본 픽셀 크기로 보고 컨테이너에서 스크롤한다 */
-.image-viewer.is-actual {
-  align-items: flex-start;
-  justify-content: flex-start;
+/* 이미지/PDF 뷰어가 공유하는 줌 컨트롤 오버레이 */
+.viewer-zoom-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(30, 30, 30, 0.82);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 2;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.image-viewer.is-actual .image-viewer-img {
-  max-width: none;
-  max-height: none;
-  cursor: zoom-out;
+.viewer-zoom-controls button {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: #f0f0f0;
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.viewer-zoom-controls button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.viewer-zoom-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.viewer-zoom-controls .viewer-zoom-level {
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
 }
 
 .preview {

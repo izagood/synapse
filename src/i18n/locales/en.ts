@@ -264,9 +264,13 @@ export const en: LocaleShape<KoMessages> = {
   viewer: {
     preparing: "Preparing render…",
     imageError: "Failed to load image",
+    pdfError: "Failed to load PDF",
     excalidrawError: "This file is not a valid Excalidraw drawing",
     zoomToFit: "Fit to screen",
     zoomToActual: "Actual size",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    zoomFit: "Reset zoom (fit)",
   },
   drawio: {
     edit: "Edit",
