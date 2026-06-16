@@ -1,5 +1,8 @@
-# 태그(v*)를 푸시하면 macOS 유니버설(.dmg, Intel+Apple Silicon)과 Windows MSI를
+# 태그(v*)를 푸시하면 macOS(Apple Silicon·Intel 아키텍처별 .dmg)와 Windows MSI를
 # GitHub Releases에 자동 업로드한다.
+# 유니버설(fat) 바이너리 대신 아키텍처별로 빌드해 사용자당 다운로드 크기를 절반으로 줄인다.
+# updater의 latest.json은 tauri-action이 darwin-aarch64 / darwin-x86_64 키를
+# 병합 업로드하므로 자동 업데이트는 종전대로 각 아키텍처에 맞는 빌드를 받는다.
 #
 # 사전 준비 (1회):
 #   리포지토리 Settings → Secrets and variables → Actions 에
@@ -58,10 +61,16 @@ jobs:
       max-parallel: 1
       matrix:
         include:
+          # Apple Silicon 네이티브, Intel은 같은 arm 러너에서 교차 컴파일한다
+          # (종전 universal 빌드도 이 러너에서 x86_64를 함께 빌드해 왔으므로 검증된 경로다).
           - os: macos-14
-            args: --target universal-apple-darwin
-            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-            artifact_note: macOS용 설치 파일(.dmg)입니다. Intel/Apple Silicon 모두 지원합니다.
+            args: --target aarch64-apple-darwin
+            rust_targets: aarch64-apple-darwin
+            artifact_note: macOS(Apple Silicon)용 설치 파일(_aarch64.dmg)입니다.
+          - os: macos-14
+            args: --target x86_64-apple-darwin
+            rust_targets: x86_64-apple-darwin
+            artifact_note: macOS(Intel)용 설치 파일(_x64.dmg)입니다.
           - os: windows-latest
             args: ""
             rust_targets: ""
@@ -151,7 +160,8 @@ jobs:
           releaseBody: |
             Synapse 데스크톱 설치 파일입니다.
 
-            - macOS: `.dmg` 파일을 받으세요. Intel/Apple Silicon 모두 지원합니다.
+            - macOS (Apple Silicon · M1 이상): `_aarch64.dmg` 를 받으세요.
+            - macOS (Intel): `_x64.dmg` 를 받으세요.
             - Windows: `.msi` 파일을 받으세요.
 
             서명되지 않은 빌드는 OS가 첫 실행을 차단할 수 있습니다. 자세한 내용은 패키징 가이드를 확인하세요.
@@ -189,10 +199,8 @@ jobs:
           fi
           assets=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq "first(.[] | select(.tag_name == \"$tag\")) | .assets[].name")
+          # 정확히 일치해야 하는 산출물 (Windows + 공통)
           expected=(
-            "Synapse_${version}_universal.dmg"
-            "Synapse_universal.app.tar.gz"
-            "Synapse_universal.app.tar.gz.sig"
             "Synapse_${version}_x64-setup.exe"
             "Synapse_${version}_x64-setup.exe.sig"
             "Synapse_${version}_x64_en-US.msi"
@@ -202,6 +210,24 @@ jobs:
           for asset in "${expected[@]}"; do
             if ! grep -Fxq "$asset" <<< "$assets"; then
               echo "::error::필수 릴리스 asset 누락: $asset"
+              echo "현재 asset 목록:"
+              printf '%s\n' "$assets"
+              exit 1
+            fi
+          done
+          # macOS 아키텍처별 산출물. arch 토큰(x64 vs x86_64)은 tauri 버전에 따라
+          # 달라질 수 있어 정규식으로 검증한다. aarch64 / Intel 각각 dmg·tar.gz·sig 필요.
+          mac_patterns=(
+            "^Synapse_${version}_aarch64\.dmg$"
+            "^Synapse_aarch64\.app\.tar\.gz$"
+            "^Synapse_aarch64\.app\.tar\.gz\.sig$"
+            "^Synapse_${version}_(x64|x86_64)\.dmg$"
+            "^Synapse_(x64|x86_64)\.app\.tar\.gz$"
+            "^Synapse_(x64|x86_64)\.app\.tar\.gz\.sig$"
+          )
+          for pat in "${mac_patterns[@]}"; do
+            if ! grep -Eq "$pat" <<< "$assets"; then
+              echo "::error::필수 macOS 릴리스 asset 누락 (패턴): $pat"
               echo "현재 asset 목록:"
               printf '%s\n' "$assets"
               exit 1
