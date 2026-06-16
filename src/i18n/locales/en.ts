@@ -266,6 +266,10 @@ export const en: LocaleShape<KoMessages> = {
     zoomToFit: "Fit to screen",
     zoomToActual: "Actual size",
   },
+  drawio: {
+    edit: "Edit",
+    view: "Viewer",
+  },
   backlinks: {
     title: "Backlinks",
     show: "Show backlinks",

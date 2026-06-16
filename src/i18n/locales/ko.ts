@@ -261,6 +261,10 @@ export const ko = {
     zoomToFit: "화면에 맞추기",
     zoomToActual: "실제 크기로 보기",
   },
+  drawio: {
+    edit: "편집",
+    view: "뷰어",
+  },
   backlinks: {
     title: "백링크",
     show: "백링크 보기",

@@ -1416,6 +1416,38 @@ body.resizing-sidebar {
   background: #fff;
 }
 
+/* drawio: 뷰어/에디터 컨테이너와 모드 전환 버튼 */
+.drawio-pane {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.drawio-editor {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+.drawio-mode-toggle {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  opacity: 0.9;
+}
+.drawio-mode-toggle:hover {
+  opacity: 1;
+}
+
 .pdf-viewer {
   width: 100%;
   height: 100%;
