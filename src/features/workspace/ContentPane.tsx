@@ -3,6 +3,7 @@ import { useT } from "../../i18n";
 import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
 import { HtmlViewer } from "../html-viewer/HtmlViewer";
 import { PdfViewer } from "../pdf-viewer/PdfViewer";
+import { ImageViewer } from "../image-viewer/ImageViewer";
 import { BacklinksPanel } from "./BacklinksPanel";
 
 export function ContentPane() {
@@ -58,6 +59,10 @@ export function ContentPane() {
 
   if (tab?.fileType === "pdf") {
     return <PdfViewer key={activePath} path={activePath} />;
+  }
+
+  if (tab?.fileType === "image") {
+    return <ImageViewer key={activePath} path={activePath} />;
   }
 
   // html 소스 보기 및 기타 파일은 원문으로 표시

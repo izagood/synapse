@@ -71,6 +71,14 @@ export const FilePdfIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const ImageIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="3" width="12" height="10" rx="1" />
+    <circle cx="5.5" cy="6.5" r="1.2" />
+    <path d="M3 12l3.5-3.5 2.5 2.5 2-2L14 11.5" />
+  </Svg>
+);
+
 export const PlusIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M8 3.5v9M3.5 8h9" />

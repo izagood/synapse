@@ -15,8 +15,14 @@ describe("fileTypeOf", () => {
     expect(fileTypeOf("report.pdf")).toBe("pdf");
     expect(fileTypeOf("REPORT.PDF")).toBe("pdf");
   });
+  it("이미지 확장자를 분류한다", () => {
+    for (const ext of ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]) {
+      expect(fileTypeOf(`pic.${ext}`)).toBe("image");
+    }
+    expect(fileTypeOf("PIC.PNG")).toBe("image");
+  });
   it("그 외는 other", () => {
-    expect(fileTypeOf("image.png")).toBe("other");
+    expect(fileTypeOf("data.json")).toBe("other");
     expect(fileTypeOf("noext")).toBe("other");
   });
 });

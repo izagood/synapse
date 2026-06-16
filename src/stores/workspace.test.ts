@@ -74,6 +74,22 @@ describe("workspace store (mock ipc)", () => {
     spy.mockRestore();
   });
 
+  it("opens an image without reading it as text (binary safe)", async () => {
+    const readSpy = vi.spyOn(ipc, "readFile");
+    const image = findNode("diagram.png");
+    expect(image.fileType).toBe("image");
+    await useWorkspace.getState().openFile(image);
+    const s = useWorkspace.getState();
+    expect(s.activePath).toContain("diagram.png");
+    const doc = s.docs[s.activePath!];
+    expect(doc.loading).toBe(false);
+    expect(doc.error).toBeNull();
+    expect(doc.content).toBe("");
+    // 바이너리이므로 readFile을 호출하면 안 된다 (invalid utf-8 방지)
+    expect(readSpy).not.toHaveBeenCalled();
+    readSpy.mockRestore();
+  });
+
   it("openFileAt opens a file in the tree by absolute path (internal link)", async () => {
     const opened = await useWorkspace.getState().openFileAt(`${MOCK_ROOT}/daily/2026-06-10.md`);
     expect(opened).toBe(true);
