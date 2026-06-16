@@ -54,6 +54,26 @@ describe("workspace store (mock ipc)", () => {
     expect(isDirty(s.docs[s.activePath!])).toBe(false);
   });
 
+  it("PDF는 텍스트로 읽지 않고 곧장 준비 완료 상태가 된다", async () => {
+    // 바이너리라 read_to_string이 UTF-8 디코드에서 실패하므로 readFile을 건너뛴다.
+    const spy = vi.spyOn(ipc, "readFile");
+    await useWorkspace.getState().openFile({
+      path: `${MOCK_ROOT}/report.pdf`,
+      name: "report.pdf",
+      kind: "file",
+      fileType: "pdf",
+    });
+    const s = useWorkspace.getState();
+    expect(s.activePath).toBe(`${MOCK_ROOT}/report.pdf`);
+    expect(s.tabs[0].fileType).toBe("pdf");
+    const doc = s.docs[s.activePath!];
+    expect(doc.loading).toBe(false);
+    expect(doc.error).toBeNull();
+    expect(doc.content).toBe("");
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it("openFileAt opens a file in the tree by absolute path (internal link)", async () => {
     const opened = await useWorkspace.getState().openFileAt(`${MOCK_ROOT}/daily/2026-06-10.md`);
     expect(opened).toBe(true);

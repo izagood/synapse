@@ -251,6 +251,17 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ activePath: node.path });
 
     if (docs[node.path]) return; // 이미 로드됨 (편집 중 상태 유지)
+    // PDF 등 바이너리는 텍스트로 읽지 않는다 (UTF-8 디코드 실패). 뷰어가
+    // asset 프로토콜로 파일을 직접 로드하므로 content 없이 곧장 준비 완료로 둔다.
+    if (node.fileType === "pdf") {
+      set((s) => ({
+        docs: {
+          ...s.docs,
+          [node.path]: { content: "", savedContent: "", externalRev: 0, loading: false, error: null },
+        },
+      }));
+      return;
+    }
     set((s) => ({
       docs: {
         ...s.docs,
@@ -425,6 +436,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     for (const path of Object.keys(get().docs)) {
       const doc = get().docs[path];
       if (!doc || doc.loading) continue;
+      // PDF 등 바이너리는 텍스트로 다시 읽지 않는다 — 뷰어가 디스크에서 직접 로드한다
+      if (get().tabs.find((t) => t.path === path)?.fileType === "pdf") continue;
       if (isDirty(doc)) {
         // 편집 중이면 저장 경로가 곧 머지 경로다 (CRDT 3-way)
         await get().saveDoc(path);

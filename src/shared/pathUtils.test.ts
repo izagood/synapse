@@ -11,6 +11,10 @@ describe("fileTypeOf", () => {
     expect(fileTypeOf("a.html")).toBe("html");
     expect(fileTypeOf("a.htm")).toBe("html");
   });
+  it("PDF 확장자를 분류한다", () => {
+    expect(fileTypeOf("report.pdf")).toBe("pdf");
+    expect(fileTypeOf("REPORT.PDF")).toBe("pdf");
+  });
   it("그 외는 other", () => {
     expect(fileTypeOf("image.png")).toBe("other");
     expect(fileTypeOf("noext")).toBe("other");

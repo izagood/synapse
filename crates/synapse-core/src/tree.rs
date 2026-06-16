@@ -17,6 +17,7 @@ pub enum NodeKind {
 pub enum FileType {
     Markdown,
     Html,
+    Pdf,
     Other,
 }
 
@@ -40,6 +41,7 @@ pub(crate) fn file_type_of(path: &Path) -> FileType {
     {
         Some("md") | Some("markdown") => FileType::Markdown,
         Some("html") | Some("htm") => FileType::Html,
+        Some("pdf") => FileType::Pdf,
         _ => FileType::Other,
     }
 }
@@ -71,6 +73,7 @@ mod tests {
         fs::create_dir(root.join(".git")).unwrap();
         touch(&root.join("note.md"));
         touch(&root.join("ai-summary.HTML"));
+        touch(&root.join("report.PDF"));
         touch(&root.join(".hidden.md"));
         touch(&root.join("Alpha/inner.md"));
 
@@ -78,11 +81,15 @@ mod tests {
         let children = tree.children.unwrap();
         let names: Vec<_> = children.iter().map(|c| c.name.as_str()).collect();
         // 디렉토리 우선 + 대소문자 무시 정렬, 숨김 제외
-        assert_eq!(names, vec!["Alpha", "zeta", "ai-summary.HTML", "note.md"]);
+        assert_eq!(
+            names,
+            vec!["Alpha", "zeta", "ai-summary.HTML", "note.md", "report.PDF"]
+        );
 
         assert_eq!(children[0].kind, NodeKind::Dir);
         assert_eq!(children[2].file_type, FileType::Html);
         assert_eq!(children[3].file_type, FileType::Markdown);
+        assert_eq!(children[4].file_type, FileType::Pdf);
 
         let alpha = &children[0];
         let inner = alpha.children.as_ref().unwrap();
