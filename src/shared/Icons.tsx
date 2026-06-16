@@ -79,6 +79,14 @@ export const ImageIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const DiagramIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="2.5" width="5" height="4" rx="0.6" />
+    <rect x="9" y="9.5" width="5" height="4" rx="0.6" />
+    <path d="M4.5 6.5v3a1 1 0 0 0 1 1H9" />
+  </Svg>
+);
+
 export const PlusIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M8 3.5v9M3.5 8h9" />
