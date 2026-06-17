@@ -71,9 +71,28 @@ sudo npx playwright install-deps     # 또는: sudo npx playwright install --wit
 npm run e2e:update
 ```
 
-## 다음 단계 (계층 3, 선택)
+## 계층 3 — CI (`.github/workflows/e2e.yml`)
 
-- GitHub Actions `ubuntu` 잡에서 `npm run e2e` 를 돌려 PR 머지 전에 회귀를 잡는다
-  (러너에 브라우저 시스템 의존성이 이미 있음 — `microsoft/playwright` 액션 또는
-  `npx playwright install --with-deps`).
-- `macos-latest` 잡으로 webkit 스위트를 돌려 WKWebView 계열 회귀를 릴리즈 전에 잡는다.
+PR 마다 실제 브라우저로 E2E 를 돌려 회귀를 머지 전에 잡는다(ci.yml 과 같은 철학으로
+PR 에서만 실행).
+
+- `e2e-linux` (ubuntu): chromium + webkit. `npx playwright install --with-deps` 로
+  시스템 의존성까지 설치한다.
+- `e2e-macos` (macos-14): webkit 전용 — WKWebView 에 가장 가까운 엔진으로, macOS
+  배포에서만 나던 핸드셰이크 회귀를 잡는 마지막 관문.
+
+**기능 회귀(렌더/핸드셰이크) 스펙은 기준선이 필요 없어 곧장 게이트**다. 시각 스냅샷은
+기준선이 커밋되기 전까진 `continue-on-error` 로 정보용이다.
+
+### 시각 스냅샷 기준선 부트스트랩
+
+기준선은 OS/엔진별로 픽셀이 다르다. 로컬에 해당 OS 가 없으면 CI 에서 생성한다:
+
+1. Actions 탭 → **E2E** → **Run workflow**(`workflow_dispatch`) 실행 →
+   `baselines` 잡이 ubuntu/macOS 각각에서 스냅샷을 만들어 아티팩트
+   (`screenshots-<os>`)로 올린다.
+2. 아티팩트를 받아 `e2e/__screenshots__/` 에 풀고 커밋한다.
+3. 기준선이 생기면 `e2e.yml` 의 "시각 스냅샷" 스텝에서 `continue-on-error: true` 를
+   지워 게이트로 승격한다.
+
+로컬에 해당 OS 가 있으면 그냥 `npm run e2e:update` 로 생성·커밋하면 된다.
