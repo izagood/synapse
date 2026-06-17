@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEditorUrl,
+  emptyDrawioXml,
   handleEmbedEvent,
   isBlankDrawio,
   isFromEmbedFrame,
@@ -62,6 +63,26 @@ const SEEDED = '<mxfile><diagram><mxGraphModel><root>' +
 const EMPTY_MODEL = '<mxfile><diagram><mxGraphModel><root>' +
   '<mxCell id="0"/><mxCell id="1" parent="0"/>' +
   "</root></mxGraphModel></diagram></mxfile>";
+
+describe("emptyDrawioXml", () => {
+  it("새 파일 골격은 mxfile/diagram/기본 레이어 셀을 담는다", () => {
+    const xml = emptyDrawioXml();
+    expect(xml).toContain("<mxfile");
+    expect(xml).toContain("<diagram");
+    expect(xml).toContain("<mxGraphModel");
+    expect(xml).toContain('<mxCell id="0" />');
+    expect(xml).toContain('<mxCell id="1" parent="0" />');
+  });
+
+  it("사용자 도형이 없는 빈 다이어그램이라 빈-저장 보호와 충돌하지 않는다", () => {
+    const xml = emptyDrawioXml();
+    // 새 파일은 isBlankDrawio=true → 빈 채로 닫아도 저장이 허용된다.
+    expect(isBlankDrawio(xml)).toBe(true);
+    expect(shouldPersistDrawio(xml, xml)).toBe(true);
+    // 그러나 일단 내용이 들어가면(시드) 빈 골격으로의 덮어쓰기는 거부된다.
+    expect(shouldPersistDrawio(xml, SEEDED)).toBe(false);
+  });
+});
 
 describe("isBlankDrawio", () => {
   it("treats empty/whitespace/non-string as blank", () => {

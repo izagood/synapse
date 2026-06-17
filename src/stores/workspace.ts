@@ -11,6 +11,7 @@ import {
   titleFromPath,
 } from "../features/html/markdownToHtml";
 import { emptySceneJson } from "../features/excalidraw/scene";
+import { emptyDrawioXml } from "../features/drawio-viewer/drawioEmbed";
 
 export interface TabInfo {
   path: string;
@@ -98,6 +99,8 @@ interface WorkspaceState {
   createNote(dir?: string): Promise<void>;
   /** dir 안에 빈 `.excalidraw` 드로잉을 만들어 연다 */
   createDrawing(dir?: string): Promise<void>;
+  /** dir 안에 빈 `.drawio` 다이어그램을 만들어 연다 */
+  createDrawioFile(dir?: string): Promise<void>;
   /**
    * HTML 텍스트(AI 산출물 등)를 정화·변환해 새 마크다운 노트로 가져온다 (FR-3.4).
    * 생성된 노트를 열고, 생성 경로를 반환한다.
@@ -502,7 +505,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const { root, tree } = get();
     if (!root || !tree) return;
     try {
-      const path = uniqueDrawingPath(dir ?? root, collectFilePaths(tree));
+      const path = uniqueFilePath(dir ?? root, collectFilePaths(tree), "드로잉", "excalidraw");
       await ipc.writeFile(root, path, emptySceneJson());
       await get().refreshTree();
       await get().openFile({
@@ -510,6 +513,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         name: basename(path),
         kind: "file",
         fileType: "excalidraw",
+      });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async createDrawioFile(dir) {
+    const { root, tree } = get();
+    if (!root || !tree) return;
+    try {
+      const path = uniqueFilePath(dir ?? root, collectFilePaths(tree), "다이어그램", "drawio");
+      await ipc.writeFile(root, path, emptyDrawioXml());
+      await get().refreshTree();
+      await get().openFile({
+        path,
+        name: basename(path),
+        kind: "file",
+        fileType: "drawio",
       });
     } catch (e) {
       set({ error: String(e) });
@@ -671,12 +692,15 @@ function collectFilePaths(tree: FileNode, into = new Set<string>()): Set<string>
   return into;
 }
 
-/** dir 안에서 겹치지 않는 `드로잉.excalidraw` 계열 경로를 고른다 (create_unique_note의 .excalidraw 판) */
-function uniqueDrawingPath(dir: string, existing: Set<string>): string {
-  const base = `${dir}/드로잉`;
-  let candidate = `${base}.excalidraw`;
+/**
+ * dir 안에서 겹치지 않는 `<baseName>.<ext>` 계열 경로를 고른다 — 이름이 이미 있으면
+ * `<baseName> 2.<ext>`, `<baseName> 3.<ext>` … 로 비켜 간다 (create_unique_note의 프론트 판).
+ */
+function uniqueFilePath(dir: string, existing: Set<string>, baseName: string, ext: string): string {
+  const base = `${dir}/${baseName}`;
+  let candidate = `${base}.${ext}`;
   for (let i = 2; existing.has(candidate); i++) {
-    candidate = `${base} ${i}.excalidraw`;
+    candidate = `${base} ${i}.${ext}`;
   }
   return candidate;
 }

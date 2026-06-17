@@ -209,6 +209,7 @@ function TreeContextMenu({
 }) {
   const createNote = useWorkspace((s) => s.createNote);
   const createDrawing = useWorkspace((s) => s.createDrawing);
+  const createDrawioFile = useWorkspace((s) => s.createDrawioFile);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
   const openHistory = useHistoryUi((s) => s.open);
   const t = useT();
@@ -271,6 +272,11 @@ function TreeContextMenu({
       {node.kind === "dir" && (
         <button onClick={() => run(() => void createDrawing(node.path))}>
           {t("fileTree.newDrawing")}
+        </button>
+      )}
+      {node.kind === "dir" && (
+        <button onClick={() => run(() => void createDrawioFile(node.path))}>
+          {t("fileTree.newDiagram")}
         </button>
       )}
       {node.kind === "file" && (
