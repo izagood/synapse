@@ -73,6 +73,7 @@ export const en: LocaleShape<KoMessages> = {
   fileTree: {
     newNote: "New Note",
     newDrawing: "New Drawing",
+    newDiagram: "New Diagram",
     duplicate: "Duplicate",
     rename: "Rename",
     copyPath: "Copy Path",

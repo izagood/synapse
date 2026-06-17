@@ -40,6 +40,26 @@ export function buildEditorUrl(opts: EmbedUrlOptions): string {
 }
 
 /**
+ * 새 `.drawio` 파일에 쓸 빈 다이어그램 골격(mxfile)을 만든다.
+ *
+ * 사용자 도형이 없는 기본 레이어 골격이라 `isBlankDrawio` 기준으로 "빈" 파일이고,
+ * 그래서 빈 채로 둔 새 파일을 닫아도 `shouldPersistDrawio` 가 빈 저장을 허용한다.
+ * 뷰어(GraphViewer)와 embed 에디터 모두 이 골격을 빈 캔버스로 정상 로드한다.
+ * (excalidraw 의 `emptySceneJson` 에 대응하는 drawio 판.)
+ */
+export function emptyDrawioXml(): string {
+  return (
+    `<mxfile host="Synapse">` +
+    `<diagram name="Page-1" id="page-1">` +
+    `<mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" ` +
+    `connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" ` +
+    `pageHeight="1100" math="0" shadow="0">` +
+    `<root><mxCell id="0" /><mxCell id="1" parent="0" /></root>` +
+    `</mxGraphModel></diagram></mxfile>`
+  );
+}
+
+/**
  * mxGraph XML 이 "빈 다이어그램"인지 판단한다 — 비었거나 공백뿐이거나, 사용자가
  * 그린 도형/엣지/객체가 하나도 없는 기본 골격(default layer cell 만)인 경우.
  *

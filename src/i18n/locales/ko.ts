@@ -68,6 +68,7 @@ export const ko = {
   fileTree: {
     newNote: "새 노트",
     newDrawing: "새 드로잉",
+    newDiagram: "새 다이어그램",
     duplicate: "사본 만들기",
     rename: "이름 변경",
     copyPath: "경로 복사",
