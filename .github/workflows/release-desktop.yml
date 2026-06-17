@@ -233,9 +233,29 @@ jobs:
               exit 1
             fi
           done
+          # 릴리스 본문 = 설치 안내 + 변경 내역(changelog).
+          # changelog는 GitHub이 직전 릴리스 이후 머지된 PR 목록과
+          # 버전 비교(Full Changelog) 링크로 자동 생성한다. previous_tag_name을
+          # 생략하면 직전 릴리스 태그를 자동으로 고른다. 실패(첫 릴리스·일시 오류
+          # 등)해도 설치 안내만으로 공개되도록 빈 값으로 흡수한다.
+          changelog=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$tag" --jq .body 2>/dev/null) || changelog=""
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          cat > "$notes_file" <<'EOF'
+          Synapse 데스크톱 설치 파일입니다.
+
+          - macOS: `.dmg` 파일을 받으세요. Intel/Apple Silicon 모두 지원합니다.
+          - Windows: `.msi` 파일을 받으세요.
+
+          서명되지 않은 빌드는 OS가 첫 실행을 차단할 수 있습니다. 자세한 내용은 패키징 가이드를 확인하세요.
+          EOF
+          if [ -n "$changelog" ]; then
+            printf '\n%s\n' "$changelog" >> "$notes_file"
+          fi
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             -F draft=false \
-            -F prerelease=false >/dev/null
+            -F prerelease=false \
+            -f "body=$(cat "$notes_file")" >/dev/null
           echo "릴리스 공개 완료: $tag"
 
           highest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
