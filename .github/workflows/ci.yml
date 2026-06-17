@@ -167,9 +167,23 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         shell: bash
         run: |
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            npx tauri build ${{ matrix.args }} \
-              --config '{"bundle":{"createUpdaterArtifacts":false}}'
-          else
-            npx tauri build ${{ matrix.args }}
-          fi
+          build() {
+            if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+              npx tauri build ${{ matrix.args }} \
+                --config '{"bundle":{"createUpdaterArtifacts":false}}'
+            else
+              npx tauri build ${{ matrix.args }}
+            fi
+          }
+          # macOS DMG 번들링(bundle_dmg.sh)은 러너에서 hdiutil/AppleScript 타이밍
+          # 때문에 간헐적으로 실패한다. 실제 릴리스 빌드(release-desktop.yml)는
+          # tauri-action의 retryAttempts로 이 flake를 흡수하지만, 이 드라이런은
+          # raw 빌드라 재시도가 없어 flake에 그대로 깨졌다 — 동일하게 1회 재시도한다.
+          for attempt in 1 2; do
+            if build; then
+              exit 0
+            fi
+            echo "::warning::Tauri 번들 빌드 실패 (시도 $attempt/2) — 재시도"
+          done
+          echo "::error::Tauri 번들 빌드가 2회 모두 실패"
+          exit 1
