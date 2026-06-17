@@ -114,8 +114,25 @@ export type Language = "ko" | "en";
 /** 에이전트 인증 방식 (2-D). API 키 자체는 OS 키체인에 저장되고 여기 없다. */
 export type AgentAuthMode = "subscription" | "apiKey";
 
+/** 테마 선택지: system(OS 따름) + 프리셋 테마들 */
+export type ThemeSetting = "system" | "light" | "dark" | "pink";
+
+/** 사용자가 직접 바꿀 수 있는 색상 토큰 (활성 테마 위에 덮어쓴다) */
+export const CUSTOM_COLOR_KEYS = [
+  "accent",
+  "bg",
+  "bgPanel",
+  "bgRail",
+  "fg",
+  "fgDim",
+  "border",
+] as const;
+export type CustomColorKey = (typeof CUSTOM_COLOR_KEYS)[number];
+/** 키→hex 색. 비어 있으면 선택한 테마의 기본값을 그대로 쓴다. */
+export type CustomColors = Partial<Record<CustomColorKey, string>>;
+
 export interface Settings {
-  appearance: { theme: "system" | "light" | "dark"; language: Language };
+  appearance: { theme: ThemeSetting; language: Language; customColors: CustomColors };
   editor: {
     fontFamily: string;
     fontSize: number;
@@ -129,7 +146,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  appearance: { theme: "system", language: "ko" },
+  appearance: { theme: "system", language: "ko", customColors: {} },
   editor: {
     fontFamily: "system-ui",
     fontSize: 16,

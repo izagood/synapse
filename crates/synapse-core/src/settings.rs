@@ -1,6 +1,7 @@
 //! 앱 전역 설정 (FR-5). 워크스페이스 폴더가 아닌 단 한 곳에만 저장한다.
 //! 필드 단위 serde 기본값이라 일부만 적힌(또는 과거 버전의) 파일도 안전하게 읽힌다.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -13,8 +14,11 @@ pub const SETTINGS_FILE: &str = "settings.json";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Appearance {
-    pub theme: String, // "system" | "light" | "dark"
+    pub theme: String, // "system" | "light" | "dark" | "pink"
     pub language: String,
+    /// 활성 테마 위에 덮어쓰는 사용자 색상 (키→hex). 비어 있으면 테마 기본값.
+    /// 프런트가 보낸 그대로 저장만 한다(코어는 색을 해석하지 않는다).
+    pub custom_colors: BTreeMap<String, String>,
 }
 
 impl Default for Appearance {
@@ -22,6 +26,7 @@ impl Default for Appearance {
         Appearance {
             theme: "system".into(),
             language: "ko".into(),
+            custom_colors: BTreeMap::new(),
         }
     }
 }
@@ -176,6 +181,30 @@ mod tests {
         assert!(json.contains("\"htmlViewer\""));
         assert!(json.contains("\"intervalMinutes\""));
         assert!(json.contains("\"confirmDelete\""));
+        assert!(json.contains("\"customColors\""));
+    }
+
+    #[test]
+    fn custom_colors_roundtrip_and_default_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_settings(dir.path())
+            .appearance
+            .custom_colors
+            .is_empty());
+
+        let mut s = Settings::default();
+        s.appearance.theme = "pink".into();
+        s.appearance
+            .custom_colors
+            .insert("accent".into(), "#ff66aa".into());
+        save_settings(dir.path(), &s).unwrap();
+
+        let loaded = load_settings(dir.path());
+        assert_eq!(loaded, s);
+        assert_eq!(
+            loaded.appearance.custom_colors.get("accent").unwrap(),
+            "#ff66aa"
+        );
     }
 
     #[test]

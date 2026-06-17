@@ -1,12 +1,18 @@
 import { create } from "zustand";
 import { ipc } from "../ipc/ipc";
 import { DEFAULT_SETTINGS, type Settings } from "../ipc/types";
+import { effectiveBaseTheme } from "../features/theme/theme";
 
 function normalizeSettings(settings: Settings): Settings {
   const language = settings.appearance.language === "en" ? "en" : "ko";
   return {
     ...settings,
-    appearance: { ...settings.appearance, language },
+    appearance: {
+      ...settings.appearance,
+      language,
+      // 과거 설정 파일에는 customColors가 없을 수 있어 항상 객체로 보정한다
+      customColors: settings.appearance.customColors ?? {},
+    },
   };
 }
 
@@ -58,11 +64,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
   },
 }));
 
-/** appearance.theme + OS 선호를 합쳐 실제 테마를 계산한다 */
+/**
+ * appearance.theme + OS 선호를 light/dark 둘 중 하나로 환원한다.
+ * Excalidraw처럼 light/dark만 받는 곳에서 쓴다 (pink는 밝은 계열 → light).
+ */
 export function effectiveTheme(theme: Settings["appearance"]["theme"]): "light" | "dark" {
-  if (theme !== "system") return theme;
-  if (typeof window !== "undefined" && "matchMedia" in window) {
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  }
-  return "dark";
+  return effectiveBaseTheme(theme) === "dark" ? "dark" : "light";
 }
