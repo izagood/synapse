@@ -832,6 +832,29 @@ body.resizing-sidebar {
   position: relative;
 }
 
+/* 줄 번호 (WYSIWYG): 소스 줄 개념이 없어 최상위 블록 단위로 번호를 매긴다 */
+.editor-wrap.line-numbers .editor-content .tiptap {
+  counter-reset: ln;
+  padding-left: 4em;
+}
+.editor-wrap.line-numbers .editor-content .tiptap > * {
+  counter-increment: ln;
+  position: relative;
+}
+.editor-wrap.line-numbers .editor-content .tiptap > *::before {
+  content: counter(ln);
+  position: absolute;
+  left: -4em;
+  width: 3em;
+  text-align: right;
+  font-family: var(--mono-font);
+  font-size: 0.8em;
+  color: var(--fg-dim);
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+
 /* 문서 내 찾기 바 (Cmd/Ctrl+F) */
 .find-bar {
   position: absolute;
@@ -1338,6 +1361,39 @@ body.resizing-sidebar {
   padding: 24px 32px;
 }
 
+/* 줄 번호 (소스 모드): VS Code식 좌측 거터 + 워드랩 OFF(가로 스크롤) */
+.source-editor-wrap {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+.line-gutter {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  min-width: 3.5em;
+  padding: 24px 10px 24px 16px;
+  text-align: right;
+  font-family: var(--mono-font);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  background: var(--bg);
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+  white-space: pre;
+}
+/* 현재(캐럿) 줄 번호만 밝게 */
+.line-gutter .ln-active {
+  color: var(--fg);
+}
+.source-editor.with-gutter {
+  white-space: pre;
+  overflow: auto;
+  padding-left: 12px;
+}
+
 /* ===================== 백링크 패널 (FR-2.8 → FR-6.1) ===================== */
 .editor-with-backlinks {
   display: flex;
@@ -1346,7 +1402,8 @@ body.resizing-sidebar {
 }
 
 .editor-with-backlinks > .editor-wrap,
-.editor-with-backlinks > .source-editor {
+.editor-with-backlinks > .source-editor,
+.editor-with-backlinks > .source-editor-wrap {
   flex: 1;
   min-height: 0;
 }
