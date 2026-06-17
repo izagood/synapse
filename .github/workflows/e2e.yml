@@ -4,10 +4,8 @@ name: E2E
 # iframe·postMessage·렌더 회귀를 실제 브라우저로 PR 단계에서 잡는다.
 #
 # ci.yml 과 같은 철학: PR 에서만 돈다(머지된 main 은 PR 에서 이미 검증됨).
-# workflow_dispatch 는 시각 스냅샷 기준선을 각 OS 에서 생성하는 baselines 잡 전용.
 on:
   pull_request:
-  workflow_dispatch:
 
 concurrency:
   group: e2e-${{ github.workflow }}-${{ github.ref }}
@@ -26,14 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit
-      # 기능 회귀(렌더/핸드셰이크) — 기준선이 필요 없어 항상 게이트.
-      - name: 기능 E2E (chromium + webkit)
-        run: npm run e2e -- --grep-invert "시각 스냅샷"
-      # 시각 스냅샷 — 기준선(e2e/__screenshots__/*-linux/)이 커밋되기 전까진
-      # 정보용. 기준선을 커밋한 뒤 continue-on-error 를 지워 게이트로 승격한다.
-      - name: 시각 스냅샷 (기준선 커밋 전까지 정보용)
-        run: npm run e2e -- --grep "시각 스냅샷"
-        continue-on-error: true
+      - run: npm run e2e
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -54,42 +45,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install webkit
-      - name: 기능 E2E (webkit — WKWebView 근사)
-        run: npm run e2e -- --project=webkit --grep-invert "시각 스냅샷"
-      - name: 시각 스냅샷 (기준선 커밋 전까지 정보용)
-        run: npm run e2e -- --project=webkit --grep "시각 스냅샷"
-        continue-on-error: true
+      - run: npm run e2e -- --project=webkit
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
           name: playwright-report-macos
           path: playwright-report/
           retention-days: 7
-
-  # 수동 실행 전용: 각 OS/엔진에서 시각 스냅샷 기준선을 생성해 아티팩트로 올린다.
-  # 로컬에 macOS/리눅스가 없어도 여기서 받아 e2e/__screenshots__/ 에 커밋하면 된다.
-  # (Actions 탭 → E2E → Run workflow)
-  baselines:
-    if: github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-14]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
-      - name: 시각 스냅샷 기준선 생성
-        run: npm run e2e -- --grep "시각 스냅샷" --update-snapshots
-      - uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-${{ matrix.os }}
-          path: e2e/__screenshots__/
-          retention-days: 7
-
-# baselines 잡을 수동 실행할 수 있도록 트리거 추가.
