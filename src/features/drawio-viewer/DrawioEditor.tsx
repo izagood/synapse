@@ -2,7 +2,12 @@ import { useEffect, useRef } from "react";
 import { useWorkspace } from "../../stores/workspace";
 import { useSettings } from "../../stores/settings";
 import { useT } from "../../i18n";
-import { buildEditorUrl, handleEmbedEvent, shouldPersistDrawio } from "./drawioEmbed";
+import {
+  buildEditorUrl,
+  handleEmbedEvent,
+  isFromEmbedFrame,
+  shouldPersistDrawio,
+} from "./drawioEmbed";
 
 // 앱에 번들된 drawio 에디터 웹앱(public/ → dist 루트로 복사됨). 앱과 같은
 // 출처라 iframe 안 문서는 메인 윈도우 CSP 제약을 받지 않고 그대로 동작한다.
@@ -42,7 +47,9 @@ export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => vo
     const loadedSeed = seed; // 아래 콜백 클로저에서 string 으로 좁혀 쓰기 위해 고정.
     function onMessage(e: MessageEvent) {
       const frame = frameRef.current;
-      if (!frame || e.source !== frame.contentWindow) return;
+      // macOS WKWebView 는 e.source 를 null 로 줄 때가 있어 엄격 비교만 하면
+      // init 이 버려진다(에디터가 빈 채로 멈춤). isFromEmbedFrame 으로 흡수한다.
+      if (!frame || !isFromEmbedFrame(e.source, frame.contentWindow)) return;
       let data: unknown = e.data;
       if (typeof data === "string") {
         if (data.length === 0) return; // drawio 가 가끔 빈 문자열을 먼저 보냄

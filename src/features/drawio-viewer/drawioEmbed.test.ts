@@ -3,6 +3,7 @@ import {
   buildEditorUrl,
   handleEmbedEvent,
   isBlankDrawio,
+  isFromEmbedFrame,
   shouldPersistDrawio,
 } from "./drawioEmbed";
 
@@ -31,6 +32,26 @@ describe("buildEditorUrl", () => {
     expect(plain.get("lang")).toBeNull();
     const withLang = new URL(buildEditorUrl({ basePath: "a", lang: "ko" }), "http://x/").searchParams;
     expect(withLang.get("lang")).toBe("ko");
+  });
+});
+
+describe("isFromEmbedFrame", () => {
+  // 실제 Window 가 없는 테스트 환경이라 임의 객체로 동일성만 검증한다.
+  const frame = {} as unknown as Window;
+  const other = {} as unknown as Window;
+
+  it("accepts a message whose source matches the editor iframe", () => {
+    expect(isFromEmbedFrame(frame as unknown as MessageEventSource, frame)).toBe(true);
+  });
+
+  it("rejects a message from a different window", () => {
+    expect(isFromEmbedFrame(other as unknown as MessageEventSource, frame)).toBe(false);
+  });
+
+  it("trusts a null source (macOS WKWebView drops e.source on iframe→parent posts)", () => {
+    // 이게 핵심 회귀 방지: null source 를 버리면 drawio init 이 사라져
+    // 에디터가 빈 채로 멈춘다. null 은 통과시켜야 한다.
+    expect(isFromEmbedFrame(null, frame)).toBe(true);
   });
 });
 
