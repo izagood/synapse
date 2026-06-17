@@ -1,0 +1,54 @@
+name: E2E
+
+# UI 검증 환경(docs/UI-VERIFICATION.md)의 계층 3 — 임베드 뷰어/에디터의
+# iframe·postMessage·렌더 회귀를 실제 브라우저로 PR 단계에서 잡는다.
+#
+# ci.yml 과 같은 철학: PR 에서만 돈다(머지된 main 은 PR 에서 이미 검증됨).
+on:
+  pull_request:
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ubuntu: chromium + webkit. 빠르고 무료이며, webkit 이 WKWebView 계열 회귀를
+  # 1차로 잡는다.
+  e2e-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-linux
+          path: playwright-report/
+          retention-days: 7
+
+  # macOS: webkit 전용. Playwright webkit 은 WKWebView 에 가장 가까운 엔진이라,
+  # macOS 배포에서만 나던 embed 핸드셰이크(e.source==null) 류 회귀를 릴리즈 전에
+  # 잡는 마지막 관문이다. (ci.yml 과 동일하게 macos-14 = Apple Silicon)
+  e2e-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install webkit
+      - run: npm run e2e -- --project=webkit
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-macos
+          path: playwright-report/
+          retention-days: 7
