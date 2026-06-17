@@ -10,6 +10,9 @@ export const ko = {
     tagline: "편집은 Notion처럼, 저장은 Markdown으로",
     openFolder: "폴더 열기",
     openRemote: "원격 폴더 열기 (SSH)",
+    openByPath: "경로로 열기",
+    openByPathPlaceholder: "폴더 경로를 붙여넣으세요 (예: /Users/me/notes 또는 ssh://…)",
+    openByPathSubmit: "열기",
     recentFolders: "최근 폴더",
     remote: {
       title: "원격 폴더 열기 (SSH)",
