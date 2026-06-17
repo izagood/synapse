@@ -1515,6 +1515,105 @@ body.resizing-sidebar {
   background: #fff;
 }
 
+/* 페이지 = pdf 캔버스 + 그 위 투명 드로잉 오버레이 */
+.pdf-page-wrap {
+  position: relative;
+  display: block;
+}
+
+.pdf-draw {
+  position: absolute;
+  inset: 0;
+  /* 기본(이동 모드): 오버레이를 통과시켜 네이티브 스크롤이 동작하게 한다 */
+  pointer-events: none;
+}
+
+/* 그리기 도구 선택 시에만 오버레이가 포인터를 받고 스크롤을 막는다 */
+.pdf-viewer.drawing .pdf-draw {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* 드로잉 툴바 — 뷰어 상단 중앙 플로팅 */
+.pdf-draw-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.pdf-draw-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdf-draw-group + .pdf-draw-group {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.pdf-draw-tool,
+.pdf-draw-width {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.pdf-draw-tool:hover:not(:disabled),
+.pdf-draw-width:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.pdf-draw-tool.active,
+.pdf-draw-width.active {
+  background: var(--accent-soft);
+  outline: 2px solid var(--accent);
+}
+
+.pdf-draw-tool:disabled {
+  opacity: 0.4;
+}
+
+.pdf-draw-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+
+.pdf-draw-swatch.active {
+  border-color: var(--fg);
+  outline: 1px solid var(--bg-panel);
+}
+
+.pdf-draw-width-dot {
+  display: inline-block;
+  background: var(--fg);
+  border-radius: 50%;
+}
+
+.context-menu-note {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+}
+
 /* 이미지: transform 기반 핀치 줌/팬 표면. 콘텐츠 박스가 뷰포트를 채우고
    그 위에서 translate+scale 한다. 줌 수학(clampTranslate)이 좌표계를 가정한다. */
 .image-viewer {

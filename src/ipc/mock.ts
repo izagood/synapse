@@ -300,6 +300,20 @@ export const mockIpc: SynapseIpc = {
     }
     throw new Error("too many name collisions");
   },
+  async writeBinaryUnique(root, dir, desiredName, base64) {
+    assertInside(root, `${dir}/x`);
+    const dotAt = desiredName.lastIndexOf(".");
+    const stem = dotAt > 0 ? desiredName.slice(0, dotAt) : desiredName;
+    const ext = dotAt > 0 ? desiredName.slice(dotAt) : "";
+    for (let i = 1; i < 1000; i++) {
+      const name = i === 1 ? desiredName : `${stem} ${i}${ext}`;
+      if (!files.has(`${dir}/${name}`)) {
+        files.set(`${dir}/${name}`, `base64:${base64.slice(0, 32)}`);
+        return name;
+      }
+    }
+    throw new Error("too many name collisions");
+  },
   async newWindow() {
     // 브라우저 모드: 새 탭으로 흉내
     window.open?.(location.href, "_blank");
