@@ -6,7 +6,9 @@ import { applyTheme, nativeWindowTheme } from "../features/theme/theme";
 import { StartScreen } from "../features/workspace/StartScreen";
 import { WorkspaceView } from "../features/workspace/WorkspaceView";
 import { SettingsModal } from "../features/settings/SettingsModal";
+import { ShortcutCheatsheet } from "../features/shortcuts/ShortcutCheatsheet";
 import { UpdateToast } from "../features/update/UpdateToast";
+import { isShortcut } from "../shared/shortcuts";
 
 export default function App() {
   const root = useWorkspace((s) => s.root);
@@ -22,11 +24,10 @@ export default function App() {
     void initSettings();
   }, [initWorkspace, initSettings]);
 
-  // 전역 단축키: Cmd+, 설정 · Cmd+Shift+N 새 창
+  // 전역 단축키: 설정 토글 · 새 창 · 단축키 치트시트 (정의는 shared/shortcuts 단일 출처)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key === ",") {
+      if (isShortcut(e, "settings.toggle")) {
         e.preventDefault();
         const s = useSettings.getState();
         if (s.showSettings) {
@@ -34,9 +35,12 @@ export default function App() {
         } else {
           s.openSettings();
         }
-      } else if (e.shiftKey && e.key.toLowerCase() === "n") {
+      } else if (isShortcut(e, "window.new")) {
         e.preventDefault();
         void ipc.newWindow();
+      } else if (isShortcut(e, "help.cheatsheet")) {
+        e.preventDefault();
+        useSettings.getState().toggleShortcuts();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -66,6 +70,7 @@ export default function App() {
     <>
       {root ? <WorkspaceView /> : <StartScreen />}
       <SettingsModal />
+      <ShortcutCheatsheet />
       <UpdateToast />
     </>
   );
