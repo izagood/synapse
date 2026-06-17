@@ -6,7 +6,6 @@ import { editorExtensions, getMarkdown, setImageBaseDir } from "./extensions";
 import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { resolveInternalLink } from "./internalLink";
 import { insertImages, isImageFile } from "./images";
-import { FrontmatterPanel } from "./FrontmatterPanel";
 import { FindBar } from "./FindBar";
 import { useT } from "../../i18n";
 import { hasRoundtripContentLoss } from "./roundtripSafety";
@@ -29,7 +28,8 @@ export function MarkdownEditor({ path }: { path: string }) {
   // 원격 머지가 반영되면(externalRev) 아래 effect가 이 기준들을 갱신한다.
   const original = useRef(doc?.content ?? "");
   const initial = useMemo(() => splitFrontmatter(original.current), [path]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [frontmatter, setFrontmatter] = useState(initial.frontmatter);
+  // frontmatter는 화면에 노출하지 않고 원문 그대로 보존만 한다(저장 시 본문과 재결합).
+  // 편집은 소스 모드에서 한다.
   const fmRef = useRef(initial.frontmatter);
   const keepNlRef = useRef(/\n$/.test(initial.body));
 
@@ -125,25 +125,6 @@ export function MarkdownEditor({ path }: { path: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 속성 패널에서 frontmatter가 바뀌면: 새 frontmatter를 기준값으로 삼고,
-  // 현재 본문과 합쳐 기존 저장 경로로 기록한다 (파일 직접 쓰기 없음).
-  function handleFrontmatterChange(next: string) {
-    fmRef.current = next;
-    setFrontmatter(next);
-    const ed = editorRef.current;
-    const md = ed ? getMarkdown(ed) : null;
-    // 본문을 아직 편집하지 않았다면(에디터가 baseline 그대로) 원문 본문을
-    // 그대로 보존해 정규화로 인한 변형을 피한다.
-    let body: string;
-    if (md === null || md === baseline.current) {
-      body = splitFrontmatter(original.current).body;
-    } else {
-      body = md;
-      if (keepNlRef.current && !body.endsWith("\n")) body += "\n";
-    }
-    updateContent(path, joinFrontmatter(next, body));
-  }
-
   // 원격 머지/외부 편집 반영 (FR-6 라이브 머지): store의 content가 에디터 밖에서
   // 바뀌면 새 내용을 적용하고 커서를 (범위 안으로) 복원한다. 저장 직후 돌아온
   // 합쳐진 텍스트(synapse_id 주입 포함)도 같은 경로로 반영된다.
@@ -162,7 +143,6 @@ export function MarkdownEditor({ path }: { path: string }) {
     original.current = text;
     fmRef.current = split.frontmatter;
     keepNlRef.current = /\n$/.test(split.body);
-    setFrontmatter(split.frontmatter);
     baseline.current = getMarkdown(editor);
     setLossy(hasRoundtripContentLoss(split.body, baseline.current));
     setDismissedWarning(false);
@@ -178,15 +158,6 @@ export function MarkdownEditor({ path }: { path: string }) {
             setFindOpen(false);
             editor.commands.focus();
           }}
-        />
-      )}
-      {frontmatter && (
-        <FrontmatterPanel
-          // 외부 머지(synapse_id 주입 등)로 frontmatter가 통째로 바뀌면
-          // 편집 버퍼를 새 원문 기준으로 리셋하기 위해 externalRev로 리마운트한다.
-          key={`fm:${externalRev}`}
-          frontmatter={frontmatter}
-          onChange={handleFrontmatterChange}
         />
       )}
       {lossy && !dismissedWarning && (
