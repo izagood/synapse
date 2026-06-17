@@ -20,18 +20,23 @@ interface SettingsState {
   settings: Settings;
   loaded: boolean;
   showSettings: boolean;
+  showShortcuts: boolean;
 
   init(): Promise<void>;
   /** 일부 섹션만 갱신해도 전체를 병합·저장한다 */
   update(patch: Partial<Settings>): Promise<void>;
   openSettings(): void;
   closeSettings(): void;
+  openShortcuts(): void;
+  closeShortcuts(): void;
+  toggleShortcuts(): void;
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   loaded: false,
   showSettings: false,
+  showShortcuts: false,
 
   async init() {
     try {
@@ -61,6 +66,15 @@ export const useSettings = create<SettingsState>((set, get) => ({
   },
   closeSettings() {
     set({ showSettings: false });
+  },
+  openShortcuts() {
+    set({ showShortcuts: true });
+  },
+  closeShortcuts() {
+    set({ showShortcuts: false });
+  },
+  toggleShortcuts() {
+    set((s) => ({ showShortcuts: !s.showShortcuts }));
   },
 }));
 
