@@ -64,6 +64,8 @@ const tauriIpc: SynapseIpc = {
   linkGraph: (root) => invoke<LinkGraph>("link_graph", { root }),
   saveImage: (root, dir, desiredName, base64) =>
     invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
+  writeBinaryUnique: (root, dir, desiredName, base64) =>
+    invoke<string>("write_binary_unique", { root, dir, desiredName, dataBase64: base64 }),
   newWindow: () => invoke<void>("new_window"),
   renamePath: (root, path, newName) =>
     invoke<string>("rename_path", { root, path, newName }),

@@ -7,6 +7,11 @@ import { useT } from "../../i18n";
 import { useViewerGesture } from "../viewer-zoom/useViewerGesture";
 import { ZoomControls } from "../viewer-zoom/ZoomControls";
 import { anchoredScroll, clampScale, MAX_SCALE, previewSize } from "../viewer-zoom/zoomMath";
+import { usePdfDraw } from "../pdf-draw/usePdfDraw";
+import { redrawOverlay } from "../pdf-draw/renderStrokes";
+import { strokesOnPage, type Stroke } from "../pdf-draw/drawDoc";
+import { PdfDrawToolbar } from "../pdf-draw/PdfDrawToolbar";
+import { PdfDrawMenu } from "../pdf-draw/PdfDrawMenu";
 
 // 워커는 Vite가 앱 오리진(self)에서 서빙하는 에셋으로 번들한다 → CSP default-src 'self' 통과.
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -21,9 +26,12 @@ const PDF_MIN_SCALE = 0.25;
 // 핀치가 멈춘 뒤 실제 배율로 재래스터화하기까지의 지연(ms). 그동안은 CSS 프리뷰로
 // 즉각 반응시킨다. 너무 짧으면 핀치 도중 무거운 렌더가 반복돼 버벅인다.
 const RENDER_DEBOUNCE_MS = 120;
+const ERASER_SCREEN_PX = 10; // 지우개 반경(화면 px)
+const MIN_POINT_SCREEN_PX = 2; // 점 추가 최소 이동(화면 px) — 좌표 수 절약
 
 // 네이티브 iframe 대신 pdf.js로 캔버스 렌더링한다. 트랙패드 핀치(ctrl+휠)/터치 핀치로
 // 확대·축소하면 해당 배율로 다시 렌더해 항상 선명하다. 패닝은 네이티브 스크롤.
+// 각 페이지 위에 투명한 오버레이 캔버스를 얹어 자유곡선 드로잉을 그린다.
 export function PdfViewer({ path }: { path: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
@@ -31,12 +39,44 @@ export function PdfViewer({ path }: { path: string }) {
   const firstPageWidthRef = useRef(0); // scale 1 에서의 첫 페이지 폭(px)
   const zoomRef = useRef(1); // fit 대비 배율(표시)
   const renderedZoomRef = useRef(1); // 현재 캔버스가 실제로 래스터화된 배율
+  const fitScaleRef = useRef(1); // 현재 fit 배율(컨테이너 폭/첫 페이지 폭)
+  const dprRef = useRef(1);
   const renderTokenRef = useRef(0);
   const renderTasksRef = useRef<RenderTask[]>([]);
 
   const [zoom, setZoom] = useState(1);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [menu, setMenu] = useState<{ x: number; y: number; page: number | null } | null>(null);
   const t = useT();
+
+  const draw = usePdfDraw(path);
+  // 포인터 핸들러가 최신 도구/색/굵기를 동기적으로 읽도록 ref 로도 보관.
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+
+  // 한 페이지의 오버레이를 "래스터화된" 배율로 다시 그린다(진행 중 획 extra 포함).
+  // 오버레이 백킹스토어는 pdf 캔버스와 같은 배율(fit*renderedZoom)이고, 프리뷰 중에는
+  // pdf 캔버스와 함께 CSS 로만 확대/축소되므로 표시 배율과 무관하게 이 값으로 그린다.
+  const redrawPage = useCallback((page: number, extra?: Stroke | null) => {
+    const host = pagesRef.current;
+    if (!host) return;
+    const overlay = host.querySelector<HTMLCanvasElement>(
+      `.pdf-page-wrap[data-page="${page}"] .pdf-draw`,
+    );
+    if (!overlay) return;
+    const doc = drawRef.current.docRef.current;
+    if (!doc) return;
+    const scale = fitScaleRef.current * renderedZoomRef.current;
+    redrawOverlay(overlay, strokesOnPage(doc, page), scale, dprRef.current, extra);
+  }, []);
+
+  const redrawAllOverlays = useCallback(() => {
+    const host = pagesRef.current;
+    if (!host) return;
+    host.querySelectorAll<HTMLElement>(".pdf-page-wrap").forEach((wrap) => {
+      redrawPage(Number(wrap.dataset.page));
+    });
+  }, [redrawPage]);
 
   // 현재 zoom·컨테이너 폭 기준으로 모든 페이지를 캔버스에 렌더한다.
   const renderAll = useCallback(async () => {
@@ -58,6 +98,8 @@ export function PdfViewer({ path }: { path: string }) {
     const renderZoom = zoomRef.current;
     const effective = fitScale * renderZoom;
     renderedZoomRef.current = renderZoom;
+    fitScaleRef.current = fitScale;
+    dprRef.current = dpr;
 
     for (let i = 1; i <= doc.numPages; i++) {
       if (token !== renderTokenRef.current) return; // 더 새 렌더로 교체됨
@@ -65,22 +107,35 @@ export function PdfViewer({ path }: { path: string }) {
       if (token !== renderTokenRef.current) return;
       const viewport = page.getViewport({ scale: effective * dpr });
 
-      let canvas = host.querySelector<HTMLCanvasElement>(`canvas[data-page="${i}"]`);
-      if (!canvas) {
-        canvas = document.createElement("canvas");
-        canvas.dataset.page = String(i);
-        canvas.className = "pdf-page";
-        host.appendChild(canvas);
+      // 페이지마다 래퍼(pdf 캔버스 + 오버레이 캔버스)를 둔다.
+      let wrap = host.querySelector<HTMLDivElement>(`.pdf-page-wrap[data-page="${i}"]`);
+      if (!wrap) {
+        wrap = document.createElement("div");
+        wrap.className = "pdf-page-wrap";
+        wrap.dataset.page = String(i);
+        const pdfCanvas = document.createElement("canvas");
+        pdfCanvas.className = "pdf-page";
+        const overlay = document.createElement("canvas");
+        overlay.className = "pdf-draw";
+        wrap.append(pdfCanvas, overlay);
+        host.appendChild(wrap);
       }
+      const canvas = wrap.querySelector<HTMLCanvasElement>(".pdf-page")!;
+      const overlay = wrap.querySelector<HTMLCanvasElement>(".pdf-draw")!;
+
       const cssW = viewport.width / dpr;
       const cssH = viewport.height / dpr;
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      canvas.style.width = `${cssW}px`;
-      canvas.style.height = `${cssH}px`;
       // 프리뷰 스케일의 기준이 되는 자연 CSS 크기(renderZoom 기준).
-      canvas.dataset.cssw = String(cssW);
-      canvas.dataset.cssh = String(cssH);
+      wrap.dataset.cssw = String(cssW);
+      wrap.dataset.cssh = String(cssH);
+      wrap.style.width = `${cssW}px`;
+      wrap.style.height = `${cssH}px`;
+      for (const c of [canvas, overlay]) {
+        c.width = Math.floor(viewport.width);
+        c.height = Math.floor(viewport.height);
+        c.style.width = `${cssW}px`;
+        c.style.height = `${cssH}px`;
+      }
 
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
@@ -91,22 +146,27 @@ export function PdfViewer({ path }: { path: string }) {
       } catch {
         // 취소된 렌더(RenderingCancelledException)는 무시한다.
       }
+      // pdf 렌더 후 그 페이지의 드로잉을 다시 얹는다.
+      redrawPage(i);
     }
-  }, []);
+  }, [redrawPage]);
 
-  // 재래스터화 없이 캔버스 CSS 크기만 현재 zoom 에 맞춘다(핀치 중 즉각 피드백).
+  // 재래스터화 없이 래퍼/캔버스 CSS 크기만 현재 zoom 에 맞춘다(핀치 중 즉각 피드백).
   const applyPreview = useCallback(() => {
     const host = pagesRef.current;
     if (!host) return;
     const rendered = renderedZoomRef.current;
-    const zoom = zoomRef.current;
-    const canvases = host.querySelectorAll<HTMLCanvasElement>("canvas[data-cssw]");
-    for (const canvas of canvases) {
-      const w = Number(canvas.dataset.cssw);
-      const h = Number(canvas.dataset.cssh);
-      canvas.style.width = `${previewSize(w, zoom, rendered)}px`;
-      canvas.style.height = `${previewSize(h, zoom, rendered)}px`;
-    }
+    const z = zoomRef.current;
+    host.querySelectorAll<HTMLElement>(".pdf-page-wrap[data-cssw]").forEach((wrap) => {
+      const w = previewSize(Number(wrap.dataset.cssw), z, rendered);
+      const h = previewSize(Number(wrap.dataset.cssh), z, rendered);
+      wrap.style.width = `${w}px`;
+      wrap.style.height = `${h}px`;
+      wrap.querySelectorAll<HTMLCanvasElement>("canvas").forEach((c) => {
+        c.style.width = `${w}px`;
+        c.style.height = `${h}px`;
+      });
+    });
   }, []);
 
   // 문서 로드.
@@ -176,6 +236,108 @@ export function PdfViewer({ path }: { path: string }) {
     };
   }, [renderAll]);
 
+  // 사이드카 로드/undo/clear 등으로 획 수가 바뀌면 오버레이를 다시 그린다.
+  useEffect(() => {
+    if (status === "ready") redrawAllOverlays();
+  }, [status, draw.strokeCount, redrawAllOverlays]);
+
+  // ---- 포인터 드로잉/지우개 ----
+  useEffect(() => {
+    const host = pagesRef.current;
+    if (!host) return;
+
+    let curStroke: Stroke | null = null;
+    let curPage = 0;
+    let curOverlay: HTMLCanvasElement | null = null;
+    let activeId: number | null = null;
+
+    // 이벤트 → (페이지, scale1 좌표). 표시 배율(fit*zoom) 기준으로 역산하므로
+    // 핀치 프리뷰 중(렌더 배율과 표시 배율이 다른 동안)에도 정확하다.
+    const locate = (e: PointerEvent) => {
+      const wrap = (e.target as HTMLElement).closest<HTMLDivElement>(".pdf-page-wrap");
+      if (!wrap) return null;
+      const overlay = wrap.querySelector<HTMLCanvasElement>(".pdf-draw");
+      if (!overlay) return null;
+      const rect = overlay.getBoundingClientRect();
+      const s = fitScaleRef.current * zoomRef.current || 1;
+      return {
+        page: Number(wrap.dataset.page),
+        overlay,
+        x: (e.clientX - rect.left) / s,
+        y: (e.clientY - rect.top) / s,
+      };
+    };
+
+    const eraserRadius = () => ERASER_SCREEN_PX / (fitScaleRef.current * zoomRef.current || 1);
+
+    const onDown = (e: PointerEvent) => {
+      const api = drawRef.current;
+      if (!api.isDrawing || e.button !== 0) return;
+      const hit = locate(e);
+      if (!hit) return;
+      e.preventDefault();
+      activeId = e.pointerId;
+      curOverlay = hit.overlay;
+      curPage = hit.page;
+      hit.overlay.setPointerCapture?.(e.pointerId);
+
+      if (api.tool === "eraser") {
+        curStroke = null;
+        if (api.eraseAt(hit.page, hit.x, hit.y, eraserRadius())) redrawPage(hit.page);
+        return;
+      }
+      curStroke = {
+        tool: api.tool === "highlighter" ? "highlighter" : "pen",
+        color: api.color,
+        width: api.effectiveWidth(),
+        points: [hit.x, hit.y],
+      };
+      redrawPage(hit.page, curStroke);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (activeId !== e.pointerId) return;
+      const api = drawRef.current;
+      const hit = locate(e);
+      if (!hit) return;
+
+      if (api.tool === "eraser") {
+        if (api.eraseAt(hit.page, hit.x, hit.y, eraserRadius())) redrawPage(hit.page);
+        return;
+      }
+      if (!curStroke) return;
+      e.preventDefault();
+      const pts = curStroke.points;
+      const minD = MIN_POINT_SCREEN_PX / (fitScaleRef.current * zoomRef.current || 1);
+      if (Math.hypot(hit.x - pts[pts.length - 2], hit.y - pts[pts.length - 1]) >= minD) {
+        pts.push(hit.x, hit.y);
+        redrawPage(curPage, curStroke);
+      }
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (activeId !== e.pointerId) return;
+      curOverlay?.releasePointerCapture?.(e.pointerId);
+      activeId = null;
+      if (curStroke) {
+        drawRef.current.commitStroke(curPage, curStroke);
+        curStroke = null;
+      }
+      curOverlay = null;
+    };
+
+    host.addEventListener("pointerdown", onDown);
+    host.addEventListener("pointermove", onMove);
+    host.addEventListener("pointerup", onUp);
+    host.addEventListener("pointercancel", onUp);
+    return () => {
+      host.removeEventListener("pointerdown", onDown);
+      host.removeEventListener("pointermove", onMove);
+      host.removeEventListener("pointerup", onUp);
+      host.removeEventListener("pointercancel", onUp);
+    };
+  }, [redrawPage]);
+
   // 앵커(커서/핀치 중점) 아래 지점을 고정한 채 zoom 변경. 캔버스 CSS 크기를 즉시
   // 조절해 반응시키고(프리뷰), 선명한 재래스터화는 디바운스로 뒤따른다.
   const zoomAtPoint = useCallback(
@@ -212,8 +374,17 @@ export function PdfViewer({ path }: { path: string }) {
     setZoom(1);
   };
 
+  const openMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const wrap = (e.target as HTMLElement).closest<HTMLDivElement>(".pdf-page-wrap");
+    setMenu({ x: e.clientX, y: e.clientY, page: wrap ? Number(wrap.dataset.page) : null });
+  };
+
   return (
-    <div className="pdf-viewer">
+    <div
+      className={`pdf-viewer${draw.isDrawing ? " drawing" : ""}`}
+      onContextMenu={status === "ready" ? openMenu : undefined}
+    >
       {status === "error" && (
         <div className="preview-placeholder">
           <p className="error">{t("viewer.pdfError")}</p>
@@ -228,11 +399,24 @@ export function PdfViewer({ path }: { path: string }) {
         <div ref={pagesRef} className="pdf-pages" />
       </div>
       {status === "ready" && (
-        <ZoomControls
-          scale={zoom}
-          onZoomIn={() => zoomByButton(1.4)}
-          onZoomOut={() => zoomByButton(1 / 1.4)}
-          onReset={reset}
+        <>
+          <PdfDrawToolbar draw={draw} />
+          <ZoomControls
+            scale={zoom}
+            onZoomIn={() => zoomByButton(1.4)}
+            onZoomOut={() => zoomByButton(1 / 1.4)}
+            onReset={reset}
+          />
+        </>
+      )}
+      {menu && (
+        <PdfDrawMenu
+          x={menu.x}
+          y={menu.y}
+          page={menu.page}
+          path={path}
+          draw={draw}
+          onClose={() => setMenu(null)}
         />
       )}
     </div>

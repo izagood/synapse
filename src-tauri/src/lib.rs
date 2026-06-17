@@ -44,6 +44,7 @@ pub fn run() {
             commands::viewer_cache_write,
             commands::new_window,
             commands::save_image,
+            commands::write_binary_unique,
             commands::rename_path,
             commands::delete_path,
             commands::duplicate_path,
