@@ -15,6 +15,9 @@ export const en: LocaleShape<KoMessages> = {
     tagline: "Notion-style editing, Markdown files",
     openFolder: "Open Folder",
     openRemote: "Open Remote Folder (SSH)",
+    openByPath: "Open by Path",
+    openByPathPlaceholder: "Paste a folder path (e.g. /Users/me/notes or ssh://…)",
+    openByPathSubmit: "Open",
     recentFolders: "Recent Folders",
     remote: {
       title: "Open Remote Folder (SSH)",
