@@ -8,3 +8,10 @@ public/excalidraw-assets/
 docs/superpowers/
 # 빌드 시 node_modules에서 복사되는 pdf.js cmap/폰트 (scripts/copy-pdfjs-assets.mjs)
 public/pdfjs/
+# Ladle 워크벤치 정적 빌드 산출물
+build/
+# Playwright E2E 산출물 (기준선 스냅샷 e2e/__screenshots__ 는 커밋함)
+test-results/
+playwright-report/
+blob-report/
+.playwright/
