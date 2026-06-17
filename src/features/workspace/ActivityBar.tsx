@@ -13,6 +13,7 @@ import {
   SparkleIcon,
 } from "../../shared/Icons";
 import { shortcutLabel } from "../../shared/platform";
+import { shortcutById } from "../../shared/shortcuts";
 import { useT } from "../../i18n";
 
 interface ActivityBarProps {
@@ -38,12 +39,12 @@ export function ActivityBar({
   const openFolder = useWorkspace((s) => s.openFolder);
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
   const openSettings = useSettings((s) => s.openSettings);
-  const quickOpenShortcut = shortcutLabel(["Mod", "P"]);
-  const searchShortcut = shortcutLabel(["Shift", "Mod", "F"]);
-  const agentShortcut = shortcutLabel(["Shift", "Mod", "A"]);
-  const graphShortcut = shortcutLabel(["Shift", "Mod", "G"]);
-  const newWindowShortcut = shortcutLabel(["Shift", "Mod", "N"]);
-  const settingsShortcut = shortcutLabel(["Mod", ","]);
+  const quickOpenShortcut = shortcutLabel(shortcutById("nav.quickOpen").keys);
+  const searchShortcut = shortcutLabel(shortcutById("nav.search").keys);
+  const agentShortcut = shortcutLabel(shortcutById("view.toggleAgent").keys);
+  const graphShortcut = shortcutLabel(shortcutById("view.graph").keys);
+  const newWindowShortcut = shortcutLabel(shortcutById("window.new").keys);
+  const settingsShortcut = shortcutLabel(shortcutById("settings.toggle").keys);
   const t = useT();
 
   return (

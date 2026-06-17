@@ -13,6 +13,7 @@ import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
 import { GlobeIcon, PlusIcon, RefreshIcon } from "../../shared/Icons";
 import { basename } from "../../shared/pathUtils";
+import { isShortcut } from "../../shared/shortcuts";
 import { useT } from "../../i18n";
 
 const SIDEBAR_DEFAULT = 260;
@@ -59,28 +60,25 @@ export function WorkspaceView() {
     if (html && html.trim()) await importHtmlAsNote(html);
   }, [importHtmlAsNote]);
 
-  // Ctrl/Cmd+S 저장 · Ctrl/Cmd+P 빠른 열기 · Ctrl/Cmd+B 사이드바 (VS Code)
-  // Ctrl/Cmd+Shift+A Claude 패널
+  // 워크스페이스 단축키 (VS Code 관례) — 정의는 shared/shortcuts 단일 출처
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const key = e.key.toLowerCase();
-      if (e.shiftKey && key === "a") {
+      if (isShortcut(e, "view.toggleAgent")) {
         e.preventDefault();
         toggleAgent();
-      } else if (e.shiftKey && key === "g") {
+      } else if (isShortcut(e, "view.graph")) {
         e.preventDefault();
         setGraph((v) => !v);
-      } else if (e.shiftKey && key === "f") {
+      } else if (isShortcut(e, "nav.search")) {
         e.preventDefault();
         setSearch((v) => !v);
-      } else if (key === "s") {
+      } else if (isShortcut(e, "file.save")) {
         e.preventDefault();
         void saveActive();
-      } else if (key === "p") {
+      } else if (isShortcut(e, "nav.quickOpen")) {
         e.preventDefault();
         setQuickOpen((v) => !v);
-      } else if (key === "b") {
+      } else if (isShortcut(e, "view.toggleSidebar")) {
         e.preventDefault();
         setSidebarVisible((v) => !v);
       }
