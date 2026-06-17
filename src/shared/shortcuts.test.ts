@@ -67,6 +67,17 @@ describe("isShortcut + shortcutById", () => {
     expect(isShortcut(ev({ key: "p", ctrlKey: true }), "nav.quickOpen")).toBe(true);
   });
 
+  it("줄 번호 토글은 Mod+Shift+L 에만 반응한다", () => {
+    expect(
+      isShortcut(ev({ key: "l", metaKey: true, shiftKey: true }), "view.toggleLineNumbers"),
+    ).toBe(true);
+    expect(
+      isShortcut(ev({ key: "l", ctrlKey: true, shiftKey: true }), "view.toggleLineNumbers"),
+    ).toBe(true);
+    // Shift 없으면 불일치 (다른 단축키와 혼동 방지)
+    expect(isShortcut(ev({ key: "l", metaKey: true }), "view.toggleLineNumbers")).toBe(false);
+  });
+
   it("throws for unknown ids", () => {
     expect(() => shortcutById("does.not.exist")).toThrow();
   });

@@ -38,6 +38,8 @@ pub struct EditorSettings {
     pub font_size: u32,
     pub auto_save_delay_ms: u64,
     pub assets_folder: String,
+    /// 소스/WYSIWYG 에디터에 줄 번호를 표시할지 (단축키/설정으로 토글)
+    pub show_line_numbers: bool,
 }
 
 impl Default for EditorSettings {
@@ -47,6 +49,7 @@ impl Default for EditorSettings {
             font_size: 16,
             auto_save_delay_ms: 1000,
             assets_folder: "assets".into(),
+            show_line_numbers: false,
         }
     }
 }
@@ -205,6 +208,37 @@ mod tests {
             loaded.appearance.custom_colors.get("accent").unwrap(),
             "#ff66aa"
         );
+    }
+
+    #[test]
+    fn line_numbers_default_off_and_roundtrip() {
+        // 기본값은 꺼짐
+        assert!(!Settings::default().editor.show_line_numbers);
+
+        // 켠 뒤 저장·복원이 유지된다
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        s.editor.show_line_numbers = true;
+        save_settings(dir.path(), &s).unwrap();
+        assert!(load_settings(dir.path()).editor.show_line_numbers);
+
+        // camelCase 키로 직렬화된다 (프론트 Settings.editor.showLineNumbers 와 매핑)
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"showLineNumbers\":true"));
+    }
+
+    #[test]
+    fn old_settings_without_line_numbers_default_off() {
+        // 줄 번호 필드가 없던 기존 settings.json 은 기본값(꺼짐)으로 읽힌다.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"editor":{"fontSize":18}}"#,
+        )
+        .unwrap();
+        let s = load_settings(dir.path());
+        assert_eq!(s.editor.font_size, 18);
+        assert!(!s.editor.show_line_numbers);
     }
 
     #[test]

@@ -135,6 +135,13 @@ export const SHORTCUTS: ShortcutDef[] = [
     descriptionKey: "shortcuts.desc.graph",
     handledBy: "app",
   },
+  {
+    id: "view.toggleLineNumbers",
+    category: "view",
+    keys: ["Mod", "Shift", "L"],
+    descriptionKey: "shortcuts.desc.toggleLineNumbers",
+    handledBy: "app",
+  },
   // --- 편집 (에디터 포커스 시 동작 · 표시 전용) ---
   {
     id: "editor.find",

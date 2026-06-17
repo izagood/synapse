@@ -479,6 +479,18 @@ export function SettingsModal() {
             />
           </label>
           <label className="setting-row">
+            <span>{t("settings.lineNumbers")}</span>
+            <input
+              type="checkbox"
+              checked={settings.editor.showLineNumbers}
+              onChange={(e) =>
+                void update({
+                  editor: { ...settings.editor, showLineNumbers: e.target.checked },
+                })
+              }
+            />
+          </label>
+          <label className="setting-row">
             <span>{t("settings.autoSaveDelay")}</span>
             <NumberInput
               min={200}

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
+import { useSettings } from "../../stores/settings";
 import { editorExtensions, getMarkdown, setImageBaseDir } from "./extensions";
+import { countLines, activeLineIndex } from "./lineNumbers";
 import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { resolveInternalLink } from "./internalLink";
 import { insertImages, isImageFile } from "./images";
@@ -20,6 +22,7 @@ import { hasRoundtripContentLoss } from "./roundtripSafety";
 export function MarkdownEditor({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
   const updateContent = useWorkspace((s) => s.updateContent);
+  const showLineNumbers = useSettings((s) => s.settings.editor.showLineNumbers);
   const t = useT();
   const placeholder = t("editor.placeholder");
   const mermaidErrorLabel = t("editor.mermaidError");
@@ -149,7 +152,7 @@ export function MarkdownEditor({ path }: { path: string }) {
   }, [editor, externalRev, path]);
 
   return (
-    <div className="editor-wrap">
+    <div className={showLineNumbers ? "editor-wrap line-numbers" : "editor-wrap"}>
       {findOpen && editor && (
         <FindBar
           editor={editor}
@@ -173,17 +176,55 @@ export function MarkdownEditor({ path }: { path: string }) {
   );
 }
 
-// 소스(raw markdown) 모드: 파일 전체 텍스트를 frontmatter 포함 그대로 편집
+// 소스(raw markdown) 모드: 파일 전체 텍스트를 frontmatter 포함 그대로 편집.
+// 줄 번호 설정이 켜지면 VS Code식 좌측 거터(워드랩 OFF·가로 스크롤)를 붙인다.
 export function SourceEditor({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
   const updateContent = useWorkspace((s) => s.updateContent);
+  const showLineNumbers = useSettings((s) => s.settings.editor.showLineNumbers);
+  const content = doc?.content ?? "";
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const [activeLine, setActiveLine] = useState(0);
 
+  if (!showLineNumbers) {
+    return (
+      <textarea
+        className="source-editor"
+        value={content}
+        onChange={(e) => updateContent(path, e.target.value)}
+        spellCheck={false}
+      />
+    );
+  }
+
+  // 캐럿이 속한 줄을 거터에서 밝게 표시 (현재 줄 하이라이트)
+  const syncActiveLine = () => {
+    const ta = taRef.current;
+    if (ta) setActiveLine(activeLineIndex(content, ta.selectionStart));
+  };
+  const lineCount = countLines(content);
   return (
-    <textarea
-      className="source-editor"
-      value={doc?.content ?? ""}
-      onChange={(e) => updateContent(path, e.target.value)}
-      spellCheck={false}
-    />
+    <div className="source-editor-wrap">
+      <div className="line-gutter" ref={gutterRef} aria-hidden="true">
+        {Array.from({ length: lineCount }, (_, i) => (
+          <div key={i} className={i === activeLine ? "ln-active" : undefined}>
+            {i + 1}
+          </div>
+        ))}
+      </div>
+      <textarea
+        ref={taRef}
+        className="source-editor with-gutter"
+        value={content}
+        onChange={(e) => updateContent(path, e.target.value)}
+        // 거터 스크롤을 textarea와 동기화
+        onScroll={(e) => {
+          if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+        }}
+        onSelect={syncActiveLine}
+        spellCheck={false}
+      />
+    </div>
   );
 }
