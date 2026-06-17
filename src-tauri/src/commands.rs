@@ -294,6 +294,36 @@ pub async fn save_image(
     .await
 }
 
+/// 바이너리(base64) 바이트를 dir 에 새 파일로 쓴다. 같은 이름이 있으면 "이름 2.ext"로
+/// 비켜 쓰고 최종 파일명을 돌려준다. PDF 굽기(주석 합성 사본 저장) 등에 쓴다.
+#[tauri::command]
+pub async fn write_binary_unique(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    dir: String,
+    desired_name: String,
+    data_base64: String,
+) -> Result<String, String> {
+    if !synapse_core::is_safe_file_name(&desired_name) {
+        return Err("invalid file name".to_string());
+    }
+    let root_loc = parse_loc(&root)?;
+    let dir_loc = parse_loc(&dir)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let dir_path = fs_path(&dir_loc);
+    let bytes = synapse_core::fs_io::base64_decode(&data_base64)?;
+    crate::sync::run_blocking(move || {
+        let dir = backend
+            .ensure_within(&root_path, &dir_path)
+            .map_err(|e| e.to_string())?;
+        backend
+            .write_unique(&dir, &desired_name, &bytes, " ")
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn rename_path(
     state: tauri::State<'_, RemoteState>,

@@ -1,0 +1,232 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ipc } from "../../ipc/ipc";
+import { useWorkspace } from "../../stores/workspace";
+import {
+  countStrokes,
+  emptyDrawDoc,
+  eraseStrokesAt,
+  parseDrawDoc,
+  serializeDrawDoc,
+  sidecarPathOf,
+  strokesOnPage,
+  type DrawDoc,
+  type Stroke,
+  type ToolKind,
+} from "./drawDoc";
+
+const AUTOSAVE_MS = 800;
+const UNDO_LIMIT = 60;
+const DEFAULT_COLOR = "#e02424";
+const DEFAULT_WIDTH = 3; // scale 1(pt) 기준
+
+export interface PdfDrawApi {
+  tool: ToolKind;
+  setTool: (t: ToolKind) => void;
+  color: string;
+  setColor: (c: string) => void;
+  width: number;
+  setWidth: (w: number) => void;
+
+  /** 도구별 굵기(형광펜은 더 굵게)를 적용한 현재 획 굵기 */
+  effectiveWidth: () => number;
+
+  /** renderAll/오버레이가 동기적으로 읽는 현재 문서 */
+  docRef: React.RefObject<DrawDoc>;
+  /** 그리기 가능한 도구가 선택돼 있는지(move 아님) */
+  isDrawing: boolean;
+
+  strokeCount: number;
+  dirty: boolean;
+
+  /** 완성된 한 획을 페이지에 커밋(undo 가능). 빈 획은 무시. */
+  commitStroke: (page: number, stroke: Stroke) => void;
+  /** (x,y) 반경에 닿는 획 제거. 제거됐으면 true. */
+  eraseAt: (page: number, x: number, y: number, radius: number) => boolean;
+  /** 직전 변경 취소 */
+  undo: () => void;
+  /** 한 페이지의 모든 획 삭제 */
+  clearPage: (page: number) => void;
+  /** 전 페이지 모든 획 삭제 */
+  clearAll: () => void;
+
+  /** 굽기 등 즉시 직렬화가 필요할 때의 현재 문서 사본 */
+  getDoc: () => DrawDoc;
+}
+
+interface UndoEntry {
+  page: number;
+  strokes: Stroke[]; // 변경 직전 그 페이지의 획 배열(얕은 사본)
+}
+
+/**
+ * PDF 한 개의 드로잉 상태와 사이드카(JSON) 영속화를 담당한다.
+ * 진행 중인(드래그 중) 획은 뷰어가 들고 있고, 여기엔 "완성된" 획만 커밋된다.
+ */
+export function usePdfDraw(path: string): PdfDrawApi {
+  const root = useWorkspace((s) => s.root);
+  const sidecar = sidecarPathOf(path);
+
+  const docRef = useRef<DrawDoc>(emptyDrawDoc());
+  const undoRef = useRef<UndoEntry[]>([]);
+  const dirtyRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [tool, setTool] = useState<ToolKind>("move");
+  const [color, setColor] = useState(DEFAULT_COLOR);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [strokeCount, setStrokeCount] = useState(0);
+  const [dirty, setDirty] = useState(false);
+
+  // ---- 영속화 ----
+  const flushSave = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (!dirtyRef.current || !root) return;
+    const json = serializeDrawDoc(docRef.current);
+    dirtyRef.current = false;
+    setDirty(false);
+    try {
+      await ipc.writeFile(root, sidecar, json);
+    } catch {
+      // 저장 실패 시 다시 dirty 로 두어 다음 변경/언마운트 때 재시도
+      dirtyRef.current = true;
+      setDirty(true);
+    }
+  }, [root, sidecar]);
+
+  const scheduleSave = useCallback(() => {
+    dirtyRef.current = true;
+    setDirty(true);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => void flushSave(), AUTOSAVE_MS);
+  }, [flushSave]);
+
+  // path 변경 시 사이드카 로드. 직전 문서는 저장 후 교체.
+  useEffect(() => {
+    let cancelled = false;
+    // 이전 path 의 미저장분을 먼저 비운다.
+    void flushSave();
+    docRef.current = emptyDrawDoc();
+    undoRef.current = [];
+    setStrokeCount(0);
+    if (!root) return;
+    ipc
+      .readFile(root, sidecar)
+      .then((json) => {
+        if (cancelled) return;
+        docRef.current = parseDrawDoc(json);
+        setStrokeCount(countStrokes(docRef.current));
+      })
+      .catch(() => {
+        // 사이드카 없음(=주석 없는 PDF)은 정상.
+        if (!cancelled) {
+          docRef.current = emptyDrawDoc();
+          setStrokeCount(0);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // path/root 가 바뀔 때만 재로딩. flushSave 는 그 둘에만 의존.
+  }, [root, sidecar, flushSave]);
+
+  // 언마운트 시 미저장분 저장(베스트 에포트).
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (dirtyRef.current && root) {
+        void ipc.writeFile(root, sidecar, serializeDrawDoc(docRef.current));
+      }
+    };
+  }, [root, sidecar]);
+
+  // ---- 변경 연산 ----
+  const pushUndo = useCallback((page: number) => {
+    undoRef.current.push({ page, strokes: [...strokesOnPage(docRef.current, page)] });
+    if (undoRef.current.length > UNDO_LIMIT) undoRef.current.shift();
+  }, []);
+
+  const commitStroke = useCallback(
+    (page: number, stroke: Stroke) => {
+      if (stroke.points.length < 2) return;
+      pushUndo(page);
+      const prev = docRef.current.pages[page] ?? [];
+      docRef.current.pages[page] = [...prev, stroke];
+      setStrokeCount(countStrokes(docRef.current));
+      scheduleSave();
+    },
+    [pushUndo, scheduleSave],
+  );
+
+  const eraseAt = useCallback(
+    (page: number, x: number, y: number, radius: number) => {
+      const prev = docRef.current.pages[page] ?? [];
+      const next = eraseStrokesAt(prev, x, y, radius);
+      if (next.length === prev.length) return false;
+      pushUndo(page);
+      docRef.current.pages[page] = next;
+      setStrokeCount(countStrokes(docRef.current));
+      scheduleSave();
+      return true;
+    },
+    [pushUndo, scheduleSave],
+  );
+
+  const undo = useCallback(() => {
+    const entry = undoRef.current.pop();
+    if (!entry) return;
+    docRef.current.pages[entry.page] = entry.strokes;
+    setStrokeCount(countStrokes(docRef.current));
+    scheduleSave();
+  }, [scheduleSave]);
+
+  const clearPage = useCallback(
+    (page: number) => {
+      if ((docRef.current.pages[page] ?? []).length === 0) return;
+      pushUndo(page);
+      docRef.current.pages[page] = [];
+      setStrokeCount(countStrokes(docRef.current));
+      scheduleSave();
+    },
+    [pushUndo, scheduleSave],
+  );
+
+  const clearAll = useCallback(() => {
+    if (countStrokes(docRef.current) === 0) return;
+    // 페이지별로 undo 를 쌓아 한 번의 undo 로 전체 복구가 안 되는 점은 단순화.
+    for (const page of Object.keys(docRef.current.pages)) {
+      pushUndo(Number(page));
+    }
+    docRef.current.pages = {};
+    setStrokeCount(0);
+    scheduleSave();
+  }, [pushUndo, scheduleSave]);
+
+  const effectiveWidth = useCallback(() => {
+    return tool === "highlighter" ? width * 4 : width;
+  }, [tool, width]);
+
+  const getDoc = useCallback(() => docRef.current, []);
+
+  return {
+    tool,
+    setTool,
+    color,
+    setColor,
+    width,
+    setWidth,
+    effectiveWidth,
+    docRef,
+    isDrawing: tool === "pen" || tool === "highlighter" || tool === "eraser",
+    strokeCount,
+    dirty,
+    commitStroke,
+    eraseAt,
+    undo,
+    clearPage,
+    clearAll,
+    getDoc,
+  };
+}

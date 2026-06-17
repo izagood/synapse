@@ -311,6 +311,11 @@ export interface SynapseIpc {
    * 비켜 쓰고 실제 저장된 파일명을 반환 (드래그앤드롭/붙여넣기)
    */
   saveImage(root: string, dir: string, desiredName: string, base64: string): Promise<string>;
+  /**
+   * 바이너리(base64) 바이트를 dir에 새 파일로 쓴다. 같은 이름이 있으면 "이름 2.ext"로
+   * 비켜 쓰고 최종 파일명을 반환 (PDF 굽기 등 임의 바이너리 저장용)
+   */
+  writeBinaryUnique(root: string, dir: string, desiredName: string, base64: string): Promise<string>;
   /** 새 앱 창 열기 (여러 폴더 동시 사용) */
   newWindow(): Promise<void>;
 
