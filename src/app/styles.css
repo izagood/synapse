@@ -56,6 +56,37 @@
   color-scheme: light;
 }
 
+/*
+ * Pink 테마 — 동화풍 파스텔 핑크 팔레트 (밝은 계열).
+ * 옅은 핑크 배경(#ffabd2~#ffc5e0)과 로즈 강조색(#e39cbe 계열)을 기반으로 한다.
+ */
+:root[data-theme="pink"] {
+  --bg: #fff5f8;
+  --bg-panel: #ffe9f0;
+  --bg-rail: #ffdde9;
+  --bg-hover: #ffd2e2;
+  --bg-active: #ffc2d6;
+  --fg: #4d1f33;
+  --fg-dim: #8a5a6e;
+  --fg-faint: #b58aa0;
+  --accent: #d14a8f;
+  --accent-soft: rgba(209, 74, 143, 0.18);
+  --border: #f2c2d5;
+  --error: #d6453d;
+  --ok: #1d9d6c;
+  --warn: #b07d22;
+  /* 코드 블록 문법 하이라이트 토큰 색 (핑크) */
+  --code-keyword: #c2185b;
+  --code-string: #2e9e6b;
+  --code-comment: #b58aa0;
+  --code-number: #b5610a;
+  --code-function: #c026a3;
+  --code-type: #b06a00;
+  --code-variable: #d6336c;
+  --code-builtin: #0a8fb0;
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -2118,6 +2149,68 @@ body.resizing-sidebar {
 .setting-warning {
   font-size: 0.8rem;
   margin: 4px 0 0;
+}
+
+/* 커스텀 색상 편집기 */
+.custom-colors-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0 2px;
+}
+
+.custom-colors-reset {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.custom-colors-reset:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  margin-top: 6px;
+}
+
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding: 3px 0;
+}
+
+.color-row input[type="color"] {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.color-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.color-row input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.color-row.overridden span {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ===================== 빠른 열기 ===================== */

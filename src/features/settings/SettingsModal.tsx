@@ -3,7 +3,9 @@ import { useSettings } from "../../stores/settings";
 import { useUpdate } from "../../stores/update";
 import { ipc } from "../../ipc/ipc";
 import { SUPPORTED_LOCALES, useT } from "../../i18n";
-import type { ConfigSyncStatus, Language } from "../../ipc/types";
+import { CUSTOM_COLOR_KEYS } from "../../ipc/types";
+import type { ConfigSyncStatus, CustomColorKey, Language, ThemeSetting } from "../../ipc/types";
+import { PRESET_PALETTES, effectiveBaseTheme } from "../theme/theme";
 
 // 숫자 설정 입력: 지우는 동안 빈칸을 허용하고(즉시 기본값으로 되돌리지 않음),
 // 유효한 숫자만 커밋하며 포커스를 벗어날 때 범위를 보정한다
@@ -331,6 +333,58 @@ function AgentSection() {
 }
 
 // 단일 전역 설정 화면 (FR-5.2) — 모든 항목이 이 한 곳에서 관리된다
+// 커스텀 색상 편집기 — 활성 테마 위에 개별 색을 덮어쓴다.
+// 컬러 피커 초기값은 선택한 테마의 기본 팔레트에서 가져온다.
+function ThemeColorEditor() {
+  const settings = useSettings((s) => s.settings);
+  const update = useSettings((s) => s.update);
+  const t = useT();
+
+  const { theme, customColors } = settings.appearance;
+  const preset = PRESET_PALETTES[effectiveBaseTheme(theme)];
+  const hasOverrides = Object.keys(customColors).length > 0;
+
+  const setColor = (key: CustomColorKey, value: string) =>
+    void update({
+      appearance: {
+        ...settings.appearance,
+        customColors: { ...customColors, [key]: value },
+      },
+    });
+
+  const reset = () =>
+    void update({
+      appearance: { ...settings.appearance, customColors: {} },
+    });
+
+  return (
+    <>
+      <div className="custom-colors-head">
+        <span>{t("settings.customColors")}</span>
+        <button className="custom-colors-reset" disabled={!hasOverrides} onClick={reset}>
+          {t("settings.resetColors")}
+        </button>
+      </div>
+      <p className="setting-hint">{t("settings.customColorsHint")}</p>
+      <div className="color-grid">
+        {CUSTOM_COLOR_KEYS.map((key) => (
+          <label
+            key={key}
+            className={customColors[key] != null ? "color-row overridden" : "color-row"}
+          >
+            <input
+              type="color"
+              value={customColors[key] ?? preset[key]}
+              onChange={(e) => setColor(key, e.target.value)}
+            />
+            <span>{t(`settings.color.${key}`)}</span>
+          </label>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function SettingsModal() {
   const show = useSettings((s) => s.showSettings);
   const settings = useSettings((s) => s.settings);
@@ -355,7 +409,7 @@ export function SettingsModal() {
                 void update({
                   appearance: {
                     ...settings.appearance,
-                    theme: e.target.value as "system" | "light" | "dark",
+                    theme: e.target.value as ThemeSetting,
                   },
                 })
               }
@@ -363,6 +417,7 @@ export function SettingsModal() {
               <option value="system">{t("settings.themeSystem")}</option>
               <option value="light">{t("settings.themeLight")}</option>
               <option value="dark">{t("settings.themeDark")}</option>
+              <option value="pink">{t("settings.themePink")}</option>
             </select>
           </label>
           <label className="setting-row">
@@ -385,6 +440,7 @@ export function SettingsModal() {
               ))}
             </select>
           </label>
+          <ThemeColorEditor />
         </section>
 
         <section>

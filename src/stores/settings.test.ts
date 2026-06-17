@@ -22,7 +22,7 @@ describe("settings store (mock ipc)", () => {
 
   it("partial update merges sections and persists", async () => {
     await useSettings.getState().update({
-      appearance: { theme: "dark", language: "ko" },
+      appearance: { theme: "dark", language: "ko", customColors: {} },
     });
     // 다른 섹션은 그대로
     expect(useSettings.getState().settings.editor.fontSize).toBe(16);
@@ -31,6 +31,20 @@ describe("settings store (mock ipc)", () => {
     const persisted = await ipc.getSettings();
     expect(persisted.appearance.theme).toBe("dark");
     expect(persisted.sync.auto).toBe(true);
+  });
+
+  it("pink 테마와 커스텀 색상이 저장·복원된다", async () => {
+    await useSettings.getState().update({
+      appearance: {
+        theme: "pink",
+        language: "ko",
+        customColors: { accent: "#ff66aa" },
+      },
+    });
+
+    const persisted = await ipc.getSettings();
+    expect(persisted.appearance.theme).toBe("pink");
+    expect(persisted.appearance.customColors.accent).toBe("#ff66aa");
   });
 
   it("files.confirmDelete 갱신이 다른 섹션을 건드리지 않고 저장된다", async () => {
@@ -58,7 +72,7 @@ describe("settings store (mock ipc)", () => {
     useSettings.setState({
       settings: {
         ...structuredClone(DEFAULT_SETTINGS),
-        appearance: { theme: "system", language: "fr" as "ko" },
+        appearance: { theme: "system", language: "fr" as "ko", customColors: {} },
       },
     });
 
