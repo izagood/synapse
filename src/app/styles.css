@@ -178,7 +178,8 @@ select {
 }
 
 .recent h2,
-.clone-form h2 {
+.clone-form h2,
+.open-path h2 {
   font-size: 0.8rem;
   color: var(--fg-dim);
   text-transform: uppercase;
@@ -216,18 +217,22 @@ select {
   white-space: nowrap;
 }
 
-.clone-form {
+.clone-form,
+.open-path {
   margin-top: 28px;
   text-align: left;
 }
 
-.clone-row {
+.clone-row,
+.open-path-row {
   display: flex;
   gap: 8px;
 }
 
-.clone-row input {
+.clone-row input,
+.open-path-row input {
   flex: 1;
+  min-width: 0;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -235,14 +240,16 @@ select {
   padding: 8px 10px;
 }
 
-.clone-row button {
+.clone-row button,
+.open-path-row button {
   padding: 8px 16px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
 }
 
-.clone-row button:hover:not(:disabled) {
+.clone-row button:hover:not(:disabled),
+.open-path-row button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
