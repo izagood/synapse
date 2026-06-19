@@ -90,6 +90,8 @@ export const ko = {
   },
   settings: {
     title: "설정",
+    shortcutsHint: "모든 키보드 단축키를 한 곳에서 확인합니다",
+    viewShortcuts: "단축키 보기 ({shortcut})",
     appearance: "화면",
     theme: "테마",
     language: "언어",
