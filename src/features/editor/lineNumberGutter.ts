@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import type { EditorView } from "@tiptap/pm/view";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 // WYSIWYG 줄 번호 거터.
@@ -58,25 +58,20 @@ export function resolveLineBlock(span: HTMLElement): HTMLElement | null {
 }
 
 /**
- * 임의의 DOM 노드(텍스트/엘리먼트)에서 그것을 품은 .tiptap 직속 블록을 찾는다.
- * 현재 줄(커서 위치) 강조에 쓰며, .tiptap 밖이면 null.
+ * 현재 선택(커서)이 놓인 최상위 블록(=한 줄)에 .ln-active 클래스를 입히는
+ * node decoration을 만든다. 선택이 블록 밖(문서 최상위 노드 선택 등)이면 null.
+ *
+ * 중요: 현재 줄 강조는 반드시 decoration으로 그려야 한다. 편집 영역의 DOM에
+ * 직접 classList를 토글하면 ProseMirror의 MutationObserver가 외부 변경으로 보고
+ * 해당 노드를 다시 그리며, 그 redraw가 다시 강조를 유발하는 무한 루프(앱 멈춤)가
+ * 된다. decoration은 PM의 렌더 모델 일부라 이 문제가 없고 redraw에도 안전하다.
  */
-export function blockAncestor(node: Node | null): HTMLElement | null {
-  let el: HTMLElement | null =
-    node && node.nodeType === Node.TEXT_NODE
-      ? node.parentElement
-      : (node as HTMLElement | null);
-  while (el && el.parentElement && !el.parentElement.classList.contains("tiptap")) {
-    el = el.parentElement;
-  }
-  return el && el.parentElement?.classList.contains("tiptap") ? el : null;
-}
-
-/** 현재 선택(커서)이 놓인 최상위 블록의 DOM 엘리먼트를 구한다. */
-function activeBlockDOM(view: EditorView): HTMLElement | null {
-  const { from } = view.state.selection;
-  const { node } = view.domAtPos(from);
-  return blockAncestor(node);
+function activeLineDecoration(state: EditorState): Decoration | null {
+  const $from = state.selection.$from;
+  if ($from.depth < 1) return null; // 최상위 블록 안에 있지 않으면 강조 없음
+  const start = $from.before(1);
+  const node = $from.node(1);
+  return Decoration.node(start, start + node.nodeSize, { class: "ln-active" });
 }
 
 function clearHighlight(span: HTMLElement): void {
@@ -132,25 +127,13 @@ export const LineNumberGutter = Extension.create({
         },
         props: {
           decorations(state) {
-            return lineNumberGutterKey.getState(state);
+            // 번호 위젯 데코는 plugin state에 두어 문서 변경 시에만 다시 만들고,
+            // 현재 줄 강조(.ln-active)는 선택에서 파생해 매 업데이트마다 덧댄다.
+            // (위젯은 그대로 재사용되어 커서 이동 시 깜빡임/재생성이 없다)
+            const widgets = lineNumberGutterKey.getState(state) ?? DecorationSet.empty;
+            const active = activeLineDecoration(state);
+            return active ? widgets.add(state.doc, [active]) : widgets;
           },
-        },
-        // 현재 줄(커서 위치) 강조: 데코레이션 대신 활성 블록 DOM에 클래스를 토글한다.
-        // (선택만 바뀌어도 번호 위젯을 다시 만들지 않도록 분리)
-        view(editorView) {
-          let current: HTMLElement | null = null;
-          const sync = (v: EditorView) => {
-            const next = activeBlockDOM(v);
-            if (next === current) return;
-            current?.classList.remove("ln-active");
-            next?.classList.add("ln-active");
-            current = next;
-          };
-          sync(editorView);
-          return {
-            update: (v) => sync(v),
-            destroy: () => current?.classList.remove("ln-active"),
-          };
         },
       }),
     ];
