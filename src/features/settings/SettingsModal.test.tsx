@@ -55,4 +55,20 @@ describe("SettingsModal i18n", () => {
     expect(host.textContent).toContain("Language");
     expect(host.textContent).toContain("Appearance");
   });
+
+  it("opens the shortcut cheatsheet from the settings button and closes settings", async () => {
+    render();
+
+    const button = Array.from(host.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("단축키 보기"),
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useSettings.getState().showShortcuts).toBe(true);
+    expect(useSettings.getState().showSettings).toBe(false);
+  });
 });
