@@ -138,7 +138,6 @@ export interface Settings {
     fontSize: number;
     autoSaveDelayMs: number;
     assetsFolder: string;
-    showLineNumbers: boolean;
   };
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
@@ -153,7 +152,6 @@ export const DEFAULT_SETTINGS: Settings = {
     fontSize: 16,
     autoSaveDelayMs: 1000,
     assetsFolder: "assets",
-    showLineNumbers: false,
   },
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },

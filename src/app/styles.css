@@ -839,60 +839,6 @@ body.resizing-sidebar {
   position: relative;
 }
 
-/* 줄 번호 (WYSIWYG): 소스 줄 개념이 없어 최상위 블록 단위로 번호를 매긴다.
-   번호 위젯(span.ln-num)은 lineNumberGutter 플러그인이 블록마다 달아 둔다.
-   여기서는 편집 영역 좌측 끝(네비/에디터 구분선 옆)에 항상 같은 크기로 고정 배치한다. */
-.ln-num {
-  display: none; /* 기본 숨김 — .line-numbers가 켜졌을 때만 표시 */
-}
-/* 번호 거터는 편집 영역(.editor-content) 좌측 끝 기준으로 배치해야 한다.
-   ProseMirror 기본 CSS가 .tiptap에 position:relative를 주고 본문은 가운데
-   정렬(max-width)이라, 그대로 두면 번호가 본문 컬럼 옆에 붙어 버린다.
-   이 모드에서만 .tiptap의 position을 풀어 .editor-content를 기준으로 만든다. */
-.editor-wrap.line-numbers .editor-content .tiptap {
-  position: static;
-}
-.editor-wrap.line-numbers .ln-num {
-  position: absolute;
-  left: 10px; /* 편집 영역 좌측 끝(구분선 옆)에 고정 (중앙 정렬된 본문과 무관) */
-  /* 바깥 박스는 블록 글꼴/줄높이를 그대로 물려받아 "블록 첫 줄" 높이와 같아진다.
-     (font-size: inherit → 1em = 블록 글꼴, height: 1.7em = 블록 줄 높이)
-     그 안에서 숫자를 세로 가운데로 맞춘다. */
-  font-size: inherit;
-  height: 1.7em;
-  width: 2.4rem; /* rem: 블록 글꼴과 무관하게 가로 위치/폭 고정 */
-  display: flex;
-  align-items: center; /* 세로 가운데 */
-  justify-content: flex-end; /* 우측 정렬 */
-  color: var(--fg-dim);
-  user-select: none;
-  -webkit-user-select: none;
-  cursor: pointer;
-}
-.editor-wrap.line-numbers .ln-num__d {
-  font-family: var(--mono-font);
-  /* rem(절대값)이라 제목 등 블록 글꼴 크기와 무관하게 숫자 크기를 항상 유지한다. */
-  font-size: 0.82rem;
-  line-height: 1;
-}
-.editor-wrap.line-numbers .ln-num:hover {
-  color: var(--fg);
-}
-/* 줄 강조 배경이 사이드바로 새지 않도록 편집 영역에서 가로를 잘라 둔다
-   (세로 스크롤은 유지). */
-.editor-wrap.line-numbers .editor-content {
-  overflow-x: clip;
-}
-/* 줄 강조(편집 영역 가로 전체): 번호 호버 시(.ln-hover) / 현재 커서 줄(.ln-active).
-   본문은 가운데 정렬이라 블록 배경만으론 줄 일부만 칠해진다. box-shadow를 좌우로
-   크게 펼치고 clip-path로 위아래만 잘라, 줄 전체를 가로로 가득 채운다. */
-.editor-wrap.line-numbers .editor-content .tiptap > .ln-hover,
-.editor-wrap.line-numbers .editor-content .tiptap > .ln-active {
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 100vw var(--accent-soft);
-  clip-path: inset(0 -100vw);
-}
-
 /* 문서 내 찾기 바 (Cmd/Ctrl+F) */
 .find-bar {
   position: absolute;
@@ -1195,8 +1141,6 @@ body.resizing-sidebar {
 .editor-content {
   flex: 1;
   overflow-y: auto;
-  /* 줄 번호(.ln-num) 절대배치의 기준 컨테이너 */
-  position: relative;
 }
 
 .editor-content .tiptap {
@@ -1401,39 +1345,6 @@ body.resizing-sidebar {
   padding: 24px 32px;
 }
 
-/* 줄 번호 (소스 모드): VS Code식 좌측 거터 + 워드랩 OFF(가로 스크롤) */
-.source-editor-wrap {
-  display: flex;
-  height: 100%;
-  overflow: hidden;
-  background: var(--bg);
-}
-.line-gutter {
-  flex: 0 0 auto;
-  box-sizing: border-box;
-  min-width: 3.5em;
-  padding: 24px 10px 24px 16px;
-  text-align: right;
-  font-family: var(--mono-font);
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: var(--fg-dim);
-  background: var(--bg);
-  user-select: none;
-  -webkit-user-select: none;
-  overflow: hidden;
-  white-space: pre;
-}
-/* 현재(캐럿) 줄 번호만 밝게 */
-.line-gutter .ln-active {
-  color: var(--fg);
-}
-.source-editor.with-gutter {
-  white-space: pre;
-  overflow: auto;
-  padding-left: 12px;
-}
-
 /* ===================== 백링크 패널 (FR-2.8 → FR-6.1) ===================== */
 .editor-with-backlinks {
   display: flex;
@@ -1442,8 +1353,7 @@ body.resizing-sidebar {
 }
 
 .editor-with-backlinks > .editor-wrap,
-.editor-with-backlinks > .source-editor,
-.editor-with-backlinks > .source-editor-wrap {
+.editor-with-backlinks > .source-editor {
   flex: 1;
   min-height: 0;
 }

@@ -10,7 +10,6 @@ import type { AnyExtension, Editor } from "@tiptap/core";
 import { resolveAssetUrl } from "../../ipc/ipc";
 import { ko } from "../../i18n/locales/ko";
 import { SearchHighlight } from "./search";
-import { LineNumberGutter } from "./lineNumberGutter";
 import { MermaidCodeBlock } from "./mermaidBlock";
 import { LinkifyUrls } from "./linkifyUrls";
 
@@ -89,8 +88,6 @@ export function editorExtensions({
     WorkspaceImage,
     // 문서 내 찾기 하이라이트 (Cmd/Ctrl+F) — md 직렬화에 관여하지 않음
     SearchHighlight,
-    // WYSIWYG 줄 번호 거터 — 데코레이션만 항상 달고, 표시 여부는 CSS로 토글
-    LineNumberGutter,
     // 본문 속 맨 URL을 클릭 가능한 링크로 표시 — 문서 모델/직렬화에 관여하지 않음
     LinkifyUrls,
     ...(withPlaceholder
