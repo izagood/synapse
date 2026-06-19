@@ -6,6 +6,8 @@ import { SUPPORTED_LOCALES, useT } from "../../i18n";
 import { CUSTOM_COLOR_KEYS } from "../../ipc/types";
 import type { ConfigSyncStatus, CustomColorKey, Language, ThemeSetting } from "../../ipc/types";
 import { PRESET_PALETTES, effectiveBaseTheme } from "../theme/theme";
+import { shortcutLabel } from "../../shared/platform";
+import { shortcutById } from "../../shared/shortcuts";
 
 // 숫자 설정 입력: 지우는 동안 빈칸을 허용하고(즉시 기본값으로 되돌리지 않음),
 // 유효한 숫자만 커밋하며 포커스를 벗어날 때 범위를 보정한다
@@ -390,14 +392,32 @@ export function SettingsModal() {
   const settings = useSettings((s) => s.settings);
   const update = useSettings((s) => s.update);
   const closeSettings = useSettings((s) => s.closeSettings);
+  const openShortcuts = useSettings((s) => s.openShortcuts);
   const t = useT();
 
   if (!show) return null;
+
+  // 치트시트를 여는 단축키(⌘/)를 라벨로 함께 보여줘 단축키 자체도 발견할 수 있게 한다
+  const cheatsheetLabel = shortcutLabel(shortcutById("help.cheatsheet").keys);
+  const openCheatsheet = () => {
+    closeSettings();
+    openShortcuts();
+  };
 
   return (
     <div className="modal-backdrop" onClick={closeSettings}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <h2>{t("settings.title")}</h2>
+
+        <section>
+          <h3>{t("shortcuts.title")}</h3>
+          <div className="setting-row">
+            <span>{t("settings.shortcutsHint")}</span>
+            <button className="setting-action-btn" onClick={openCheatsheet}>
+              {t("settings.viewShortcuts", { shortcut: cheatsheetLabel })}
+            </button>
+          </div>
+        </section>
 
         <section>
           <h3>{t("settings.appearance")}</h3>

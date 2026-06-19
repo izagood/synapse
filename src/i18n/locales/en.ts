@@ -95,6 +95,8 @@ export const en: LocaleShape<KoMessages> = {
   },
   settings: {
     title: "Settings",
+    shortcutsHint: "See all keyboard shortcuts in one place",
+    viewShortcuts: "View Shortcuts ({shortcut})",
     appearance: "Appearance",
     theme: "Theme",
     language: "Language",
