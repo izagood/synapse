@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type { EditorView } from "@tiptap/pm/view";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 // WYSIWYG 줄 번호 거터.
@@ -56,6 +57,28 @@ export function resolveLineBlock(span: HTMLElement): HTMLElement | null {
   return node;
 }
 
+/**
+ * 임의의 DOM 노드(텍스트/엘리먼트)에서 그것을 품은 .tiptap 직속 블록을 찾는다.
+ * 현재 줄(커서 위치) 강조에 쓰며, .tiptap 밖이면 null.
+ */
+export function blockAncestor(node: Node | null): HTMLElement | null {
+  let el: HTMLElement | null =
+    node && node.nodeType === Node.TEXT_NODE
+      ? node.parentElement
+      : (node as HTMLElement | null);
+  while (el && el.parentElement && !el.parentElement.classList.contains("tiptap")) {
+    el = el.parentElement;
+  }
+  return el && el.parentElement?.classList.contains("tiptap") ? el : null;
+}
+
+/** 현재 선택(커서)이 놓인 최상위 블록의 DOM 엘리먼트를 구한다. */
+function activeBlockDOM(view: EditorView): HTMLElement | null {
+  const { from } = view.state.selection;
+  const { node } = view.domAtPos(from);
+  return blockAncestor(node);
+}
+
 function clearHighlight(span: HTMLElement): void {
   span
     .closest(".tiptap")
@@ -67,9 +90,14 @@ function lineNumberWidget(line: number) {
   return () => {
     const el = document.createElement("span");
     el.className = "ln-num";
-    el.textContent = String(line);
     el.contentEditable = "false";
     el.setAttribute("aria-hidden", "true");
+    // 바깥 span은 블록 줄 높이만큼 늘어나 숫자를 세로 가운데로 정렬하고,
+    // 안쪽 span이 실제 숫자를 항상 같은 크기(rem)로 그린다.
+    const digit = document.createElement("span");
+    digit.className = "ln-num__d";
+    digit.textContent = String(line);
+    el.appendChild(digit);
     el.addEventListener("mouseenter", () => {
       resolveLineBlock(el)?.classList.add("ln-hover");
     });
@@ -106,6 +134,23 @@ export const LineNumberGutter = Extension.create({
           decorations(state) {
             return lineNumberGutterKey.getState(state);
           },
+        },
+        // 현재 줄(커서 위치) 강조: 데코레이션 대신 활성 블록 DOM에 클래스를 토글한다.
+        // (선택만 바뀌어도 번호 위젯을 다시 만들지 않도록 분리)
+        view(editorView) {
+          let current: HTMLElement | null = null;
+          const sync = (v: EditorView) => {
+            const next = activeBlockDOM(v);
+            if (next === current) return;
+            current?.classList.remove("ln-active");
+            next?.classList.add("ln-active");
+            current = next;
+          };
+          sync(editorView);
+          return {
+            update: (v) => sync(v),
+            destroy: () => current?.classList.remove("ln-active"),
+          };
         },
       }),
     ];
