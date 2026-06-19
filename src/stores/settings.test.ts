@@ -68,19 +68,6 @@ describe("settings store (mock ipc)", () => {
     expect(s.editor.autoSaveDelayMs).toBe(1000);
   });
 
-  it("showLineNumbers 기본값은 false이고 토글이 저장·복원된다", async () => {
-    expect(useSettings.getState().settings.editor.showLineNumbers).toBe(false);
-    await useSettings.getState().update({
-      editor: { ...useSettings.getState().settings.editor, showLineNumbers: true },
-    });
-    const s = useSettings.getState().settings;
-    expect(s.editor.showLineNumbers).toBe(true);
-    expect(s.editor.fontSize).toBe(16); // 다른 필드 보존
-
-    const persisted = await ipc.getSettings();
-    expect(persisted.editor.showLineNumbers).toBe(true);
-  });
-
   it("normalizes unsupported language values to Korean", async () => {
     useSettings.setState({
       settings: {

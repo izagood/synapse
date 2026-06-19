@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
-import { useSettings } from "../../stores/settings";
 import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
 import { ContentPane } from "./ContentPane";
@@ -82,12 +81,6 @@ export function WorkspaceView() {
       } else if (isShortcut(e, "view.toggleSidebar")) {
         e.preventDefault();
         setSidebarVisible((v) => !v);
-      } else if (isShortcut(e, "view.toggleLineNumbers")) {
-        e.preventDefault();
-        const s = useSettings.getState();
-        void s.update({
-          editor: { ...s.settings.editor, showLineNumbers: !s.settings.editor.showLineNumbers },
-        });
       }
     };
     window.addEventListener("keydown", onKeyDown);
