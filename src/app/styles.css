@@ -839,27 +839,35 @@ body.resizing-sidebar {
   position: relative;
 }
 
-/* 줄 번호 (WYSIWYG): 소스 줄 개념이 없어 최상위 블록 단위로 번호를 매긴다 */
-.editor-wrap.line-numbers .editor-content .tiptap {
-  counter-reset: ln;
-  padding-left: 4em;
+/* 줄 번호 (WYSIWYG): 소스 줄 개념이 없어 최상위 블록 단위로 번호를 매긴다.
+   번호 위젯(span.ln-num)은 lineNumberGutter 플러그인이 블록마다 달아 둔다.
+   여기서는 편집 영역 좌측 끝(액티비티 바 옆)에 항상 같은 크기로 고정 배치한다. */
+.ln-num {
+  display: none; /* 기본 숨김 — .line-numbers가 켜졌을 때만 표시 */
 }
-.editor-wrap.line-numbers .editor-content .tiptap > * {
-  counter-increment: ln;
-  position: relative;
-}
-.editor-wrap.line-numbers .editor-content .tiptap > *::before {
-  content: counter(ln);
+.editor-wrap.line-numbers .ln-num {
+  display: block;
   position: absolute;
-  left: -4em;
-  width: 3em;
+  left: 10px; /* 편집 영역 좌측 끝에 고정 (중앙 정렬된 본문과 무관) */
+  width: 2.4em;
   text-align: right;
   font-family: var(--mono-font);
-  font-size: 0.8em;
+  /* rem 단위라 제목 등 블록 폰트 크기와 무관하게 항상 동일한 크기를 유지한다.
+     (블록이 커지면 블록 높이만큼 번호 사이 간격이 자연히 벌어진다) */
+  font-size: 0.72rem;
+  line-height: 1.7;
   color: var(--fg-dim);
   user-select: none;
   -webkit-user-select: none;
-  pointer-events: none;
+  cursor: pointer;
+}
+.editor-wrap.line-numbers .ln-num:hover {
+  color: var(--fg);
+}
+/* 번호에 호버하면 해당 블록(줄) 하이라이트 */
+.editor-wrap.line-numbers .editor-content .tiptap > .ln-hover {
+  background: var(--accent-soft);
+  border-radius: 4px;
 }
 
 /* 문서 내 찾기 바 (Cmd/Ctrl+F) */
@@ -1164,6 +1172,8 @@ body.resizing-sidebar {
 .editor-content {
   flex: 1;
   overflow-y: auto;
+  /* 줄 번호(.ln-num) 절대배치의 기준 컨테이너 */
+  position: relative;
 }
 
 .editor-content .tiptap {
