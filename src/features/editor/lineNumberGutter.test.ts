@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
 import { editorExtensions } from "./extensions";
-import { blockAncestor, lineBlocks, resolveLineBlock } from "./lineNumberGutter";
+import { lineBlocks, resolveLineBlock } from "./lineNumberGutter";
 
 function makeEditor(markdown: string): Editor {
   return new Editor({
@@ -84,35 +84,10 @@ describe("resolveLineBlock", () => {
   });
 });
 
-describe("blockAncestor (현재 줄 강조)", () => {
-  it("블록 안 텍스트 노드에서 .tiptap 직속 블록을 찾는다", () => {
-    document.body.innerHTML = `
-      <div class="tiptap">
-        <h1>제목</h1>
-        <p>본문 <strong>강조</strong> 텍스트</p>
-      </div>`;
-    const text = document.querySelector("strong")!.firstChild; // 텍스트 노드
-    expect(blockAncestor(text)?.tagName).toBe("P");
-  });
-
-  it("블록 엘리먼트 자체에서도 그 블록을 가리킨다", () => {
-    document.body.innerHTML = `<div class="tiptap"><h1>제목</h1></div>`;
-    const h1 = document.querySelector("h1") as HTMLElement;
-    expect(blockAncestor(h1)?.tagName).toBe("H1");
-  });
-
-  it(".tiptap 밖이면 null", () => {
-    document.body.innerHTML = `<div><p>밖</p></div>`;
-    const p = document.querySelector("p") as HTMLElement;
-    expect(blockAncestor(p)).toBeNull();
-  });
-
-  it("null 입력은 null", () => {
-    expect(blockAncestor(null)).toBeNull();
-  });
-});
-
 describe("현재 줄(커서) 강조", () => {
+  // 현재 줄 강조는 node decoration으로 구현한다(직접 DOM 토글 금지 — PM 재조정과
+  // 충돌해 무한 redraw로 앱이 멈춘다). decoration이라 커서가 놓인 블록에만 .ln-active가
+  // 그려지고, 선택이 바뀌면 한 곳만 따라 옮겨가야 한다.
   it("커서가 놓인 블록에만 .ln-active가 붙고, 이동하면 따라온다", () => {
     const editor = makeEditor("# 제목\n\n첫 문단\n\n둘째 문단");
     const tiptap = editor.view.dom;
@@ -127,6 +102,21 @@ describe("현재 줄(커서) 강조", () => {
     const active2 = tiptap.querySelectorAll(".ln-active");
     expect(active2.length).toBe(1);
     expect(active2[0].tagName).toBe("H1");
+    editor.destroy();
+  });
+
+  it("문서가 바뀌어도 번호 위젯과 현재 줄 강조가 함께 유지된다", () => {
+    const editor = makeEditor("첫 줄\n\n둘째 줄");
+    const tiptap = editor.view.dom;
+    editor.commands.focus();
+    editor.commands.setTextSelection(1); // 첫 블록
+    // 새 문단을 끝에 추가 (문서 변경)
+    editor.commands.setTextSelection(editor.state.doc.content.size);
+    editor.commands.insertContent("\n\n셋째 줄");
+    const nums = tiptap.querySelectorAll(".ln-num");
+    const active = tiptap.querySelectorAll(".ln-active");
+    expect(nums.length).toBeGreaterThanOrEqual(3); // 번호 위젯 유지
+    expect(active.length).toBe(1); // 현재 줄 강조는 항상 하나
     editor.destroy();
   });
 });
