@@ -17,6 +17,7 @@ import { DEFAULT_SETTINGS } from "./types";
 import { computeBacklinks, computeGraph } from "../features/editor/backlinks";
 import { basename, fileTypeOf } from "../shared/pathUtils";
 import { SAMPLE_DRAWIO_XML } from "../features/drawio-viewer/fixtures";
+import { SAMPLE_EXCALIDRAW_JSON } from "../features/excalidraw/fixtures";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.
 // 파일 맵에서 트리를 파생시키므로 쓰기/생성도 실제처럼 동작한다.
@@ -28,6 +29,7 @@ const files = new Map<string, string>([
   [`${MOCK_ROOT}/ai/summary.html`, "<h1>AI 요약</h1><p>HTML 뷰어 데모 문서입니다.</p>"],
   [`${MOCK_ROOT}/assets/diagram.png`, ""],
   [`${MOCK_ROOT}/diagrams/flow.drawio`, SAMPLE_DRAWIO_XML],
+  [`${MOCK_ROOT}/drawings/sketch.excalidraw`, SAMPLE_EXCALIDRAW_JSON],
 ]);
 
 

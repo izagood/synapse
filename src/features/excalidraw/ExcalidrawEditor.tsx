@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
-import { Excalidraw, restore, serializeAsJSON } from "@excalidraw/excalidraw";
+import { Excalidraw, MainMenu, restore, serializeAsJSON } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import { useWorkspace } from "../../stores/workspace";
 import { effectiveTheme, useSettings } from "../../stores/settings";
@@ -22,6 +22,22 @@ type ExcalidrawOnChange = NonNullable<
   React.ComponentProps<typeof Excalidraw>["onChange"]
 >;
 type ExcalidrawInitialData = React.ComponentProps<typeof Excalidraw>["initialData"];
+
+// synapse는 워크스페이스 파일 + autosave 모델이다. Excalidraw 기본 UI 중 브라우저
+// 파일시스템/협업에 묶인 항목은 이 모델과 충돌하므로 끈다. 나머지(모든 그리기 도구,
+// 라이브러리 사이드바, 줌, 컨텍스트 메뉴, 이미지로 내보내기)는 네이티브 그대로 둔다.
+// 모듈 상수로 두어 매 렌더 참조가 바뀌지 않게 한다.
+const UI_OPTIONS = {
+  canvasActions: {
+    loadScene: false, // "열기"(브라우저 파일 열기) — 현재 캔버스를 덮어써 워크스페이스 모델과 충돌
+    saveToActiveFile: false, // "파일로 저장"(브라우저 저장) — autosave가 워크스페이스 파일에 저장
+    export: false as const, // .excalidraw 파일 import/export — synapse 파일 자체가 곧 .excalidraw
+    toggleTheme: false, // 테마는 synapse 설정(effectiveTheme)이 소유
+    saveAsImage: true, // PNG/SVG/클립보드 내보내기 — 네이티브 가치, 유지
+    changeViewBackgroundColor: true,
+    clearCanvas: true,
+  },
+};
 
 /**
  * `.excalidraw` 드로잉 편집기. 노트와 달리 CRDT가 아니라 단순 파일 저장 경로를 탄다
@@ -83,7 +99,18 @@ export default function ExcalidrawEditor({ path }: { path: string }) {
         initialData={initial.data}
         onChange={onChange}
         theme={effectiveTheme(theme)}
-      />
+        UIOptions={UI_OPTIONS}
+      >
+        {/* 메인메뉴를 명시 구성해 "열기/파일로 저장/내보내기(파일)/라이브 협업/테마
+            토글"을 제외하고, synapse 파일 모델과 맞는 항목만 남긴다. */}
+        <MainMenu>
+          <MainMenu.DefaultItems.SaveAsImage />
+          <MainMenu.DefaultItems.ChangeCanvasBackground />
+          <MainMenu.DefaultItems.ClearCanvas />
+          <MainMenu.Separator />
+          <MainMenu.DefaultItems.Help />
+        </MainMenu>
+      </Excalidraw>
     </div>
   );
 }

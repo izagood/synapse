@@ -15,6 +15,23 @@ export async function openDrawioFile(page: Page): Promise<void> {
   await page.locator(".tree-row.tree-file", { hasText: "flow.drawio" }).click();
 }
 
+// 트리에서 디렉터리를 펼치고 .excalidraw 파일을 연다.
+export async function openExcalidrawFile(page: Page): Promise<void> {
+  await page.locator(".tree-row.tree-dir", { hasText: "drawings" }).click();
+  await page.locator(".tree-row.tree-file", { hasText: "sketch.excalidraw" }).click();
+}
+
+// Excalidraw 번들이 마운트돼 캔버스가 떴는지 확인한다. drawio 와 달리 동일 출처
+// React 컴포넌트라 캔버스가 앱 안에서 직접 그려진다 — webkit(WKWebView 근사)에서
+// 번들/폰트/캔버스 초기화가 깨지지 않는지를 잡는 게 이 검증의 핵심이다.
+export async function waitForExcalidrawLoaded(page: Page): Promise<void> {
+  await expect(page.locator("canvas.excalidraw__canvas").first()).toBeVisible({
+    timeout: 30_000,
+  });
+  // 에러/로딩 플레이스홀더가 남아 있으면 안 된다.
+  await expect(page.locator(".preview-placeholder")).toHaveCount(0);
+}
+
 // 뷰어가 배선대로 떴는지 확인한다: 파일 내용 → buildDrawioHtml → prepareHtmlView →
 // iframe src. 에러/준비중 플레이스홀더가 아니어야 한다.
 //
