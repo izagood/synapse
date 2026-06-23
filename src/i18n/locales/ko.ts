@@ -365,6 +365,7 @@ export const ko = {
       search: "전체 검색 (노트 내용)",
       save: "현재 노트 저장",
       deleteFile: "선택한 파일 삭제",
+      closeTab: "현재 탭 닫기 (마지막 탭이면 창 닫기)",
       toggleSidebar: "사이드바 토글",
       toggleAgent: "Claude 패널 토글",
       graph: "그래프 뷰 토글",

@@ -70,6 +70,14 @@ describe("isShortcut + shortcutById", () => {
   it("throws for unknown ids", () => {
     expect(() => shortcutById("does.not.exist")).toThrow();
   });
+
+  it("maps ⌘W / Ctrl+W to tab.close (and only that combo)", () => {
+    expect(isShortcut(ev({ key: "w", metaKey: true }), "tab.close")).toBe(true);
+    expect(isShortcut(ev({ key: "w", ctrlKey: true }), "tab.close")).toBe(true);
+    // 수식키 없는 W, 또는 Shift 가 섞이면 탭 닫기가 아니다
+    expect(isShortcut(ev({ key: "w" }), "tab.close")).toBe(false);
+    expect(isShortcut(ev({ key: "w", metaKey: true, shiftKey: true }), "tab.close")).toBe(false);
+  });
 });
 
 describe("SHORTCUTS registry integrity", () => {

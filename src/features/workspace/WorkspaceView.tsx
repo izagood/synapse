@@ -81,6 +81,14 @@ export function WorkspaceView() {
       } else if (isShortcut(e, "view.toggleSidebar")) {
         e.preventDefault();
         setSidebarVisible((v) => !v);
+      } else if (isShortcut(e, "tab.close")) {
+        // 탭이 열려 있으면 현재 탭만 닫는다. 탭이 없으면 가로채지 않고
+        // OS 기본 동작(창/앱 닫기)에 맡겨, 마지막 노트까지 닫혔을 때만 앱이 닫힌다.
+        const { activePath, closeTab } = useWorkspace.getState();
+        if (activePath) {
+          e.preventDefault();
+          void closeTab(activePath);
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
