@@ -104,6 +104,8 @@ export const en: LocaleShape<KoMessages> = {
     themeLight: "Light",
     themeDark: "Dark",
     themePink: "Pink",
+    canvasTheme: "Canvas tools theme",
+    canvasThemeAuto: "Follow app theme",
     customColors: "Custom Colors",
     resetColors: "Reset",
     customColorsHint:

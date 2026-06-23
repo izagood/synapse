@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useSettings } from "./settings";
+import { useSettings, effectiveCanvasTheme } from "./settings";
 import { ipc } from "../ipc/ipc";
-import { DEFAULT_SETTINGS } from "../ipc/types";
+import { DEFAULT_SETTINGS, type Settings } from "../ipc/types";
 
 describe("settings store (mock ipc)", () => {
   beforeEach(async () => {
@@ -22,7 +22,7 @@ describe("settings store (mock ipc)", () => {
 
   it("partial update merges sections and persists", async () => {
     await useSettings.getState().update({
-      appearance: { theme: "dark", language: "ko", customColors: {} },
+      appearance: { theme: "dark", language: "ko", customColors: {}, canvasTheme: "light" },
     });
     // 다른 섹션은 그대로
     expect(useSettings.getState().settings.editor.fontSize).toBe(16);
@@ -39,6 +39,7 @@ describe("settings store (mock ipc)", () => {
         theme: "pink",
         language: "ko",
         customColors: { accent: "#ff66aa" },
+        canvasTheme: "light",
       },
     });
 
@@ -72,13 +73,37 @@ describe("settings store (mock ipc)", () => {
     useSettings.setState({
       settings: {
         ...structuredClone(DEFAULT_SETTINGS),
-        appearance: { theme: "system", language: "fr" as "ko", customColors: {} },
+        appearance: {
+          theme: "system",
+          language: "fr" as "ko",
+          customColors: {},
+          canvasTheme: "light",
+        },
       },
     });
 
     await useSettings.getState().update({ sync: { auto: false, intervalMinutes: 5 } });
 
     expect(useSettings.getState().settings.appearance.language).toBe("ko");
+  });
+
+  it("과거 설정의 누락된 canvasTheme를 light로 보정한다", async () => {
+    // canvasTheme 필드가 없던 시절의 설정을 흉내낸다 (필드 누락 → 캐스팅).
+    useSettings.setState({
+      settings: {
+        ...structuredClone(DEFAULT_SETTINGS),
+        appearance: {
+          theme: "dark",
+          language: "ko",
+          customColors: {},
+        } as Settings["appearance"],
+      },
+    });
+
+    // normalizeSettings를 타는 아무 update나 호출하면 보정된다.
+    await useSettings.getState().update({ sync: { auto: false, intervalMinutes: 5 } });
+
+    expect(useSettings.getState().settings.appearance.canvasTheme).toBe("light");
   });
 
   it("defaults agent auth mode to subscription", async () => {
@@ -107,5 +132,28 @@ describe("settings store (mock ipc)", () => {
     const persisted = await ipc.getSettings();
     expect(persisted.agent.authMode).toBe("apiKey");
     expect(persisted.agent.model).toBe("claude-sonnet-4-5");
+  });
+});
+
+describe("effectiveCanvasTheme", () => {
+  const base = (over: Partial<Settings["appearance"]>): Settings["appearance"] => ({
+    theme: "system",
+    language: "ko",
+    customColors: {},
+    canvasTheme: "light",
+    ...over,
+  });
+
+  it("light/dark 고정은 앱 테마와 무관하게 그대로 쓴다", () => {
+    // 앱은 다크인데 캔버스는 라이트 — 이 기능의 핵심 동작.
+    expect(effectiveCanvasTheme(base({ theme: "dark", canvasTheme: "light" }))).toBe("light");
+    expect(effectiveCanvasTheme(base({ theme: "light", canvasTheme: "dark" }))).toBe("dark");
+  });
+
+  it("auto는 앱 테마를 따른다", () => {
+    expect(effectiveCanvasTheme(base({ theme: "dark", canvasTheme: "auto" }))).toBe("dark");
+    expect(effectiveCanvasTheme(base({ theme: "light", canvasTheme: "auto" }))).toBe("light");
+    // pink는 밝은 계열 → light (effectiveTheme 위임)
+    expect(effectiveCanvasTheme(base({ theme: "pink", canvasTheme: "auto" }))).toBe("light");
   });
 });

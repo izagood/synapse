@@ -4,7 +4,13 @@ import { useUpdate } from "../../stores/update";
 import { ipc } from "../../ipc/ipc";
 import { SUPPORTED_LOCALES, useT } from "../../i18n";
 import { CUSTOM_COLOR_KEYS } from "../../ipc/types";
-import type { ConfigSyncStatus, CustomColorKey, Language, ThemeSetting } from "../../ipc/types";
+import type {
+  CanvasTheme,
+  ConfigSyncStatus,
+  CustomColorKey,
+  Language,
+  ThemeSetting,
+} from "../../ipc/types";
 import { PRESET_PALETTES, effectiveBaseTheme } from "../theme/theme";
 import { shortcutLabel } from "../../shared/platform";
 import { shortcutById } from "../../shared/shortcuts";
@@ -438,6 +444,24 @@ export function SettingsModal() {
               <option value="light">{t("settings.themeLight")}</option>
               <option value="dark">{t("settings.themeDark")}</option>
               <option value="pink">{t("settings.themePink")}</option>
+            </select>
+          </label>
+          <label className="setting-row">
+            <span>{t("settings.canvasTheme")}</span>
+            <select
+              value={settings.appearance.canvasTheme}
+              onChange={(e) =>
+                void update({
+                  appearance: {
+                    ...settings.appearance,
+                    canvasTheme: e.target.value as CanvasTheme,
+                  },
+                })
+              }
+            >
+              <option value="auto">{t("settings.canvasThemeAuto")}</option>
+              <option value="light">{t("settings.themeLight")}</option>
+              <option value="dark">{t("settings.themeDark")}</option>
             </select>
           </label>
           <label className="setting-row">
