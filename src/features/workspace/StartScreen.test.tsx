@@ -51,7 +51,7 @@ describe("StartScreen i18n", () => {
       useSettings.setState({
         settings: {
           ...useSettings.getState().settings,
-          appearance: { theme: "system", language: "en", customColors: {} },
+          appearance: { theme: "system", language: "en", customColors: {}, canvasTheme: "light" },
         },
       });
     });
