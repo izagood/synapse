@@ -371,6 +371,7 @@ export const en: LocaleShape<KoMessages> = {
       search: "Full-text search (note content)",
       save: "Save current note",
       deleteFile: "Delete selected file",
+      closeTab: "Close current tab (closes window if last)",
       toggleSidebar: "Toggle sidebar",
       toggleAgent: "Toggle Claude panel",
       graph: "Toggle graph view",

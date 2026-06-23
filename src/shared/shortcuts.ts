@@ -113,6 +113,13 @@ export const SHORTCUTS: ShortcutDef[] = [
     descriptionKey: "shortcuts.desc.deleteFile",
     handledBy: "app",
   },
+  {
+    id: "tab.close",
+    category: "file",
+    keys: ["Mod", "W"],
+    descriptionKey: "shortcuts.desc.closeTab",
+    handledBy: "app",
+  },
   // --- 보기 ---
   {
     id: "view.toggleSidebar",

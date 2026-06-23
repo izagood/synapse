@@ -196,6 +196,16 @@ describe("workspace store (mock ipc)", () => {
     expect(await ipc.readFile(MOCK_ROOT, closing)).toContain("닫기 전 수정");
   });
 
+  it("closeTab on the last open tab empties the workspace (⌘W then closes the window)", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const only = useWorkspace.getState().activePath!;
+
+    await useWorkspace.getState().closeTab(only);
+    const s = useWorkspace.getState();
+    expect(s.tabs).toEqual([]);
+    expect(s.activePath).toBeNull();
+  });
+
   it("createNote creates, refreshes the tree, and opens a markdown tab", async () => {
     await useWorkspace.getState().createNote();
     const s = useWorkspace.getState();
