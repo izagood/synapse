@@ -117,6 +117,13 @@ export type AgentAuthMode = "subscription" | "apiKey";
 /** 테마 선택지: system(OS 따름) + 프리셋 테마들 */
 export type ThemeSetting = "system" | "light" | "dark" | "pink";
 
+/**
+ * 캔버스 도구(excalidraw 등) 전용 테마. 앱 테마와 독립적으로 둔다 —
+ * 다이어그램/드로잉은 보통 밝은 배경에서 그리므로 기본은 light 고정이고,
+ * "auto"면 앱 테마를 따른다. (drawio는 이 설정과 무관하게 항상 라이트.)
+ */
+export type CanvasTheme = "auto" | "light" | "dark";
+
 /** 사용자가 직접 바꿀 수 있는 색상 토큰 (활성 테마 위에 덮어쓴다) */
 export const CUSTOM_COLOR_KEYS = [
   "accent",
@@ -132,7 +139,13 @@ export type CustomColorKey = (typeof CUSTOM_COLOR_KEYS)[number];
 export type CustomColors = Partial<Record<CustomColorKey, string>>;
 
 export interface Settings {
-  appearance: { theme: ThemeSetting; language: Language; customColors: CustomColors };
+  appearance: {
+    theme: ThemeSetting;
+    language: Language;
+    customColors: CustomColors;
+    /** 캔버스 도구(excalidraw) 전용 테마. 앱 테마와 별개. */
+    canvasTheme: CanvasTheme;
+  };
   editor: {
     fontFamily: string;
     fontSize: number;
@@ -146,7 +159,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  appearance: { theme: "system", language: "ko", customColors: {} },
+  appearance: { theme: "system", language: "ko", customColors: {}, canvasTheme: "light" },
   editor: {
     fontFamily: "system-ui",
     fontSize: 16,

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef } from "react";
 import { Excalidraw, MainMenu, restore, serializeAsJSON } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import { useWorkspace } from "../../stores/workspace";
-import { effectiveTheme, useSettings } from "../../stores/settings";
+import { effectiveCanvasTheme, useSettings } from "../../stores/settings";
 import { useT } from "../../i18n";
 import { parseSceneContent } from "./scene";
 
@@ -46,7 +46,9 @@ const UI_OPTIONS = {
  */
 export default function ExcalidrawEditor({ path }: { path: string }) {
   const updateContent = useWorkspace((s) => s.updateContent);
-  const theme = useSettings((s) => s.settings.appearance.theme);
+  // 캔버스 테마는 앱 테마와 별개(appearance.canvasTheme)로 정한다 — 다크 앱에서도
+  // 캔버스를 밝게 둘 수 있다. canvasTheme 변경 시 구독으로 리렌더되어 prop이 전파된다.
+  const appearance = useSettings((s) => s.settings.appearance);
   const t = useT();
 
   // 마운트 시점의 디스크 내용으로 초기 장면을 만든다. 외부 변경(원격 머지 등)은
@@ -98,7 +100,7 @@ export default function ExcalidrawEditor({ path }: { path: string }) {
       <Excalidraw
         initialData={initial.data}
         onChange={onChange}
-        theme={effectiveTheme(theme)}
+        theme={effectiveCanvasTheme(appearance)}
         UIOptions={UI_OPTIONS}
       >
         {/* 메인메뉴를 명시 구성해 "열기/파일로 저장/내보내기(파일)/라이브 협업/테마

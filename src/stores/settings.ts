@@ -12,6 +12,8 @@ function normalizeSettings(settings: Settings): Settings {
       language,
       // 과거 설정 파일에는 customColors가 없을 수 있어 항상 객체로 보정한다
       customColors: settings.appearance.customColors ?? {},
+      // 과거 설정에는 canvasTheme가 없다 → 기본 light(캔버스는 밝게)로 보정한다
+      canvasTheme: settings.appearance.canvasTheme ?? "light",
     },
   };
 }
@@ -84,4 +86,16 @@ export const useSettings = create<SettingsState>((set, get) => ({
  */
 export function effectiveTheme(theme: Settings["appearance"]["theme"]): "light" | "dark" {
   return effectiveBaseTheme(theme) === "dark" ? "dark" : "light";
+}
+
+/**
+ * 캔버스 도구(excalidraw)에 적용할 light/dark를 정한다. canvasTheme가 명시 고정이면
+ * 그대로, "auto"면 앱 테마(effectiveTheme)를 따른다. drawio는 이 함수를 쓰지 않는다.
+ */
+export function effectiveCanvasTheme(
+  appearance: Settings["appearance"],
+): "light" | "dark" {
+  const c = appearance.canvasTheme;
+  if (c === "light" || c === "dark") return c;
+  return effectiveTheme(appearance.theme);
 }

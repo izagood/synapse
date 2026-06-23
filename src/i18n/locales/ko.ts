@@ -99,6 +99,8 @@ export const ko = {
     themeLight: "라이트",
     themeDark: "다크",
     themePink: "핑크",
+    canvasTheme: "캔버스 도구 테마",
+    canvasThemeAuto: "앱 테마 따름",
     customColors: "사용자 색상",
     resetColors: "기본값으로",
     customColorsHint: "테마 색상을 직접 바꿉니다. 바꾸지 않은 항목은 선택한 테마 기본값을 씁니다.",
