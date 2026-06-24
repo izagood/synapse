@@ -17,6 +17,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // 트리 항목을 OS(Finder/탐색기)로 끌어 내보내기 (네이티브 드래그아웃)
+        .plugin(tauri_plugin_drag::init())
         .manage(auth::AuthState::default())
         .manage(agent::AgentState::default())
         .manage(remote::RemoteState::default())
@@ -49,6 +51,7 @@ pub fn run() {
             commands::delete_path,
             commands::duplicate_path,
             commands::move_path,
+            commands::drag_icon_path,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,
