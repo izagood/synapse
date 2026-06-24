@@ -75,11 +75,9 @@ function FileTypeIcon({ node }: { node: FileNode }) {
   return <FileIcon size={size} />;
 }
 
-interface MenuState {
-  node: FileNode;
-  x: number;
-  y: number;
-}
+type MenuState =
+  | { kind: "node"; node: FileNode; x: number; y: number }
+  | { kind: "background"; x: number; y: number };
 
 type DialogState = { kind: "delete"; node: FileNode } | null;
 
@@ -181,7 +179,7 @@ function TreeNode({
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    onMenu({ node, x: e.clientX, y: e.clientY });
+    onMenu({ kind: "node", node, x: e.clientX, y: e.clientY });
   };
 
   const isRenaming = renaming === node.path;
@@ -267,7 +265,7 @@ function TreeNode({
   );
 }
 
-// VS Code 스타일 파일/폴더 우클릭 메뉴 (FR-1.3)
+// VS Code 스타일 파일/폴더 우클릭 메뉴 + 빈 공간(배경) 우클릭 메뉴
 function TreeContextMenu({
   menu,
   onClose,
@@ -280,6 +278,7 @@ function TreeContextMenu({
   onDelete: (node: FileNode) => void;
 }) {
   const createNote = useWorkspace((s) => s.createNote);
+  const createFolder = useWorkspace((s) => s.createFolder);
   const createDrawing = useWorkspace((s) => s.createDrawing);
   const createDrawioFile = useWorkspace((s) => s.createDrawioFile);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
@@ -288,10 +287,7 @@ function TreeContextMenu({
 
   const ref = useRef<HTMLDivElement>(null);
 
-  // 메뉴 바깥을 누르거나 Esc를 누르면 닫는다.
-  // 캡처 단계로 듣는 이유: 에디터(tiptap/ProseMirror) 같은 자식이 mousedown/click
-  // 전파를 멈추면 버블 단계 window 리스너는 호출되지 않아 메뉴가 안 닫힌다.
-  // 캡처 리스너는 자식보다 먼저 실행되므로 어디를 눌러도 항상 닫힌다.
+  // 메뉴 바깥을 누르거나 Esc를 누르면 닫는다 (캡처 단계로 들어 자식의 전파 차단에도 동작).
   useEffect(() => {
     const onOutside = (e: Event) => {
       if (ref.current?.contains(e.target as Node)) return; // 메뉴 내부는 유지
@@ -310,7 +306,7 @@ function TreeContextMenu({
     };
   }, [onClose]);
 
-  // 메뉴가 창 밖으로 넘치면 안쪽으로 밀어 넣는다 (하단에서 '삭제'가 짤리던 문제)
+  // 메뉴가 창 밖으로 넘치면 안쪽으로 밀어 넣는다
   const [pos, setPos] = useState({ x: menu.x, y: menu.y });
   useLayoutEffect(() => {
     const el = ref.current;
@@ -328,17 +324,50 @@ function TreeContextMenu({
     );
   }, [menu]);
 
-  const { node } = menu;
   const run = (action: () => void) => {
     onClose();
     action();
   };
 
+  // 새 폴더: 생성 후 그 경로로 인라인 이름 입력을 켠다 (비동기라 run과 분리).
+  // dir 미지정(undefined)이면 store가 루트에 만든다 (배경 메뉴).
+  const newFolder = (dir?: string) => {
+    onClose();
+    void (async () => {
+      const path = await createFolder(dir);
+      if (path) onRename({ path } as FileNode);
+    })();
+  };
+
+  // 빈 공간(배경) 메뉴 — 대상은 워크스페이스 루트
+  if (menu.kind === "background") {
+    return (
+      <div ref={ref} className="context-menu" style={{ left: pos.x, top: pos.y }}>
+        <button onClick={() => run(() => void createNote())}>
+          {t("fileTree.newNote")}
+        </button>
+        <button onClick={() => newFolder()}>{t("fileTree.newFolder")}</button>
+        <button onClick={() => run(() => void createDrawing())}>
+          {t("fileTree.newDrawing")}
+        </button>
+        <button onClick={() => run(() => void createDrawioFile())}>
+          {t("fileTree.newDiagram")}
+        </button>
+      </div>
+    );
+  }
+
+  const { node } = menu;
   return (
     <div ref={ref} className="context-menu" style={{ left: pos.x, top: pos.y }}>
       {node.kind === "dir" && (
         <button onClick={() => run(() => void createNote(node.path))}>
           {t("fileTree.newNote")}
+        </button>
+      )}
+      {node.kind === "dir" && (
+        <button onClick={() => newFolder(node.path)}>
+          {t("fileTree.newFolder")}
         </button>
       )}
       {node.kind === "dir" && (
@@ -505,6 +534,10 @@ export function FileTree() {
   return (
     <nav
       className={`file-tree${rootDragOver ? " drop-root" : ""}`}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ kind: "background", x: e.clientX, y: e.clientY });
+      }}
       onDragOver={onRootDragOver}
       onDragLeave={(e) => {
         if (e.target === e.currentTarget) setRootDragOver(false);
