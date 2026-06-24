@@ -6,6 +6,7 @@ mod config_sync;
 mod dock;
 mod remote;
 mod sync;
+mod terminal;
 mod watcher;
 
 pub fn run() {
@@ -40,6 +41,7 @@ pub fn run() {
         .manage(remote::RemoteState::default())
         .manage(watcher::WatcherState::default())
         .manage(bridge_state)
+        .manage(terminal::PtyState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             remote::connect_remote,
@@ -72,6 +74,10 @@ pub fn run() {
             commands::move_path,
             commands::drag_icon_path,
             bridge::bridge_push_state,
+            terminal::pty_open,
+            terminal::pty_write,
+            terminal::pty_resize,
+            terminal::pty_kill,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,
