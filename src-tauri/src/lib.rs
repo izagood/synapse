@@ -5,6 +5,7 @@ mod config_sync;
 mod dock;
 mod remote;
 mod sync;
+mod watcher;
 
 pub fn run() {
     tauri::Builder::default()
@@ -20,6 +21,7 @@ pub fn run() {
         .manage(auth::AuthState::default())
         .manage(agent::AgentState::default())
         .manage(remote::RemoteState::default())
+        .manage(watcher::WatcherState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             remote::connect_remote,
@@ -73,6 +75,8 @@ pub fn run() {
             agent::agent_send,
             agent::agent_respond_permission,
             agent::agent_stop,
+            watcher::start_watching,
+            watcher::stop_watching,
         ])
         .run(tauri::generate_context!())
         .expect("error while running synapse");

@@ -222,6 +222,12 @@ export interface WorkspaceSession {
   activePath: string | null;
 }
 
+/** workspace:files-changed 이벤트 페이로드 (외부 파일 변경 감지) */
+export interface FilesChangedPayload {
+  /** 변경된 파일들의 워크스페이스 루트 기준 상대경로 */
+  paths: string[];
+}
+
 // Rust synapse-core::links::Backlink 와 1:1 대응 (FR-2.8 → FR-6.1)
 export interface Backlink {
   /** 링크를 가진 소스 문서의 절대 경로 */
@@ -436,6 +442,17 @@ export interface SynapseIpc {
   agentStop(): Promise<void>;
   /** 에이전트 이벤트 구독. 해제 함수를 반환한다 */
   onAgentEvent(handler: (payload: AgentEventPayload) => void): Promise<() => void>;
+
+  // ---- 외부 파일 변경 감시 (수동 새로고침 없이 자동 reload) ----
+  /**
+   * 워크스페이스 루트를 OS 워처로 재귀 감시 시작(기존 감시는 교체).
+   * 로컬 폴더만 감시하며, 원격(ssh://)이면 무동작이다.
+   */
+  startWatching(root: string): Promise<void>;
+  /** 감시 중단 (idempotent) */
+  stopWatching(): Promise<void>;
+  /** 외부 파일 변경 이벤트 구독. 해제 함수를 반환한다 */
+  onFilesChanged(handler: (payload: FilesChangedPayload) => void): Promise<() => void>;
 
   // ---- 에이전트 API 키 (2-D) — 키는 OS 키체인에만 저장된다 ----
   /** Anthropic API 키를 키체인에 저장(덮어쓰기). 빈 키는 거부 */

@@ -17,6 +17,7 @@ pub mod ssh;
 pub mod tree;
 pub mod vfs;
 pub mod walk;
+pub mod watch;
 
 pub use collab::CollabStore;
 pub use config_sync::ConfigSyncState;

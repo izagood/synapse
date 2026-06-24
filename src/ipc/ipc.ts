@@ -13,6 +13,7 @@ import type {
   ConfigSyncStatus,
   ConflictPreview,
   Backlink,
+  FilesChangedPayload,
   LinkGraph,
   DeviceCode,
   FileCommit,
@@ -141,6 +142,13 @@ const tauriIpc: SynapseIpc = {
   agentStop: () => invoke<void>("agent_stop"),
   onAgentEvent: (handler) =>
     listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),
+
+  startWatching: (root) => invoke<void>("start_watching", { root }),
+  stopWatching: () => invoke<void>("stop_watching"),
+  onFilesChanged: (handler) =>
+    listen<FilesChangedPayload>("workspace:files-changed", (e) =>
+      handler(e.payload),
+    ),
 
   setAgentApiKey: (key) => invoke<void>("set_agent_api_key", { key }),
   clearAgentApiKey: () => invoke<void>("clear_agent_api_key"),
