@@ -1,7 +1,7 @@
 {
   "name": "synapse",
   "private": true,
-  "version": "0.4.74",
+  "version": "0.4.75",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
