@@ -314,10 +314,6 @@ export const en: LocaleShape<KoMessages> = {
     bakeFailed: "Failed to bake PDF",
     bakeUnsupported: "Baking is not available in this environment",
   },
-  drawio: {
-    edit: "Edit",
-    view: "Viewer",
-  },
   backlinks: {
     title: "Backlinks",
     show: "Show backlinks",

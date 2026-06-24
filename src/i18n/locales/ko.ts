@@ -308,10 +308,6 @@ export const ko = {
     bakeFailed: "PDF 굽기에 실패했습니다",
     bakeUnsupported: "이 환경에서는 굽기를 사용할 수 없습니다",
   },
-  drawio: {
-    edit: "편집",
-    view: "뷰어",
-  },
   backlinks: {
     title: "백링크",
     show: "백링크 보기",
