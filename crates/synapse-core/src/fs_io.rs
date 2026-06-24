@@ -30,6 +30,11 @@ pub fn create_unique_note(dir: &Path) -> io::Result<PathBuf> {
     LocalBackend.create_unique_note(dir)
 }
 
+/// `dir` 안에서 겹치지 않는 새 폴더를 만들고 경로를 돌려준다.
+pub fn create_unique_folder(dir: &Path) -> io::Result<PathBuf> {
+    LocalBackend.create_unique_folder(dir)
+}
+
 /// `dir` 안에 `desired_name`으로 바이너리를 쓴다. 같은 이름이 이미 있으면
 /// "이름{sep}2.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
 pub fn write_unique(dir: &Path, desired_name: &str, bytes: &[u8], sep: &str) -> io::Result<String> {
@@ -240,5 +245,15 @@ mod tests {
             "새 노트 2.md"
         );
         assert!(first.exists() && second.exists());
+    }
+
+    #[test]
+    fn creates_unique_folder_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let first = create_unique_folder(tmp.path()).unwrap();
+        let second = create_unique_folder(tmp.path()).unwrap();
+        assert_eq!(first.file_name().unwrap().to_string_lossy(), "새 폴더");
+        assert_eq!(second.file_name().unwrap().to_string_lossy(), "새 폴더 2");
+        assert!(first.is_dir() && second.is_dir());
     }
 }

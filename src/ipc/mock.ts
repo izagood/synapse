@@ -32,6 +32,7 @@ const files = new Map<string, string>([
   [`${MOCK_ROOT}/drawings/sketch.excalidraw`, SAMPLE_EXCALIDRAW_JSON],
 ]);
 
+const emptyDirs = new Set<string>();
 
 function buildMockTree(): FileNode {
   const root: FileNode = {
@@ -67,6 +68,10 @@ function buildMockTree(): FileNode {
       kind: "file",
       fileType: fileTypeOf(path),
     });
+  }
+
+  for (const dirPath of emptyDirs) {
+    ensureDir(dirPath);
   }
 
   const sortChildren = (node: FileNode) => {
@@ -279,6 +284,21 @@ export const mockIpc: SynapseIpc = {
       }
     }
     throw new Error("too many untitled notes");
+  },
+  async createFolder(root, dir) {
+    assertInside(root, `${dir === root ? root : dir}/x`);
+    for (let i = 1; i < 1000; i++) {
+      const name = i === 1 ? "새 폴더" : `새 폴더 ${i}`;
+      const path = `${dir}/${name}`;
+      const taken =
+        [...files.keys()].some((k) => k.startsWith(`${path}/`)) ||
+        emptyDirs.has(path);
+      if (!taken) {
+        emptyDirs.add(path);
+        return path;
+      }
+    }
+    throw new Error("too many untitled folders");
   },
   async backlinks(root, path) {
     void root;

@@ -202,6 +202,29 @@ pub async fn create_note(
 }
 
 #[tauri::command]
+pub async fn create_folder(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    dir: String,
+) -> Result<String, String> {
+    let root_loc = parse_loc(&root)?;
+    let dir_loc = parse_loc(&dir)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let dir_path = fs_path(&dir_loc);
+    crate::sync::run_blocking(move || {
+        let resolved = backend
+            .ensure_within(&root_path, &dir_path)
+            .map_err(|e| e.to_string())?;
+        let path = backend
+            .create_unique_folder(&resolved)
+            .map_err(|e| e.to_string())?;
+        Ok(path_to_uri(&root_loc, &path.to_string_lossy()))
+    })
+    .await
+}
+
+#[tauri::command]
 pub fn recent_workspaces() -> Result<Vec<String>, String> {
     Ok(synapse_core::recent_workspaces(&config_dir()?))
 }

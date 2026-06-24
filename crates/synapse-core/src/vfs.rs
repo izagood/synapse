@@ -180,6 +180,26 @@ pub trait Backend: Send + Sync {
         Err(io::Error::other("too many untitled notes"))
     }
 
+    /// `dir` 안에서 겹치지 않는 새 폴더를 만들고 경로를 돌려준다.
+    /// "새 폴더", "새 폴더 2", … 순서로 시도한다.
+    fn create_unique_folder(&self, dir: &Path) -> io::Result<PathBuf> {
+        for i in 1..1000 {
+            let name = if i == 1 {
+                "새 폴더".to_string()
+            } else {
+                format!("새 폴더 {i}")
+            };
+            let path = dir.join(name);
+            // create_dir_all은 이미 존재해도 에러를 안 내므로(idempotent),
+            // 충돌을 피하려면 exists로 먼저 검사한다. (create_new는 파일 전용)
+            if !self.exists(&path) {
+                self.create_dir_all(&path)?;
+                return Ok(path);
+            }
+        }
+        Err(io::Error::other("too many untitled folders"))
+    }
+
     /// `dir` 안에 `desired_name`으로 바이너리를 쓴다. 같은 이름이 이미 있으면
     /// "이름{sep}2.ext", "이름{sep}3.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
     fn write_unique(

@@ -61,6 +61,7 @@ const tauriIpc: SynapseIpc = {
   saveDoc: (root, path, content, base) =>
     invoke<string>("save_doc", { root, path, content, base }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
+  createFolder: (root, dir) => invoke<string>("create_folder", { root, dir }),
   backlinks: (root, path) => invoke<Backlink[]>("backlinks", { root, path }),
   linkGraph: (root) => invoke<LinkGraph>("link_graph", { root }),
   saveImage: (root, dir, desiredName, base64) =>
