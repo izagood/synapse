@@ -5,6 +5,7 @@ import { useSettings } from "../stores/settings";
 import { applyTheme, nativeWindowTheme } from "../features/theme/theme";
 import { StartScreen } from "../features/workspace/StartScreen";
 import { WorkspaceView } from "../features/workspace/WorkspaceView";
+import { installFileWatch } from "../features/workspace/fileWatch";
 import { SettingsModal } from "../features/settings/SettingsModal";
 import { ShortcutCheatsheet } from "../features/shortcuts/ShortcutCheatsheet";
 import { UpdateToast } from "../features/update/UpdateToast";
@@ -23,6 +24,9 @@ export default function App() {
     void initWorkspace();
     void initSettings();
   }, [initWorkspace, initSettings]);
+
+  // 외부 파일 변경 시 수동 새로고침 없이 자동 reload (워처 + 포커스 복귀)
+  useEffect(() => installFileWatch(), []);
 
   // 전역 단축키: 설정 토글 · 새 창 · 단축키 치트시트 (정의는 shared/shortcuts 단일 출처)
   useEffect(() => {

@@ -612,6 +612,13 @@ export const mockIpc: SynapseIpc = {
     return () => agent.listeners.delete(handler);
   },
 
+  // 브라우저/테스트 환경에는 OS 워처가 없으므로 무동작 (수동 새로고침만)
+  async startWatching() {},
+  async stopWatching() {},
+  async onFilesChanged() {
+    return () => {};
+  },
+
   async setAgentApiKey(key) {
     if (!key.trim()) throw new Error("API 키가 비어 있습니다");
     agent.apiKey = key.trim();
