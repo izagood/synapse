@@ -24,19 +24,11 @@ describe("workspace DnD: moveEntry / importExternalFiles", () => {
     await useWorkspace.getState().openFolder(MOCK_ROOT);
   });
 
-  it("파일을 다른 폴더로 이동한다", async () => {
+  // 한 테스트에서 이동 결과와 "열린 파일 재오픈"을 함께 검증한다.
+  // (mock files 맵이 파일 내 테스트끼리 공유되므로 README를 두 번 옮기지 않는다)
+  it("열린 파일을 다른 폴더로 이동하면 새 경로 탭으로 다시 연다", async () => {
     const src = `${MOCK_ROOT}/README.md`;
     expect(nodeByPath(src)).not.toBeNull();
-
-    await useWorkspace.getState().moveEntry(src, `${MOCK_ROOT}/daily`);
-
-    expect(nodeByPath(src)).toBeNull(); // 원래 위치엔 없음
-    expect(nodeByPath(`${MOCK_ROOT}/daily/README.md`)).not.toBeNull();
-    expect(useWorkspace.getState().error).toBeNull();
-  });
-
-  it("열린 파일을 이동하면 새 경로 탭으로 다시 연다", async () => {
-    const src = `${MOCK_ROOT}/README.md`;
     await useWorkspace.getState().openFile({
       path: src,
       name: "README.md",
@@ -49,9 +41,12 @@ describe("workspace DnD: moveEntry / importExternalFiles", () => {
 
     const s = useWorkspace.getState();
     const dest = `${MOCK_ROOT}/daily/README.md`;
-    expect(s.activePath).toBe(dest);
+    expect(nodeByPath(src)).toBeNull(); // 원래 위치엔 없음
+    expect(nodeByPath(dest)).not.toBeNull(); // 옮긴 위치에 있음
+    expect(s.activePath).toBe(dest); // 새 경로 탭으로 재오픈
     expect(s.tabs.some((t) => t.path === dest)).toBe(true);
     expect(s.tabs.some((t) => t.path === src)).toBe(false);
+    expect(s.error).toBeNull();
   });
 
   it("이미 그 폴더에 있으면 무동작", async () => {
