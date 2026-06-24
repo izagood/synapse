@@ -104,12 +104,14 @@ function TreeNode({
   depth,
   onMenu,
   renaming,
+  onRenameStart,
   onRenameClose,
 }: {
   node: FileNode;
   depth: number;
   onMenu: (menu: MenuState) => void;
   renaming: string | null;
+  onRenameStart: (path: string) => void;
   onRenameClose: () => void;
 }) {
   const expanded = useWorkspace((s) => !!s.expandedDirs[node.path]);
@@ -157,6 +159,7 @@ function TreeNode({
                 depth={depth + 1}
                 onMenu={onMenu}
                 renaming={renaming}
+                onRenameStart={onRenameStart}
                 onRenameClose={onRenameClose}
               />
             ))}
@@ -184,6 +187,14 @@ function TreeNode({
       ref={selected ? scrollToRow : undefined}
       className={`tree-row tree-file${selected ? " selected" : ""}`}
       onClick={() => void openFile(node)}
+      onKeyDown={(e) => {
+        // 파일 행에 포커스가 있을 때 Enter로 인라인 이름 변경에 진입.
+        // 버튼의 기본 동작(Enter=클릭=파일 열기)을 막고 이름 변경으로 대체한다.
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onRenameStart(node.path);
+        }
+      }}
       onContextMenu={handleContextMenu}
       title={node.name}
     >
@@ -427,6 +438,7 @@ export function FileTree() {
             depth={0}
             onMenu={setMenu}
             renaming={renaming}
+            onRenameStart={setRenaming}
             onRenameClose={() => setRenaming(null)}
           />
         ))
