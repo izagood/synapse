@@ -344,6 +344,11 @@ export interface SynapseIpc {
    * 대상에 같은 이름이 있으면 실패. 옮긴 새 절대 경로(원격이면 URI) 반환.
    */
   movePath(root: string, path: string, destDir: string): Promise<string>;
+  /**
+   * 트리 항목을 OS로 끌어 내보낼 때 쓰는 드래그 미리보기 아이콘의 절대 경로.
+   * (tauri-plugin-drag의 startDrag는 icon 인자가 필수다)
+   */
+  dragIconPath(): Promise<string>;
   /** OS 파일 매니저(Finder/탐색기)에서 해당 항목을 선택해 보여준다 */
   revealPath(path: string): Promise<void>;
   /** 최근 연 폴더 (최신순) */

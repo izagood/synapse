@@ -407,6 +407,10 @@ export const mockIpc: SynapseIpc = {
     }
     return target;
   },
+  async dragIconPath() {
+    // 브라우저/테스트 환경에선 네이티브 드래그가 없으므로 더미 경로
+    return "/mock/drag-icon.png";
+  },
   async revealPath(path) {
     // 브라우저/테스트 환경에선 OS 파일 매니저가 없으므로 no-op
     void path;
