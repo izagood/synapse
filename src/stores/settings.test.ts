@@ -106,33 +106,6 @@ describe("settings store (mock ipc)", () => {
     expect(useSettings.getState().settings.appearance.canvasTheme).toBe("light");
   });
 
-  it("defaults agent auth mode to subscription", async () => {
-    await useSettings.getState().init();
-    const agent = useSettings.getState().settings.agent;
-    expect(agent.authMode).toBe("subscription");
-    expect(agent.model).toBe("");
-    expect(agent.permissionMode).toBe("");
-  });
-
-  it("agent 섹션 갱신이 다른 섹션을 건드리지 않고 저장된다", async () => {
-    await useSettings.getState().update({
-      agent: {
-        ...useSettings.getState().settings.agent,
-        authMode: "apiKey",
-        model: "claude-sonnet-4-5",
-      },
-    });
-
-    const s = useSettings.getState().settings;
-    expect(s.agent.authMode).toBe("apiKey");
-    expect(s.agent.model).toBe("claude-sonnet-4-5");
-    expect(s.agent.permissionMode).toBe(""); // 지정 안 한 필드는 기존값 유지
-    expect(s.editor.fontSize).toBe(16); // 다른 섹션 불변
-
-    const persisted = await ipc.getSettings();
-    expect(persisted.agent.authMode).toBe("apiKey");
-    expect(persisted.agent.model).toBe("claude-sonnet-4-5");
-  });
 });
 
 describe("effectiveCanvasTheme", () => {

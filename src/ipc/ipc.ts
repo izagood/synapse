@@ -8,8 +8,6 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { mockIpc } from "./mock";
 import type {
-  AgentEventPayload,
-  AgentStatus,
   ConfigSyncStatus,
   ConflictPreview,
   Backlink,
@@ -156,27 +154,12 @@ const tauriIpc: SynapseIpc = {
     return convertFileSrc(path);
   },
 
-  agentStatus: () => invoke<AgentStatus>("agent_status"),
-  agentSend: (root, prompt, sessionId, runId) =>
-    invoke<void>("agent_send", { root, prompt, sessionId, runId }),
-  agentRespondPermission: (requestId, allow) =>
-    invoke<void>("agent_respond_permission", { requestId, allow }),
-  agentEditFile: (root, path, newContent, baseContent) =>
-    invoke<string>("agent_edit_file", { root, path, newContent, baseContent }),
-  agentStop: () => invoke<void>("agent_stop"),
-  onAgentEvent: (handler) =>
-    listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),
-
   startWatching: (root) => invoke<void>("start_watching", { root }),
   stopWatching: () => invoke<void>("stop_watching"),
   onFilesChanged: (handler) =>
     listen<FilesChangedPayload>("workspace:files-changed", (e) =>
       handler(e.payload),
     ),
-
-  setAgentApiKey: (key) => invoke<void>("set_agent_api_key", { key }),
-  clearAgentApiKey: () => invoke<void>("clear_agent_api_key"),
-  hasAgentApiKey: () => invoke<boolean>("has_agent_api_key"),
 
   appVersion: () => getVersion(),
   async checkUpdate() {

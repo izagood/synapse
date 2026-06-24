@@ -7,7 +7,6 @@ import { QuickOpenModal } from "./QuickOpenModal";
 import { SearchModal } from "./SearchModal";
 import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
-import { AgentPanel } from "../agent/AgentPanel";
 import { TerminalPanel } from "../terminal/TerminalPanel";
 import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
@@ -21,7 +20,6 @@ const SIDEBAR_DEFAULT = 260;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 520;
 const SIDEBAR_KEY = "synapse.sidebarWidth";
-const AGENT_PANEL_KEY = "synapse.agentPanelVisible";
 const TERMINAL_PANEL_KEY = "synapse.terminalPanelVisible";
 
 function loadSidebarWidth(): number {
@@ -41,9 +39,6 @@ export function WorkspaceView() {
   const [graph, setGraph] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const [agentVisible, setAgentVisible] = useState(
-    () => localStorage.getItem(AGENT_PANEL_KEY) === "1",
-  );
   const [terminalVisible, setTerminalVisible] = useState(
     () => localStorage.getItem(TERMINAL_PANEL_KEY) === "1",
   );
@@ -51,13 +46,6 @@ export function WorkspaceView() {
   const closeHistory = useHistoryUi((s) => s.close);
   const dragging = useRef(false);
   const t = useT();
-
-  const toggleAgent = useCallback(() => {
-    setAgentVisible((v) => {
-      localStorage.setItem(AGENT_PANEL_KEY, v ? "0" : "1");
-      return !v;
-    });
-  }, []);
 
   const toggleTerminal = useCallback(() => {
     setTerminalVisible((v) => {
@@ -75,10 +63,7 @@ export function WorkspaceView() {
   // 워크스페이스 단축키 (VS Code 관례) — 정의는 shared/shortcuts 단일 출처
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isShortcut(e, "view.toggleAgent")) {
-        e.preventDefault();
-        toggleAgent();
-      } else if (isShortcut(e, "view.graph")) {
+      if (isShortcut(e, "view.graph")) {
         e.preventDefault();
         setGraph((v) => !v);
       } else if (isShortcut(e, "nav.search")) {
@@ -105,7 +90,7 @@ export function WorkspaceView() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive, toggleAgent]);
+  }, [saveActive]);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -156,8 +141,6 @@ export function WorkspaceView() {
           onQuickOpen={() => setQuickOpen(true)}
           onSearch={() => setSearch(true)}
           onGraph={() => setGraph(true)}
-          agentVisible={agentVisible}
-          onToggleAgent={toggleAgent}
           terminalVisible={terminalVisible}
           onToggleTerminal={toggleTerminal}
         />
@@ -202,7 +185,6 @@ export function WorkspaceView() {
           </div>
           {terminalVisible && <TerminalPanel onClose={toggleTerminal} />}
         </main>
-        {agentVisible && <AgentPanel onClose={toggleAgent} />}
       </div>
       <SyncBar />
       {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
