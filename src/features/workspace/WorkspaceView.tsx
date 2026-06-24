@@ -8,6 +8,7 @@ import { SearchModal } from "./SearchModal";
 import { ActivityBar } from "./ActivityBar";
 import { SyncBar } from "../sync/SyncBar";
 import { AgentPanel } from "../agent/AgentPanel";
+import { TerminalPanel } from "../terminal/TerminalPanel";
 import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
@@ -21,6 +22,7 @@ const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 520;
 const SIDEBAR_KEY = "synapse.sidebarWidth";
 const AGENT_PANEL_KEY = "synapse.agentPanelVisible";
+const TERMINAL_PANEL_KEY = "synapse.terminalPanelVisible";
 
 function loadSidebarWidth(): number {
   const saved = Number(localStorage.getItem(SIDEBAR_KEY));
@@ -42,6 +44,9 @@ export function WorkspaceView() {
   const [agentVisible, setAgentVisible] = useState(
     () => localStorage.getItem(AGENT_PANEL_KEY) === "1",
   );
+  const [terminalVisible, setTerminalVisible] = useState(
+    () => localStorage.getItem(TERMINAL_PANEL_KEY) === "1",
+  );
   const historyPath = useHistoryUi((s) => s.path);
   const closeHistory = useHistoryUi((s) => s.close);
   const dragging = useRef(false);
@@ -50,6 +55,13 @@ export function WorkspaceView() {
   const toggleAgent = useCallback(() => {
     setAgentVisible((v) => {
       localStorage.setItem(AGENT_PANEL_KEY, v ? "0" : "1");
+      return !v;
+    });
+  }, []);
+
+  const toggleTerminal = useCallback(() => {
+    setTerminalVisible((v) => {
+      localStorage.setItem(TERMINAL_PANEL_KEY, v ? "0" : "1");
       return !v;
     });
   }, []);
@@ -146,6 +158,8 @@ export function WorkspaceView() {
           onGraph={() => setGraph(true)}
           agentVisible={agentVisible}
           onToggleAgent={toggleAgent}
+          terminalVisible={terminalVisible}
+          onToggleTerminal={toggleTerminal}
         />
         {sidebarVisible && (
           <>
@@ -186,6 +200,7 @@ export function WorkspaceView() {
           <div className="content-pane">
             <ContentPane />
           </div>
+          {terminalVisible && <TerminalPanel onClose={toggleTerminal} />}
         </main>
         {agentVisible && <AgentPanel onClose={toggleAgent} />}
       </div>

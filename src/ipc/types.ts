@@ -244,6 +244,14 @@ export interface LiveStatePayload {
   openTabs: { path: string; name: string; fileType: FileType }[];
 }
 
+/** pty:data 이벤트 페이로드 — PTY 출력 청크(임의 바이트라 base64로 감쌈) */
+export interface PtyDataPayload {
+  /** 터미널 id (pty_open 반환값) */
+  id: string;
+  /** base64로 인코딩된 PTY 출력 바이트 */
+  data: string;
+}
+
 // Rust synapse-core::links::Backlink 와 1:1 대응 (FR-2.8 → FR-6.1)
 export interface Backlink {
   /** 링크를 가진 소스 문서의 절대 경로 */
@@ -393,6 +401,23 @@ export interface SynapseIpc {
    * 윈도우 라벨은 IPC 계층에서 채워 넣는다(호출자는 라이브 상태만 넘긴다).
    */
   bridgePushState(live: LiveStatePayload): Promise<void>;
+
+  // ---- 내장 터미널 (PTY) ----
+  /**
+   * 새 PTY를 연다. 셸은 플랫폼 기본값, cwd는 워크스페이스 루트(ssh://면 홈),
+   * 자식 env에 브리지 접속 정보가 주입된다. 이후 write/resize/kill에 쓸 id를 반환.
+   */
+  ptyOpen(root: string | null, cols: number, rows: number): Promise<string>;
+  /** 사용자 입력(키 입력 등)을 PTY에 쓴다 */
+  ptyWrite(id: string, data: string): Promise<void>;
+  /** 터미널 크기 변경 */
+  ptyResize(id: string, cols: number, rows: number): Promise<void>;
+  /** 터미널 종료 + 세션 정리 */
+  ptyKill(id: string): Promise<void>;
+  /** PTY 출력(base64) 구독. 해제 함수 반환 */
+  onPtyData(handler: (payload: PtyDataPayload) => void): Promise<() => void>;
+  /** PTY 종료(id) 구독. 해제 함수 반환 */
+  onPtyExit(handler: (id: string) => void): Promise<() => void>;
 
   // ---- GitHub 인증 (FR-4.1) ----
   githubLoginStart(): Promise<DeviceCode>;
