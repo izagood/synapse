@@ -16,7 +16,7 @@ import type {
 import { DEFAULT_SETTINGS } from "./types";
 import { computeBacklinks, computeGraph } from "../features/editor/backlinks";
 import { basename, fileTypeOf } from "../shared/pathUtils";
-import { SAMPLE_DRAWIO_XML } from "../features/drawio-viewer/fixtures";
+import { SAMPLE_DRAWIO_XML } from "../features/drawio/fixtures";
 import { SAMPLE_EXCALIDRAW_JSON } from "../features/excalidraw/fixtures";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.

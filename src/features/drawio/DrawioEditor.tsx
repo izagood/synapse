@@ -17,7 +17,7 @@ const APP_PATH = "vendor/drawio-app/index.html";
 // autosave/save 이벤트로 들어온 XML을 워크스페이스 스토어에 흘려보내면, 스토어가
 // (마크다운이 아니므로) 평문 writeFile 경로로 파일에 그대로 쓴다 — frontmatter
 // 주입이 없어 XML이 깨지지 않는다.
-export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => void }) {
+export function DrawioEditor({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
   const updateContent = useWorkspace((s) => s.updateContent);
   const lang = useSettings((s) => s.settings.appearance.language);
@@ -68,11 +68,10 @@ export function DrawioEditor({ path, onExit }: { path: string; onExit?: () => vo
       if (typeof outcome.saveXml === "string" && shouldPersistDrawio(outcome.saveXml, loadedSeed)) {
         updateContent(path, outcome.saveXml);
       }
-      if (outcome.exit) onExit?.();
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [path, updateContent, onExit, seed]);
+  }, [path, updateContent, seed]);
 
   if (seed === null || src.current === null) {
     return (
