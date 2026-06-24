@@ -1,5 +1,6 @@
 mod agent;
 mod auth;
+mod bridge;
 mod commands;
 mod config_sync;
 mod dock;
@@ -8,11 +9,25 @@ mod sync;
 mod watcher;
 
 pub fn run() {
+    // 라이브 상태 브리지: 관리 상태와 서버 스레드가 같은 inner를 공유한다.
+    let bridge_state = bridge::BridgeState::default();
+    let bridge_inner = bridge_state.0.clone();
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             #[cfg(target_os = "macos")]
             dock::install(app.handle().clone());
+            // loopback HTTP 브리지 기동(실패해도 앱 본체는 정상 동작).
+            bridge::start(bridge_inner.clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 윈도우가 닫히면 브리지 세션(토큰+라이브 상태)을 정리해 누수를 막는다.
+            if let tauri::WindowEvent::Destroyed = event {
+                use tauri::Manager;
+                if let Some(state) = window.try_state::<bridge::BridgeState>() {
+                    state.0.drop_window(window.label());
+                }
+            }
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -24,6 +39,7 @@ pub fn run() {
         .manage(agent::AgentState::default())
         .manage(remote::RemoteState::default())
         .manage(watcher::WatcherState::default())
+        .manage(bridge_state)
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             remote::connect_remote,
@@ -55,6 +71,7 @@ pub fn run() {
             commands::duplicate_path,
             commands::move_path,
             commands::drag_icon_path,
+            bridge::bridge_push_state,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,

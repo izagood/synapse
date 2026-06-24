@@ -456,6 +456,9 @@ export const mockIpc: SynapseIpc = {
   async setWorkspaceState(root, state) {
     session.states.set(root, structuredClone(state));
   },
+  async bridgePushState() {
+    // 브라우저/테스트 환경에는 브리지 서버가 없으므로 no-op.
+  },
 
   // ---- GitHub / 동기화 시뮬레이션 ----
   async githubLoginStart() {
