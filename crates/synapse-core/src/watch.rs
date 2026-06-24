@@ -82,7 +82,10 @@ mod tests {
     #[test]
     fn rel_path_rejects_outside_root_and_hidden() {
         let root = PathBuf::from("/ws");
-        assert_eq!(relevant_rel_path(&root, &PathBuf::from("/other/a.md")), None);
+        assert_eq!(
+            relevant_rel_path(&root, &PathBuf::from("/other/a.md")),
+            None
+        );
         assert_eq!(
             relevant_rel_path(&root, &PathBuf::from("/ws/.synapse/x.y")),
             None
