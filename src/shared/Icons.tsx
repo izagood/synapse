@@ -206,6 +206,14 @@ export const SparkleIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const TerminalIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+    <polyline points="4 7 6 9 4 11" />
+    <line x1="8" y1="11" x2="11.5" y2="11" />
+  </Svg>
+);
+
 export const SendIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M14 2 7.3 8.7" />

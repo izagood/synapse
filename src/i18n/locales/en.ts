@@ -43,11 +43,15 @@ export const en: LocaleShape<KoMessages> = {
     quickOpen: "Quick Open ({shortcut})",
     search: "Search ({shortcut})",
     agentPanel: "Claude Panel ({shortcut})",
+    terminal: "Toggle Terminal",
     graph: "Graph View ({shortcut})",
     newWindow: "New Window ({shortcut}) - open another folder",
     openAnotherFolder: "Open Another Folder",
     backToStart: "Back to Start",
     settings: "Settings ({shortcut})",
+  },
+  terminal: {
+    title: "Terminal",
   },
   workspace: {
     newNote: "New Note",

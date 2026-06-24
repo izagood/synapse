@@ -11,6 +11,7 @@ import {
   SearchTextIcon,
   SidebarIcon,
   SparkleIcon,
+  TerminalIcon,
 } from "../../shared/Icons";
 import { shortcutLabel } from "../../shared/platform";
 import { shortcutById } from "../../shared/shortcuts";
@@ -24,6 +25,8 @@ interface ActivityBarProps {
   onGraph: () => void;
   agentVisible: boolean;
   onToggleAgent: () => void;
+  terminalVisible: boolean;
+  onToggleTerminal: () => void;
 }
 
 // VS Code 액티비티 바: 상단 내비게이션 / 하단 폴더·설정
@@ -35,6 +38,8 @@ export function ActivityBar({
   onGraph,
   agentVisible,
   onToggleAgent,
+  terminalVisible,
+  onToggleTerminal,
 }: ActivityBarProps) {
   const openFolder = useWorkspace((s) => s.openFolder);
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
@@ -72,6 +77,13 @@ export function ActivityBar({
           title={t("activity.agentPanel", { shortcut: agentShortcut })}
         >
           <SparkleIcon size={18} />
+        </button>
+        <button
+          className={terminalVisible ? "active" : ""}
+          onClick={onToggleTerminal}
+          title={t("activity.terminal")}
+        >
+          <TerminalIcon size={18} />
         </button>
       </div>
       <div className="activity-bottom">
