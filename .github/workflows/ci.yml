@@ -51,13 +51,23 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/synapse-core
+          workspaces: |
+            crates/synapse-core
+            crates/synapse-mcp
       - run: cargo fmt --check
         working-directory: crates/synapse-core
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: crates/synapse-core
       - run: cargo test
         working-directory: crates/synapse-core
+
+      # synapse-mcp 사이드카(GUI 비의존 — 외부 에이전트용 MCP stdio 서버)도 같은 러너에서 검증
+      - run: cargo fmt --check
+        working-directory: crates/synapse-mcp
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: crates/synapse-mcp
+      - run: cargo test
+        working-directory: crates/synapse-mcp
 
   test-windows:
     runs-on: windows-latest

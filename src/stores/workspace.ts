@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ipc, parseRemoteConnectError } from "../ipc/ipc";
-import type { FileNode, FileType, RemoteConnectError } from "../ipc/types";
+import type { FileNode, FileType, LiveStatePayload, RemoteConnectError } from "../ipc/types";
 import { ancestorDirsOf, findNode } from "../features/workspace/fileTreeUtils";
 import { isRedundantOrInvalidMove } from "../features/workspace/dndUtils";
 import { basename, fileTypeOf } from "../shared/pathUtils";
@@ -847,4 +847,50 @@ useWorkspace.subscribe((s) => {
   persistTimer = setTimeout(() => {
     void ipc.setWorkspaceState(root, state).catch(() => undefined);
   }, SESSION_PERSIST_DELAY_MS);
+});
+
+// 활성 노트·열린 탭·저장 전 편집 버퍼가 바뀔 때마다 라이브 상태를 MCP 브리지에
+// 올린다. 외부 에이전트(claude/codex)가 "지금 보고 있는 노트"를 저장 전 내용까지
+// 받아갈 수 있게 한다. 동기 구간은 참조 비교만 하고(타이핑마다 전체 직렬화 방지),
+// 실제 직렬화·전송은 디바운스 발화 시점에만 한다.
+const BRIDGE_PUSH_DELAY_MS = 300;
+let bridgeTimer: ReturnType<typeof setTimeout> | undefined;
+let lastBridgeRoot: string | null = null;
+let lastBridgeActive: string | null = null;
+let lastBridgeTabs: TabInfo[] | null = null;
+let lastBridgeDoc: DocState | undefined;
+let bridgeInitialized = false;
+
+useWorkspace.subscribe((s) => {
+  const active = s.activePath;
+  const doc = active ? s.docs[active] : undefined;
+  // 참조만 비교 — content 변경 시 updateContent가 새 doc 객체를 만들므로 안전.
+  if (
+    bridgeInitialized &&
+    s.root === lastBridgeRoot &&
+    active === lastBridgeActive &&
+    s.tabs === lastBridgeTabs &&
+    doc === lastBridgeDoc
+  ) {
+    return;
+  }
+  bridgeInitialized = true;
+  lastBridgeRoot = s.root;
+  lastBridgeActive = active;
+  lastBridgeTabs = s.tabs;
+  lastBridgeDoc = doc;
+  if (bridgeTimer) clearTimeout(bridgeTimer);
+  bridgeTimer = setTimeout(() => {
+    const cur = useWorkspace.getState();
+    const a = cur.activePath;
+    const d = a ? cur.docs[a] : undefined;
+    const live: LiveStatePayload = {
+      root: cur.root,
+      activePath: a,
+      // 로딩 중이 아닌 텍스트 문서일 때만 라이브 버퍼를 싣는다(PDF/이미지 등은 null).
+      activeContent: d && !d.loading ? d.content : null,
+      openTabs: cur.tabs,
+    };
+    void ipc.bridgePushState(live).catch(() => undefined);
+  }, BRIDGE_PUSH_DELAY_MS);
 });

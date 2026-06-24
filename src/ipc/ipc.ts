@@ -91,6 +91,12 @@ const tauriIpc: SynapseIpc = {
   setWorkspaceState: (root, state) =>
     invoke<void>("set_workspace_state", { path: root, state }),
 
+  bridgePushState: (live) =>
+    invoke<void>("bridge_push_state", {
+      windowLabel: getCurrentWindow().label,
+      live,
+    }),
+
   githubLoginStart: () => invoke<DeviceCode>("github_login_start"),
   githubLoginPoll: () => invoke<PollResult>("github_login_poll"),
   githubUser: () => invoke<string | null>("github_user"),
