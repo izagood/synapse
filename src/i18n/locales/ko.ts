@@ -38,11 +38,15 @@ export const ko = {
     quickOpen: "빠른 열기 ({shortcut})",
     search: "전체 검색 ({shortcut})",
     agentPanel: "Claude 패널 ({shortcut})",
+    terminal: "터미널 토글",
     graph: "그래프 뷰 ({shortcut})",
     newWindow: "새 창 ({shortcut}) - 다른 폴더를 동시에",
     openAnotherFolder: "다른 폴더 열기",
     backToStart: "시작 화면으로",
     settings: "설정 ({shortcut})",
+  },
+  terminal: {
+    title: "터미널",
   },
   workspace: {
     newNote: "새 노트",
