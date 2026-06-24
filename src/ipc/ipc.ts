@@ -71,6 +71,8 @@ const tauriIpc: SynapseIpc = {
     invoke<string>("rename_path", { root, path, newName }),
   deletePath: (root, path) => invoke<void>("delete_path", { root, path }),
   duplicatePath: (root, path) => invoke<string>("duplicate_path", { root, path }),
+  movePath: (root, path, destDir) =>
+    invoke<string>("move_path", { root, path, destDir }),
   revealPath: (path) => revealItemInDir(path),
   recentWorkspaces: () => invoke<string[]>("recent_workspaces"),
   recordWorkspaceOpened: (path) =>

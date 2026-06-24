@@ -438,6 +438,43 @@ pub async fn duplicate_path(
     .await
 }
 
+/// 파일/폴더를 워크스페이스 내부의 다른 폴더로 이동한다 (트리 드래그앤드롭, FR-1.3).
+/// src·dest_dir 모두 루트 내부여야 하고, dest_dir는 디렉토리여야 한다. 옮긴 새 경로를
+/// (원격이면 URI로) 돌려준다.
+#[tauri::command]
+pub async fn move_path(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    path: String,
+    dest_dir: String,
+) -> Result<String, String> {
+    let root_loc = parse_loc(&root)?;
+    let path_loc = parse_loc(&path)?;
+    let dest_loc = parse_loc(&dest_dir)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let src = fs_path(&path_loc);
+    let dest = fs_path(&dest_loc);
+    crate::sync::run_blocking(move || {
+        let src = backend
+            .ensure_within(&root_path, &src)
+            .map_err(|e| e.to_string())?;
+        if src == root_path {
+            return Err("워크스페이스 루트는 이동할 수 없습니다".to_string());
+        }
+        let dest = backend
+            .ensure_within(&root_path, &dest)
+            .map_err(|e| e.to_string())?;
+        let meta = backend.metadata(&dest).map_err(|e| e.to_string())?;
+        if !meta.is_dir {
+            return Err("대상이 폴더가 아닙니다".to_string());
+        }
+        let moved = backend.move_entry(&src, &dest).map_err(|e| e.to_string())?;
+        Ok(path_to_uri(&root_loc, &moved.to_string_lossy()))
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn get_last_workspace() -> Result<Option<String>, String> {
     Ok(synapse_core::registry::last_workspace(&config_dir()?))

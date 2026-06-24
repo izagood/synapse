@@ -378,6 +378,35 @@ export const mockIpc: SynapseIpc = {
     }
     throw new Error("too many name collisions");
   },
+  async movePath(root, path, destDir) {
+    assertInside(root, path);
+    assertInside(root, `${destDir}/x`);
+    const name = basename(path);
+    const target = `${destDir}/${name}`;
+    if (destDir === path || destDir.startsWith(`${path}/`)) {
+      throw new Error("폴더를 자기 자신의 하위로 옮길 수 없습니다");
+    }
+    const parent = path.slice(0, path.lastIndexOf("/"));
+    if (parent === destDir) return target; // 이미 그 폴더에 있음 — 무동작
+    const isDir = !files.has(path);
+    if (files.has(target) || [...files.keys()].some((k) => k.startsWith(`${target}/`))) {
+      throw new Error(`이미 존재합니다: ${name}`);
+    }
+    if (isDir) {
+      for (const [k, v] of [...files]) {
+        if (k.startsWith(`${path}/`)) {
+          files.delete(k);
+          files.set(target + k.slice(path.length), v);
+        }
+      }
+    } else {
+      const content = files.get(path);
+      if (content === undefined) throw new Error(`no such file: ${path}`);
+      files.delete(path);
+      files.set(target, content);
+    }
+    return target;
+  },
   async revealPath(path) {
     // 브라우저/테스트 환경에선 OS 파일 매니저가 없으므로 no-op
     void path;
