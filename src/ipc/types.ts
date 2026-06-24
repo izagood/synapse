@@ -315,6 +315,8 @@ export interface SynapseIpc {
   saveDoc(root: string, path: string, content: string, base: string): Promise<string>;
   /** dir 안에 "새 노트.md" 계열의 겹치지 않는 빈 노트 생성, 생성된 경로 반환 */
   createNote(root: string, dir: string): Promise<string>;
+  /** dir 안에 "새 폴더" 계열의 겹치지 않는 빈 폴더 생성, 생성된 폴더 URI 반환 */
+  createFolder(root: string, dir: string): Promise<string>;
   /**
    * path(현재 노트)를 가리키는 다른 노트들의 백링크를 모은다 (FR-2.8 → FR-6.1).
    * 표준 링크 `[t](rel.md)`와 위키링크 `[[basename]]`을 모두 인식한다.
