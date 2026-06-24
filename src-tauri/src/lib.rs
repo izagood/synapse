@@ -31,6 +31,7 @@ pub fn run() {
             commands::backlinks,
             commands::link_graph,
             commands::create_note,
+            commands::create_folder,
             commands::search_workspace,
             commands::retrieve_notes,
             commands::recent_workspaces,
