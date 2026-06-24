@@ -41,10 +41,15 @@ export function MarkdownEditor({ path }: { path: string }) {
   // 상대 경로 이미지 표시용 기준 디렉토리 (직렬화에는 영향 없음)
   setImageBaseDir(path.slice(0, path.lastIndexOf("/")));
 
+  // 마운트 시점의 store 값으로 자동 포커스 여부를 한 번만 결정한다.
+  // 사이드바에서 파일을 "선택"만 했을 때는 false → 포커스가 트리 행에 남아
+  // Enter로 인라인 이름 변경에 진입할 수 있다(파일 열기로 줄바꿈이 새지 않음).
+  const autofocusOnMount = useRef(useWorkspace.getState().autoFocusEditor).current;
+
   const editor = useEditor({
     extensions: editorExtensions({ placeholder, mermaidErrorLabel }),
     content: initial.body,
-    autofocus: true,
+    autofocus: autofocusOnMount,
     onCreate({ editor }) {
       baseline.current = getMarkdown(editor);
       // 로드 직후 직렬화 결과에서 이미 내용이 사라졌다면 변환 손실 경고
