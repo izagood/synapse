@@ -13,7 +13,10 @@ use serde_json::{json, Value};
 
 const TOKEN: &str = "test-token-0123456789abcdef";
 
-/// 앱 브리지 흉내: `GET /live`에 Bearer 토큰이 맞으면 주어진 LiveState JSON을 돌려준다.
+/// 앱 브리지 흉내. Bearer 토큰을 검사하고:
+/// - `GET /live` → 주어진 LiveState JSON
+/// - `POST /edit` → 적용 흉내(newContent를 path에 디스크로 쓰고 merged로 echo)
+///
 /// 사이드카가 도구 호출마다 새로 접속하므로 무한 루프로 연결을 받는다(테스트 종료 시 누수 무방).
 fn start_stub_bridge(live_json: String) -> u16 {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -26,8 +29,12 @@ fn start_stub_bridge(live_json: String) -> u16 {
             if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
                 continue;
             }
-            // 헤더에서 Authorization만 본다.
+            let mut parts = request_line.split_whitespace();
+            let method = parts.next().unwrap_or("").to_string();
+            let path = parts.next().unwrap_or("").to_string();
+
             let mut authorized = false;
+            let mut content_length = 0usize;
             loop {
                 let mut line = String::new();
                 if reader.read_line(&mut line).unwrap_or(0) == 0 {
@@ -38,20 +45,39 @@ fn start_stub_bridge(live_json: String) -> u16 {
                     break;
                 }
                 if let Some((name, value)) = trimmed.split_once(':') {
-                    if name.trim().eq_ignore_ascii_case("authorization")
+                    let name = name.trim();
+                    if name.eq_ignore_ascii_case("authorization")
                         && value.trim() == format!("Bearer {TOKEN}")
                     {
                         authorized = true;
+                    } else if name.eq_ignore_ascii_case("content-length") {
+                        content_length = value.trim().parse().unwrap_or(0);
                     }
                 }
             }
-            let (status, body) = if authorized {
-                ("200 OK", live_json.clone())
-            } else {
+            let mut req_body = vec![0u8; content_length];
+            if content_length > 0 {
+                let _ = reader.read_exact(&mut req_body);
+            }
+
+            let (status, body) = if !authorized {
                 (
                     "401 Unauthorized",
                     "{\"error\":\"unauthorized\"}".to_string(),
                 )
+            } else if method == "GET" && path == "/live" {
+                ("200 OK", live_json.clone())
+            } else if method == "POST" && path == "/edit" {
+                // 적용 흉내: newContent를 path에 쓰고 그대로 merged로 돌려준다.
+                let v: Value = serde_json::from_slice(&req_body).unwrap_or(json!({}));
+                let p = v["path"].as_str().unwrap_or("");
+                let new_content = v["newContent"].as_str().unwrap_or("");
+                if !p.is_empty() {
+                    let _ = std::fs::write(p, new_content);
+                }
+                ("200 OK", json!({ "merged": new_content }).to_string())
+            } else {
+                ("404 Not Found", "{\"error\":\"not found\"}".to_string())
             };
             let resp = format!(
                 "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -220,6 +246,52 @@ fn sidecar_serves_current_note_and_reads_over_stdio() {
         "검색 결과: {}",
         tool_text(&search)
     );
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
+fn sidecar_edit_note_writes_through_bridge() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_string_lossy().to_string();
+    let target = format!("{root}/new.md");
+    // 열린 노트 없음 — edit_note는 새 노트를 만든다(base는 빈 문자열).
+    let live = json!({ "root": root, "activePath": null, "activeContent": null, "openTabs": [] });
+    let port = start_stub_bridge(live.to_string());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_synapse-mcp"))
+        .env("SYNAPSE_BRIDGE_PORT", port.to_string())
+        .env("SYNAPSE_BRIDGE_TOKEN", TOKEN)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("synapse-mcp 바이너리 실행");
+    let mut stdin = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+
+    rpc(
+        &mut stdin,
+        &mut reader,
+        1,
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18", "capabilities": {} }),
+    );
+    let res = rpc(
+        &mut stdin,
+        &mut reader,
+        2,
+        "tools/call",
+        json!({ "name": "edit_note", "arguments": { "path": target, "content": "# Created\n에이전트가 씀" } }),
+    );
+    assert!(res.get("error").is_none());
+    assert_ne!(res["result"]["isError"], json!(true), "쓰기 결과: {res}");
+    assert!(tool_text(&res).contains("저장됨"));
+
+    // 브리지(stub)가 디스크에 실제로 적용했는지 확인 — write 경로 E2E.
+    let on_disk = std::fs::read_to_string(&target).unwrap();
+    assert_eq!(on_disk, "# Created\n에이전트가 씀");
 
     let _ = child.kill();
     let _ = child.wait();

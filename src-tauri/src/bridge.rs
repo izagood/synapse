@@ -173,8 +173,9 @@ fn handle_conn(stream: TcpStream, inner: &BridgeInner) -> std::io::Result<()> {
     // 경로만(쿼리 무시). 토큰은 헤더로만 받는다(URL에 비밀을 남기지 않음).
     let path = target.split('?').next().unwrap_or("");
 
-    // 헤더 파싱: 빈 줄까지. Authorization만 본다.
+    // 헤더 파싱: 빈 줄까지. Authorization과 Content-Length를 본다.
     let mut bearer: Option<String> = None;
+    let mut content_length: usize = 0;
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -185,12 +186,24 @@ fn handle_conn(stream: TcpStream, inner: &BridgeInner) -> std::io::Result<()> {
             break;
         }
         if let Some((name, value)) = trimmed.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("authorization") {
+            let name = name.trim();
+            if name.eq_ignore_ascii_case("authorization") {
                 let v = value.trim();
                 if let Some(tok) = v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")) {
                     bearer = Some(tok.trim().to_string());
                 }
+            } else if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse().unwrap_or(0);
             }
+        }
+    }
+
+    // POST 본문(있으면) 읽기 — Content-Length만큼.
+    let mut body = Vec::new();
+    if content_length > 0 {
+        body.resize(content_length, 0);
+        if reader.read_exact(&mut body).is_err() {
+            body.clear();
         }
     }
 
@@ -209,6 +222,27 @@ fn handle_conn(stream: TcpStream, inner: &BridgeInner) -> std::io::Result<()> {
                 b"{\"error\":\"unauthorized\"}",
             ),
         },
+        // 노트 쓰기 — 토큰이 가리키는 윈도우의 워크스페이스 루트 내부로 제한.
+        ("POST", "/edit") => match bearer.as_deref().and_then(|t| inner.live_for_token(t)) {
+            Some(live) => match apply_edit_request(&live, &body) {
+                Ok(merged) => {
+                    let payload = serde_json::json!({ "merged": merged });
+                    let bytes = serde_json::to_vec(&payload).unwrap_or_default();
+                    write_response(&mut stream, 200, "application/json", &bytes)
+                }
+                Err(e) => {
+                    let payload = serde_json::json!({ "error": e });
+                    let bytes = serde_json::to_vec(&payload).unwrap_or_default();
+                    write_response(&mut stream, 400, "application/json", &bytes)
+                }
+            },
+            None => write_response(
+                &mut stream,
+                401,
+                "application/json",
+                b"{\"error\":\"unauthorized\"}",
+            ),
+        },
         _ => write_response(
             &mut stream,
             404,
@@ -218,9 +252,55 @@ fn handle_conn(stream: TcpStream, inner: &BridgeInner) -> std::io::Result<()> {
     }
 }
 
+/// `POST /edit` 요청 본문.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EditRequest {
+    /// 대상 노트 경로(워크스페이스 루트 내부).
+    path: String,
+    /// 적용 후 전체 내용.
+    new_content: String,
+    /// 에이전트가 본 기준 내용(CRDT diff 기준).
+    base_content: String,
+}
+
+/// `/edit` 본문을 파싱해 CRDT(`ai-assistant` actor)로 적용하고 합쳐진 텍스트를 돌려준다.
+/// 사용자 편집과 자동 병합되며, 디스크 쓰기는 파일 워처를 통해 열린 에디터에 반영된다.
+fn apply_edit_request(live: &LiveState, body: &[u8]) -> Result<String, String> {
+    use std::path::Path;
+    use std::sync::Arc;
+    use synapse_core::{collab, Backend, CollabStore, LocalBackend};
+
+    let req: EditRequest =
+        serde_json::from_slice(body).map_err(|e| format!("bad request body: {e}"))?;
+    let root = live.root.as_deref().ok_or("열린 워크스페이스가 없습니다")?;
+    if root.starts_with("ssh://") {
+        return Err("원격(SSH) 워크스페이스는 아직 쓰기를 지원하지 않습니다".to_string());
+    }
+    let backend = LocalBackend;
+    let root_path = Path::new(root);
+    // 새 파일(생성)도 허용하되 루트 내부로 제한.
+    let resolved = backend
+        .ensure_writable_within(root_path, Path::new(&req.path))
+        .map_err(|e| e.to_string())?;
+    // 사용자 actor와 분리된 고정 "ai-assistant" actor로 기록(commands::agent_edit_file과 동일).
+    let _guard = collab::workspace_lock()
+        .lock()
+        .map_err(|_| "workspace lock poisoned".to_string())?;
+    let store = CollabStore::new(
+        Arc::new(backend),
+        root_path.to_path_buf(),
+        "ai-assistant".to_string(),
+    );
+    store
+        .save_doc_file(&resolved, &req.new_content, &req.base_content)
+        .map_err(|e| e.to_string())
+}
+
 fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        400 => "Bad Request",
         401 => "Unauthorized",
         404 => "Not Found",
         _ => "OK",

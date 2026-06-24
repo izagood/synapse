@@ -52,6 +52,44 @@ impl Ctx {
         resp.into_json::<LiveState>()
             .map_err(|e| format!("브리지 응답을 해석할 수 없습니다: {e}"))
     }
+
+    /// 앱 브리지에 노트 쓰기를 요청한다. CRDT로 적용된 최종(병합) 텍스트를 돌려받는다.
+    fn post_edit(
+        &self,
+        path: &str,
+        new_content: &str,
+        base_content: &str,
+    ) -> Result<String, String> {
+        if self.port == 0 || self.token.is_empty() {
+            return Err(
+                "Synapse 브리지 정보가 없습니다(SYNAPSE_BRIDGE_PORT/TOKEN). Synapse 앱의 내장 터미널에서 실행하세요."
+                    .to_string(),
+            );
+        }
+        let url = format!("http://127.0.0.1:{}/edit", self.port);
+        let body = json!({
+            "path": path,
+            "newContent": new_content,
+            "baseContent": base_content,
+        });
+        let resp = ureq::post(&url)
+            .set("Authorization", &format!("Bearer {}", self.token))
+            .send_json(body)
+            .map_err(|e| match e {
+                ureq::Error::Status(code, resp) => {
+                    let detail = resp.into_string().unwrap_or_default();
+                    format!("브리지가 쓰기를 거부함({code}): {detail}")
+                }
+                other => format!("Synapse 앱 브리지에 쓰기 요청 실패: {other}"),
+            })?;
+        let v: Value = resp
+            .into_json()
+            .map_err(|e| format!("브리지 응답을 해석할 수 없습니다: {e}"))?;
+        Ok(v.get("merged")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string())
+    }
 }
 
 fn main() {
@@ -160,6 +198,19 @@ fn tool_defs() -> Value {
                 "required": ["query"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "edit_note",
+            "description": "노트를 주어진 전체 내용으로 저장한다(없으면 생성). CRDT로 사용자 편집과 안전하게 병합되고, 열려 있으면 에디터에 곧바로 반영된다.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "노트의 절대 경로(워크스페이스 루트 내부)" },
+                    "content": { "type": "string", "description": "저장할 전체 새 내용(frontmatter 포함)" }
+                },
+                "required": ["path", "content"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -189,6 +240,21 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
         "search_notes" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
             ctx.fetch_live().and_then(|live| search_notes(&live, query))
+        }
+        "edit_note" => {
+            let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+            let content = args.get("content").and_then(Value::as_str).unwrap_or("");
+            if path.is_empty() {
+                Err("path 인자가 필요합니다".to_string())
+            } else {
+                ctx.fetch_live().and_then(|live| {
+                    // 기준(base)은 에이전트가 본 현재 내용 — 활성 노트면 라이브 버퍼,
+                    // 아니면 디스크. 새 노트면 빈 문자열.
+                    let base = read_note(&live, path).unwrap_or_default();
+                    ctx.post_edit(path, content, &base)
+                        .map(|merged| format!("'{path}' 저장됨.\n\n---\n{merged}"))
+                })
+            }
         }
         other => Err(format!("알 수 없는 도구: {other}")),
     };
@@ -321,14 +387,15 @@ mod tests {
     }
 
     #[test]
-    fn tool_defs_lists_four_tools_with_object_schemas() {
+    fn tool_defs_list_tools_with_object_schemas() {
         let defs = tool_defs();
         let arr = defs.as_array().unwrap();
-        assert_eq!(arr.len(), 4);
+        assert_eq!(arr.len(), 5);
         let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_current_note"));
         assert!(names.contains(&"read_note"));
         assert!(names.contains(&"search_notes"));
+        assert!(names.contains(&"edit_note"));
         for t in arr {
             assert_eq!(t["inputSchema"]["type"], "object");
         }
