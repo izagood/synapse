@@ -214,6 +214,15 @@ describe("workspace store (mock ipc)", () => {
     expect(findNode(s.tabs.at(-1)!.name)).toBeTruthy();
   });
 
+  it("createFolder creates a folder, refreshes the tree, and returns its path", async () => {
+    const path = await useWorkspace.getState().createFolder();
+    expect(path).toMatch(/\/새 폴더$/);
+    const node = findNode("새 폴더");
+    expect(node.kind).toBe("dir");
+    // 노트와 달리 에디터로 열지 않는다 (탭/activePath 변화 없음)
+    expect(useWorkspace.getState().tabs.some((t) => t.name === "새 폴더")).toBe(false);
+  });
+
   it("closeOtherTabs keeps only the given tab, saving dirty ones", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     await useWorkspace.getState().openFile(findNode("2026-06-10.md"));

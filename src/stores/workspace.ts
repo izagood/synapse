@@ -103,6 +103,8 @@ interface WorkspaceState {
   createDrawing(dir?: string): Promise<void>;
   /** dir 안에 빈 `.drawio` 다이어그램을 만들어 연다 */
   createDrawioFile(dir?: string): Promise<void>;
+  /** dir 안에 "새 폴더" 계열의 빈 폴더를 만들고 그 경로를 반환(에디터로 열지 않음) */
+  createFolder(dir?: string): Promise<string | undefined>;
   /**
    * HTML 텍스트(AI 산출물 등)를 정화·변환해 새 마크다운 노트로 가져온다 (FR-3.4).
    * 생성된 노트를 열고, 생성 경로를 반환한다.
@@ -507,6 +509,21 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       });
     } catch (e) {
       set({ error: String(e) });
+    }
+  },
+
+  async createFolder(dir) {
+    const { root } = get();
+    if (!root) return undefined;
+    try {
+      const path = await ipc.createFolder(root, dir ?? root);
+      await get().refreshTree();
+      // 부모 폴더를 펼쳐 새 폴더가 트리에 보이게 한다
+      get().revealPath(path);
+      return path;
+    } catch (e) {
+      set({ error: String(e) });
+      return undefined;
     }
   },
 
