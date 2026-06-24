@@ -246,7 +246,14 @@ function TreeNode({
       // 조상 펼침(revealPath)과 같은 렌더 패스에서 DOM이 생기므로 ref 시점이 안전하다.
       ref={selected ? scrollToRow : undefined}
       className={`tree-row tree-file${selected ? " selected" : ""}${dragOver ? " drop-target" : ""}`}
-      onClick={() => void openFile(node)}
+      onClick={(e) => {
+        // 파일을 "선택"으로 연다: 에디터가 포커스를 가져가지 않게 하고
+        // (focusEditor:false), 행 버튼에 포커스를 명시적으로 둔다. macOS WebKit은
+        // 버튼 클릭으로 포커스를 주지 않으므로 직접 focus() 해야 이어지는 Enter가
+        // 에디터 줄바꿈이 아니라 인라인 이름 변경으로 들어간다.
+        e.currentTarget.focus();
+        void openFile(node, { focusEditor: false });
+      }}
       onKeyDown={(e) => {
         // 파일 행에 포커스가 있을 때 Enter로 인라인 이름 변경에 진입.
         // 버튼의 기본 동작(Enter=클릭=파일 열기)을 막고 이름 변경으로 대체한다.

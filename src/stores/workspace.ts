@@ -57,6 +57,13 @@ interface WorkspaceState {
   activePath: string | null;
   docs: Record<string, DocState>;
   sourceMode: boolean;
+  /**
+   * 활성 파일이 바뀔 때 에디터가 자동으로 포커스를 가져갈지.
+   * 사이드바 트리에서 파일을 "선택"할 때는 false로 두어 포커스를 트리 행에
+   * 유지한다(그래야 Enter로 인라인 이름 변경 진입이 동작). 새 노트 생성·퀵오픈·
+   * 내부 링크 등 "바로 편집"이 자연스러운 경로에서는 true.
+   */
+  autoFocusEditor: boolean;
   /** 트리에서 펼쳐진 디렉터리 절대 경로 집합 */
   expandedDirs: Record<string, true>;
 
@@ -79,7 +86,15 @@ interface WorkspaceState {
   refreshTree(): Promise<void>;
   closeWorkspace(): void;
 
-  openFile(node: Pick<FileNode, "path" | "name" | "kind" | "fileType">): Promise<void>;
+  /**
+   * 파일을 탭으로 연다. `opts.focusEditor`가 false면 에디터가 자동 포커스를
+   * 가져가지 않는다(사이드바에서 선택만 하고 포커스를 트리에 유지하는 경우).
+   * 기본값은 true.
+   */
+  openFile(
+    node: Pick<FileNode, "path" | "name" | "kind" | "fileType">,
+    opts?: { focusEditor?: boolean },
+  ): Promise<void>;
   /**
    * 절대 경로로 트리에서 파일을 찾아 연다 (노트 내 내부 링크 이동용).
    * 확장자가 없으면 `.md`를 붙여 재시도. 트리에 없으면 false.
@@ -146,6 +161,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   activePath: null,
   docs: {},
   sourceMode: false,
+  autoFocusEditor: true,
   expandedDirs: {},
 
   async init() {
@@ -254,9 +270,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     });
   },
 
-  async openFile(node) {
+  async openFile(node, opts) {
     const { root, tabs, docs } = get();
     if (!root || node.kind !== "file") return;
+
+    // 에디터 자동 포커스 여부는 활성 파일을 바꾸기 전에 정해 둔다(리마운트 시
+    // 에디터가 이 값을 읽음). 기본은 true, 사이드바 "선택"만 false.
+    set({ autoFocusEditor: opts?.focusEditor ?? true });
 
     // fileType은 항상 파일명으로 재계산한다. 세션 복원(restoreSession)은 디스크에
     // 저장된 옛 fileType을 넘기는데, 구버전에서 저장된 .png/.pdf 탭은 "other"로
@@ -326,7 +346,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   setActiveTab(path) {
-    set({ activePath: path });
+    // 탭을 직접 고르는 건 "이 문서를 편집하겠다"는 의도 → 에디터에 포커스.
+    set({ activePath: path, autoFocusEditor: true });
   },
 
   async closeTab(path) {

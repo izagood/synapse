@@ -128,6 +128,24 @@ describe("FileTree 인라인 이름 변경", () => {
     expect(host.querySelector(".modal-backdrop")).toBeNull();
   });
 
+  it("파일 행 클릭은 focusEditor:false로 열고 행에 포커스를 둔다", () => {
+    // 에디터가 포커스를 가로채면 이어지는 Enter가 이름 변경 대신 에디터 줄바꿈이
+    // 되므로, 클릭 시 행에 포커스를 유지하고 에디터 자동 포커스를 끄는지 검증한다.
+    const openFile = vi.fn(async () => {});
+    useWorkspace.setState({ openFile: openFile as never });
+    render();
+    const row = host.querySelector(".tree-file") as HTMLButtonElement;
+    act(() => {
+      row.click();
+    });
+
+    expect(openFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: README.path }),
+      { focusEditor: false },
+    );
+    expect(document.activeElement).toBe(row);
+  });
+
   it("Escape 입력 시 이름을 바꾸지 않고 입력을 닫는다", () => {
     render();
     startRename();
