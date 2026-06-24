@@ -1,6 +1,4 @@
 import type {
-  AgentEvent,
-  AgentEventPayload,
   ConfigSyncStatus,
   ConflictPreview,
   FileCommit,
@@ -604,67 +602,11 @@ export const mockIpc: SynapseIpc = {
     return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   },
 
-  // ---- Claude 에이전트 시뮬레이션 ----
-  async agentStatus() {
-    return {
-      installed: agent.installed,
-      path: agent.installed ? "/mock/bin/claude" : null,
-    };
-  },
-  async agentSend(root, prompt, sessionId, runId) {
-    if (!agent.installed) throw new Error("claude CLI를 찾을 수 없습니다");
-    if (agent.running) throw new Error("이미 처리 중인 요청이 있습니다");
-    agent.lastSend = { root, prompt, sessionId, runId };
-    agent.running = true;
-    const events = agent.script ?? defaultAgentScript(prompt);
-    agent.script = null;
-    // 실제 CLI처럼 send가 끝난 뒤(다음 태스크에) 이벤트를 흘려보낸다
-    setTimeout(() => {
-      for (const event of events) {
-        if (!agent.running) return; // agentStop이 끊었다
-        deliverAgentEvent({ runId, event });
-        if (event.kind === "completed") agent.running = false;
-      }
-      agent.running = false;
-    }, 0);
-  },
-  async agentRespondPermission(requestId, allow) {
-    agent.permissionResponses.push({ requestId, allow });
-  },
-  async agentEditFile(root, path, newContent, _baseContent) {
-    void _baseContent;
-    assertInside(root, path);
-    // 브라우저 mock: CRDT 병합 없이 새 내용을 그대로 쓴다(테스트용 단순화)
-    files.set(path, newContent);
-    sync.dirty = true;
-    return newContent;
-  },
-  async agentStop() {
-    if (!agent.running || !agent.lastSend) return;
-    agent.running = false;
-    deliverAgentEvent({ runId: agent.lastSend.runId, event: { kind: "aborted" } });
-  },
-  async onAgentEvent(handler) {
-    agent.listeners.add(handler);
-    return () => agent.listeners.delete(handler);
-  },
-
   // 브라우저/테스트 환경에는 OS 워처가 없으므로 무동작 (수동 새로고침만)
   async startWatching() {},
   async stopWatching() {},
   async onFilesChanged() {
     return () => {};
-  },
-
-  async setAgentApiKey(key) {
-    if (!key.trim()) throw new Error("API 키가 비어 있습니다");
-    agent.apiKey = key.trim();
-  },
-  async clearAgentApiKey() {
-    agent.apiKey = null;
-  },
-  async hasAgentApiKey() {
-    return agent.apiKey !== null;
   },
 
   async appVersion() {
@@ -711,40 +653,3 @@ function currentSyncStatus(): SyncStatus {
 /** 테스트 전용: mock 동기화 상태 제어 */
 export const mockSyncControl = sync;
 
-const agent = {
-  installed: true,
-  /** 다음 agentSend가 흘려보낼 이벤트. null이면 기본 스크립트 사용 */
-  script: null as AgentEvent[] | null,
-  listeners: new Set<(p: AgentEventPayload) => void>(),
-  lastSend: null as
-    | { root: string; prompt: string; sessionId: string | null; runId: string }
-    | null,
-  running: false,
-  /** 키체인 시뮬레이션: 저장된 Anthropic API 키 (null=없음) */
-  apiKey: null as string | null,
-  /** 테스트 전용: 회신된 권한 결정 기록 */
-  permissionResponses: [] as { requestId: string; allow: boolean }[],
-};
-
-function deliverAgentEvent(payload: AgentEventPayload) {
-  for (const listener of [...agent.listeners]) listener(payload);
-}
-
-function defaultAgentScript(prompt: string): AgentEvent[] {
-  const text = `mock 응답: ${prompt}`;
-  return [
-    { kind: "started", sessionId: "mock-session", model: "claude-mock" },
-    { kind: "text", text },
-    {
-      kind: "completed",
-      ok: true,
-      result: text,
-      sessionId: "mock-session",
-      costUsd: 0,
-      numTurns: 1,
-    },
-  ];
-}
-
-/** 테스트 전용: mock 에이전트 상태 제어 */
-export const mockAgentControl = agent;

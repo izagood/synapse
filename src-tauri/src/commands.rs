@@ -120,42 +120,6 @@ pub async fn save_doc(
     .await
 }
 
-/// AI 안전 편집 (2-B): 승인된 AI 편집을 사용자 로그와 분리된 `ai-assistant`
-/// actor로 라우팅한다. 파일을 직접 덮어쓰지 않고 CollabStore를 경유시켜
-/// `log-ai-assistant.y`에 기록 → CRDT가 사용자 편집과 자동 병합한다.
-/// base_content는 AI가 본 기준 텍스트, new_content는 적용 후 전체 텍스트다.
-#[tauri::command]
-pub async fn agent_edit_file(
-    state: tauri::State<'_, RemoteState>,
-    root: String,
-    path: String,
-    new_content: String,
-    base_content: String,
-) -> Result<String, String> {
-    let root_loc = parse_loc(&root)?;
-    let path_loc = parse_loc(&path)?;
-    let backend = backend_for(&state, &root_loc)?;
-    let root_path = fs_path(&root_loc);
-    let cand = fs_path(&path_loc);
-    crate::sync::run_blocking(move || {
-        use synapse_core::collab;
-
-        // 새 파일(Write)도 만들 수 있어야 하므로 writable 가드를 쓴다 (루트 내부만)
-        let resolved = backend
-            .ensure_writable_within(&root_path, &cand)
-            .map_err(|e| e.to_string())?;
-        let _guard = collab::workspace_lock()
-            .lock()
-            .map_err(|_| "workspace lock poisoned".to_string())?;
-        // 고정 actor "ai-assistant" — 사용자 actor와 별도 로그로 분리된다
-        let store = synapse_core::CollabStore::new(backend, root_path, "ai-assistant".to_string());
-        store
-            .save_doc_file(&resolved, &new_content, &base_content)
-            .map_err(|e| e.to_string())
-    })
-    .await
-}
-
 /// 현재 노트(path)를 가리키는 다른 노트들의 백링크를 모은다 (FR-2.8 → FR-6.1).
 /// 워크스페이스 전체 순회가 무거울 수 있어 블로킹 풀에서 돈다.
 #[tauri::command]

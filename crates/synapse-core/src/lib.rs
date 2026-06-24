@@ -1,4 +1,3 @@
-pub mod agent;
 pub mod bridge;
 pub mod collab;
 pub mod config_sync;

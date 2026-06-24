@@ -129,13 +129,6 @@ export const SHORTCUTS: ShortcutDef[] = [
     handledBy: "app",
   },
   {
-    id: "view.toggleAgent",
-    category: "view",
-    keys: ["Mod", "Shift", "A"],
-    descriptionKey: "shortcuts.desc.toggleAgent",
-    handledBy: "app",
-  },
-  {
     id: "view.graph",
     category: "view",
     keys: ["Mod", "Shift", "G"],
