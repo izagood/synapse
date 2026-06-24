@@ -670,7 +670,9 @@ mod tests {
         LocalBackend.create_dir_all(&dst_dir).unwrap();
         let file = src_dir.join("note.md");
         LocalBackend.write(&file, b"new").unwrap();
-        LocalBackend.write(&dst_dir.join("note.md"), b"old").unwrap();
+        LocalBackend
+            .write(&dst_dir.join("note.md"), b"old")
+            .unwrap();
 
         let err = LocalBackend.move_entry(&file, &dst_dir).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
