@@ -16,6 +16,7 @@ import {
 } from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
 import { SYNAPSE_DND_MIME, dndKind, dropTargetDir } from "./dndUtils";
+import { exportPathToOS } from "./dragExport";
 import { ipc } from "../../ipc/ipc";
 import { detectDesktopPlatform } from "../../shared/platform";
 
@@ -157,9 +158,16 @@ function TreeNode({
   const dragProps = {
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
+      e.stopPropagation();
+      // ⌥(Alt) 누른 채 드래그 = OS(Finder/탐색기)로 내보내기(네이티브 드래그아웃).
+      // 그 외에는 앱 내부 이동(HTML5 DnD). 두 방식은 같은 제스처를 공유할 수 없다.
+      if (e.altKey) {
+        e.preventDefault(); // HTML5 드래그 취소 → 네이티브 드래그로 대체
+        void exportPathToOS(node.path);
+        return;
+      }
       e.dataTransfer.setData(SYNAPSE_DND_MIME, node.path);
       e.dataTransfer.effectAllowed = "move";
-      e.stopPropagation();
     },
     onDragOver: (e: React.DragEvent) => {
       const kind = dndKind(e.dataTransfer.types);

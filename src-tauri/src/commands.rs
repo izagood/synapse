@@ -475,6 +475,22 @@ pub async fn move_path(
     .await
 }
 
+/// 트리 항목을 OS(Finder/탐색기)로 끌어 내보낼 때 커서에 붙는 미리보기 아이콘의
+/// 절대 경로를 돌려준다 (tauri-plugin-drag의 startDrag는 icon이 필수). 앱 아이콘을
+/// 바이너리에 임베드해 캐시에 한 번 써두고 그 경로를 재사용한다 — dev/번들 양쪽에서
+/// 동작하고 번들 리소스 설정에 의존하지 않는다.
+#[tauri::command]
+pub fn drag_icon_path() -> Result<String, String> {
+    let dir = config_dir()?.join("cache");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("drag-icon.png");
+    if !path.exists() {
+        const ICON: &[u8] = include_bytes!("../icons/32x32.png");
+        std::fs::write(&path, ICON).map_err(|e| e.to_string())?;
+    }
+    Ok(path.display().to_string())
+}
+
 #[tauri::command]
 pub fn get_last_workspace() -> Result<Option<String>, String> {
     Ok(synapse_core::registry::last_workspace(&config_dir()?))
