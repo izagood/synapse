@@ -5,7 +5,7 @@ import { act } from "react";
 import { DEFAULT_SETTINGS } from "../../ipc/types";
 import { useSettings } from "../../stores/settings";
 import { useWorkspace } from "../../stores/workspace";
-import { SAMPLE_DRAWIO_XML } from "../drawio-viewer/fixtures";
+import { SAMPLE_DRAWIO_XML } from "../drawio/fixtures";
 import { ContentPane } from "./ContentPane";
 
 const PATH = "/w/diagrams/flow.drawio";
