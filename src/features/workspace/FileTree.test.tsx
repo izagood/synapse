@@ -112,6 +112,22 @@ describe("FileTree 인라인 이름 변경", () => {
     expect(host.querySelector(".tree-rename-input")).toBeNull();
   });
 
+  it("파일 행에서 Enter를 누르면 인라인 이름 변경에 진입한다", () => {
+    render();
+    const row = host.querySelector(".tree-file") as HTMLElement;
+    act(() => {
+      row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    const input = host.querySelector(".tree-rename-input") as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(input.value).toBe("README.md");
+    // 모달이 아니라 트리 행 안에서 편집된다
+    expect(host.querySelector(".modal-backdrop")).toBeNull();
+  });
+
   it("Escape 입력 시 이름을 바꾸지 않고 입력을 닫는다", () => {
     render();
     startRename();
