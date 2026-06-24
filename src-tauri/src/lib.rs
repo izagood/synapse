@@ -48,6 +48,7 @@ pub fn run() {
             commands::rename_path,
             commands::delete_path,
             commands::duplicate_path,
+            commands::move_path,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,

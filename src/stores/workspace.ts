@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { ipc, parseRemoteConnectError } from "../ipc/ipc";
 import type { FileNode, FileType, RemoteConnectError } from "../ipc/types";
-import { ancestorDirsOf } from "../features/workspace/fileTreeUtils";
+import { ancestorDirsOf, findNode } from "../features/workspace/fileTreeUtils";
+import { isRedundantOrInvalidMove } from "../features/workspace/dndUtils";
 import { basename, fileTypeOf } from "../shared/pathUtils";
+import { arrayBufferToBase64 } from "../shared/binary";
 import { useSettings } from "./settings";
 import { htmlToMarkdown } from "../features/html/htmlToMarkdown";
 import {
@@ -123,6 +125,13 @@ interface WorkspaceState {
   renameEntry(node: Pick<FileNode, "path" | "kind">, newName: string): Promise<void>;
   deleteEntry(node: Pick<FileNode, "path" | "kind">): Promise<void>;
   duplicateEntry(node: Pick<FileNode, "path">): Promise<void>;
+  /** 트리 내부 드래그앤드롭: srcPath의 파일/폴더를 destDir 폴더로 옮긴다 */
+  moveEntry(srcPath: string, destDir: string): Promise<void>;
+  /**
+   * 외부(Finder/탐색기) 파일들을 destDir 폴더로 복사해 가져온다 (드래그앤드롭).
+   * 디렉터리는 호출 전에 걸러내야 한다(파일 단위로만 가져온다).
+   */
+  importExternalFiles(destDir: string, files: ArrayLike<File>): Promise<void>;
 }
 
 
@@ -683,6 +692,57 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
     }
+  },
+
+  async moveEntry(srcPath, destDir) {
+    const { root, tree } = get();
+    if (!root || !tree) return;
+    if (isRedundantOrInvalidMove(srcPath, destDir)) return;
+    const node = findNode(tree, srcPath);
+    if (!node) return;
+    try {
+      // 영향받는 열린 탭을 먼저 저장·정리한다 (자동 저장이 옛 경로에 쓰지 않게).
+      // 파일이면 옮긴 뒤 새 경로로 다시 연다 (renameEntry와 같은 동작).
+      const affected = get().tabs.filter(
+        (t) => t.path === srcPath || t.path.startsWith(`${srcPath}/`),
+      );
+      const reopen =
+        node.kind === "file" ? affected.find((t) => t.path === srcPath) : undefined;
+      for (const t of affected) {
+        await get().closeTab(t.path);
+      }
+      const newPath = await ipc.movePath(root, srcPath, destDir);
+      await get().refreshTree();
+      if (reopen) {
+        const name = basename(newPath);
+        await get().openFile({
+          path: newPath,
+          name,
+          kind: "file",
+          fileType: fileTypeOf(name),
+        });
+      }
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async importExternalFiles(destDir, files) {
+    const { root } = get();
+    if (!root) return;
+    let imported = 0;
+    for (const file of Array.from(files)) {
+      const name = basename(file.name);
+      if (!name || name === "." || name === "..") continue;
+      try {
+        const base64 = arrayBufferToBase64(await file.arrayBuffer());
+        await ipc.writeBinaryUnique(root, destDir, name, base64);
+        imported += 1;
+      } catch (e) {
+        set({ error: String(e) });
+      }
+    }
+    if (imported) await get().refreshTree();
   },
 }));
 

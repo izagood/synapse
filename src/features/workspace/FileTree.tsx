@@ -15,8 +15,38 @@ import {
   PencilIcon,
 } from "../../shared/Icons";
 import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
+import { SYNAPSE_DND_MIME, dndKind, dropTargetDir } from "./dndUtils";
 import { ipc } from "../../ipc/ipc";
 import { detectDesktopPlatform } from "../../shared/platform";
+
+// 드롭된 DataTransfer에서 가져올 파일만 추린다. 폴더(webkitGetAsEntry.isDirectory)는
+// 바이트로 읽을 수 없어 v1에서는 건너뛴다. items가 없으면 files로 폴백한다.
+function collectDroppedFiles(dt: DataTransfer): File[] {
+  if (dt.items && dt.items.length) {
+    const out: File[] = [];
+    for (const it of Array.from(dt.items)) {
+      if (it.kind !== "file") continue;
+      const entry = it.webkitGetAsEntry?.();
+      if (entry?.isDirectory) continue;
+      const f = it.getAsFile();
+      if (f) out.push(f);
+    }
+    return out;
+  }
+  return Array.from(dt.files);
+}
+
+// 드롭(이동/가져오기)을 스토어 액션으로 디스패치한다. 행과 트리 빈 영역이 공유.
+function dispatchDrop(dt: DataTransfer, destDir: string) {
+  const kind = dndKind(dt.types);
+  if (kind === "move") {
+    const src = dt.getData(SYNAPSE_DND_MIME);
+    if (src) void useWorkspace.getState().moveEntry(src, destDir);
+  } else if (kind === "import") {
+    const files = collectDroppedFiles(dt);
+    if (files.length) void useWorkspace.getState().importExternalFiles(destDir, files);
+  }
+}
 
 // OS별로 "파일 매니저에서 보기" 라벨을 고른다 (macOS=Finder, Windows=탐색기)
 function revealLabelKey(): "fileTree.revealInFinder" | "fileTree.revealInExplorer" | "fileTree.revealInFileManager" {
@@ -118,6 +148,35 @@ function TreeNode({
   const toggleDir = useWorkspace((s) => s.toggleDir);
   const activePath = useWorkspace((s) => s.activePath);
   const openFile = useWorkspace((s) => s.openFile);
+  const root = useWorkspace((s) => s.root);
+  // 이 행이 현재 드롭 대상으로 가리켜지고 있는지 (하이라이트)
+  const [dragOver, setDragOver] = useState(false);
+
+  // 트리 항목 공통 드래그앤드롭: 내부 이동(드래그 소스) + 드롭 대상(이동/가져오기).
+  // 파일·폴더 행 모두에 적용한다. 파일에 드롭하면 그 파일이 든 폴더로 들어간다.
+  const dragProps = {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(SYNAPSE_DND_MIME, node.path);
+      e.dataTransfer.effectAllowed = "move";
+      e.stopPropagation();
+    },
+    onDragOver: (e: React.DragEvent) => {
+      const kind = dndKind(e.dataTransfer.types);
+      if (!kind) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = kind === "move" ? "move" : "copy";
+      if (!dragOver) setDragOver(true);
+    },
+    onDragLeave: () => setDragOver(false),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOver(false);
+      dispatchDrop(e.dataTransfer, dropTargetDir(node, root ?? ""));
+    },
+  };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -139,9 +198,10 @@ function TreeNode({
           </div>
         ) : (
           <button
-            className="tree-row tree-dir"
+            className={`tree-row tree-dir${dragOver ? " drop-target" : ""}`}
             onClick={() => toggleDir(node.path)}
             onContextMenu={handleContextMenu}
+            {...dragProps}
           >
             <span className={`tree-caret${expanded ? " expanded" : ""}`}>
               <ChevronIcon size={12} />
@@ -185,7 +245,7 @@ function TreeNode({
       // selected로 마운트/전환되는 순간 보이는 위치로 스크롤 (이미 보이면 no-op).
       // 조상 펼침(revealPath)과 같은 렌더 패스에서 DOM이 생기므로 ref 시점이 안전하다.
       ref={selected ? scrollToRow : undefined}
-      className={`tree-row tree-file${selected ? " selected" : ""}`}
+      className={`tree-row tree-file${selected ? " selected" : ""}${dragOver ? " drop-target" : ""}`}
       onClick={() => void openFile(node)}
       onKeyDown={(e) => {
         // 파일 행에 포커스가 있을 때 Enter로 인라인 이름 변경에 진입.
@@ -197,6 +257,7 @@ function TreeNode({
       }}
       onContextMenu={handleContextMenu}
       title={node.name}
+      {...dragProps}
     >
       <span className="tree-icon">
         <FileTypeIcon node={node} />
@@ -392,10 +453,13 @@ function DeleteDialog({ node, onClose }: { node: FileNode; onClose: () => void }
 
 export function FileTree() {
   const tree = useWorkspace((s) => s.tree);
+  const root = useWorkspace((s) => s.root);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   // 인라인 이름 변경 중인 노드 경로 (null이면 편집 안 함)
   const [renaming, setRenaming] = useState<string | null>(null);
+  // 트리 빈 영역이 드롭 대상(루트로 이동/가져오기)으로 가리켜지는지
+  const [rootDragOver, setRootDragOver] = useState(false);
   const t = useT();
 
   // 컨텍스트 메뉴·단축키 공통 삭제 진입점 — 설정에 따라 확인 없이 바로 삭제
@@ -428,8 +492,30 @@ export function FileTree() {
 
   if (!tree) return null;
 
+  // 트리 빈 영역에 드롭하면 워크스페이스 루트로 이동/가져오기. 행에 드롭하면
+  // 행 핸들러가 stopPropagation 하므로 여기까지 오지 않는다(루트는 빈 영역 전용).
+  const onRootDragOver = (e: React.DragEvent) => {
+    const kind = dndKind(e.dataTransfer.types);
+    if (!kind) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = kind === "move" ? "move" : "copy";
+    if (!rootDragOver) setRootDragOver(true);
+  };
+
   return (
-    <nav className="file-tree">
+    <nav
+      className={`file-tree${rootDragOver ? " drop-root" : ""}`}
+      onDragOver={onRootDragOver}
+      onDragLeave={(e) => {
+        if (e.target === e.currentTarget) setRootDragOver(false);
+      }}
+      onDrop={(e) => {
+        setRootDragOver(false);
+        if (!root) return;
+        e.preventDefault();
+        dispatchDrop(e.dataTransfer, root);
+      }}
+    >
       {tree.children?.length ? (
         tree.children.map((child) => (
           <TreeNode

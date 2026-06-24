@@ -613,6 +613,19 @@ body.resizing-sidebar {
   padding: 0 14px;
 }
 
+/* 드래그앤드롭: 드롭 대상 행/트리 강조 */
+.tree-row.drop-target {
+  background: var(--accent-soft);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.file-tree.drop-root {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: 6px;
+}
+
 /* ===================== 탭 바 ===================== */
 .content {
   flex: 1;

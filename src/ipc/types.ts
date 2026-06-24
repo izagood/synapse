@@ -339,6 +339,11 @@ export interface SynapseIpc {
   deletePath(root: string, path: string): Promise<void>;
   /** 파일을 "이름 2.ext"로 복제, 새 파일명 반환 */
   duplicatePath(root: string, path: string): Promise<string>;
+  /**
+   * 파일/폴더를 워크스페이스 내부의 다른 폴더로 이동(트리 드래그앤드롭).
+   * 대상에 같은 이름이 있으면 실패. 옮긴 새 절대 경로(원격이면 URI) 반환.
+   */
+  movePath(root: string, path: string, destDir: string): Promise<string>;
   /** OS 파일 매니저(Finder/탐색기)에서 해당 항목을 선택해 보여준다 */
   revealPath(path: string): Promise<void>;
   /** 최근 연 폴더 (최신순) */

@@ -1,17 +1,10 @@
 import type { Editor } from "@tiptap/core";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
+import { fileToBase64 } from "../../shared/binary";
 
-/** 큰 파일도 안전하게 base64로 (청크 변환) */
-export async function fileToBase64(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
+// 기존 임포트 경로 호환을 위해 재노출 (구현은 shared/binary 로 이동)
+export { fileToBase64 };
 
 /** 클립보드 이미지는 이름이 없으니 랜덤 생성 (예: image-mbz3k1-x4f2a.png) */
 export function pastedImageName(mimeType: string): string {
