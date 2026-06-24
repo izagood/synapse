@@ -21,7 +21,7 @@ export interface EmbedUrlOptions {
  *
  * 다크는 일부러 켜지 않는다 — drawio 다크 모드는 캔버스/크롬만 어둡게 할 뿐 도형
  * 색은 그대로라, 라이트로 그린 다이어그램이 검정-위-검정으로 안 보인다.
- * 앱 테마와 무관하게 항상 라이트 캔버스로 편집한다. (buildDrawioHtml 도 동일.)
+ * 앱 테마와 무관하게 항상 라이트 캔버스로 편집한다.
  */
 export function buildEditorUrl(opts: EmbedUrlOptions): string {
   const params = new URLSearchParams({
@@ -30,7 +30,7 @@ export function buildEditorUrl(opts: EmbedUrlOptions): string {
     spin: "1", // 로딩 스피너
     libraries: "1", // 도형 라이브러리 패널
     noSaveBtn: "1", // 자동 저장이므로 명시적 저장 버튼 숨김
-    noExitBtn: "1", // 종료는 앱에서 모드 전환으로 처리
+    noExitBtn: "1", // 단일 편집 표면이라 종료(닫기) 개념이 없음
     saveAndExit: "0",
     offline: "1", // 클라우드/스토리지 기능 비활성
     stealth: "1", // 외부 네트워크 요청 차단 (오프라인 보장)
