@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod bridge;
 pub mod collab;
 pub mod config_sync;
 pub mod fs_io;
@@ -19,6 +20,7 @@ pub mod vfs;
 pub mod walk;
 pub mod watch;
 
+pub use bridge::{generate_token, token_matches, LiveState, OpenTab};
 pub use collab::CollabStore;
 pub use config_sync::ConfigSyncState;
 pub use fs_io::{

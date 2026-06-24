@@ -228,6 +228,22 @@ export interface FilesChangedPayload {
   paths: string[];
 }
 
+/**
+ * Rust synapse-core::bridge::LiveState 와 1:1 대응.
+ * "지금 보고 있는" 라이브 상태(저장 전 편집 버퍼 포함)를 MCP 브리지로 올리는 페이로드.
+ * 외부 에이전트(claude/codex)가 Synapse MCP 사이드카를 통해 받아간다.
+ */
+export interface LiveStatePayload {
+  /** 워크스페이스 루트(로컬 경로 또는 ssh:// URI). 시작 화면이면 null */
+  root: string | null;
+  /** 현재 활성 노트 경로. 열린 노트가 없으면 null */
+  activePath: string | null;
+  /** 현재 활성 노트의 라이브 버퍼(저장 전 편집 포함). 텍스트 노트일 때만 채워짐 */
+  activeContent: string | null;
+  /** 현재 열린 모든 탭 */
+  openTabs: { path: string; name: string; fileType: FileType }[];
+}
+
 // Rust synapse-core::links::Backlink 와 1:1 대응 (FR-2.8 → FR-6.1)
 export interface Backlink {
   /** 링크를 가진 소스 문서의 절대 경로 */
@@ -367,6 +383,14 @@ export interface SynapseIpc {
   /** 워크스페이스별 세션(열린 탭 등) — FR-5.5: 폴더가 아닌 전역 레지스트리에 저장 */
   getWorkspaceState(root: string): Promise<WorkspaceSession | null>;
   setWorkspaceState(root: string, state: WorkspaceSession): Promise<void>;
+
+  // ---- 라이브 상태 브리지 (MCP) ----
+  /**
+   * 현재 윈도우의 라이브 상태(활성 노트·저장 전 버퍼·열린 탭)를 앱 내부 브리지
+   * 서버에 올린다. 외부 에이전트가 띄운 Synapse MCP 사이드카가 이를 질의한다.
+   * 윈도우 라벨은 IPC 계층에서 채워 넣는다(호출자는 라이브 상태만 넘긴다).
+   */
+  bridgePushState(live: LiveStatePayload): Promise<void>;
 
   // ---- GitHub 인증 (FR-4.1) ----
   githubLoginStart(): Promise<DeviceCode>;
