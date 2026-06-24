@@ -31,20 +31,3 @@ export async function waitForExcalidrawLoaded(page: Page): Promise<void> {
   // 에러/로딩 플레이스홀더가 남아 있으면 안 된다.
   await expect(page.locator(".preview-placeholder")).toHaveCount(0);
 }
-
-// 뷰어가 배선대로 떴는지 확인한다: 파일 내용 → buildDrawioHtml → prepareHtmlView →
-// iframe src. 에러/준비중 플레이스홀더가 아니어야 한다.
-//
-// 주의: 번들된 drawio 뷰어 런타임이 iframe 안에서 SVG 를 그리는 단계까지는
-// 브라우저(mock) 모드에서 검증할 수 없다 — 뷰어 iframe 은 sandbox="allow-scripts"
-// (불투명 출처)인데 뷰어 스크립트는 부모 출처의 blob URL 이라 교차 출처로 막힌다.
-// 실제 Tauri WebView 는 asset 프로토콜(동일 출처)이라 그려진다. 픽셀 단위 뷰어
-// 렌더는 실제 WebView(tauri-driver) 영역으로 남긴다. 임베드 핸드셰이크의 실질
-// 회귀는 에디터 스펙(drawio-editor.spec.ts)이 잡는다 — 거기선 앱이 동일 출처라
-// 실제로 다이어그램이 그려진다.
-export async function waitForViewerLoaded(page: Page): Promise<void> {
-  await expect(page.locator("iframe.drawio-viewer")).toBeVisible();
-  await expect(page.locator("iframe.drawio-viewer")).toHaveAttribute("src", /.+/);
-  // 에러 메시지/준비중 플레이스홀더가 남아 있으면 안 된다.
-  await expect(page.locator(".preview-placeholder")).toHaveCount(0);
-}

@@ -13,7 +13,7 @@ import {
   titleFromPath,
 } from "../features/html/markdownToHtml";
 import { emptySceneJson } from "../features/excalidraw/scene";
-import { emptyDrawioXml } from "../features/drawio-viewer/drawioEmbed";
+import { emptyDrawioXml } from "../features/drawio/drawioEmbed";
 
 export interface TabInfo {
   path: string;
