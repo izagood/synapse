@@ -1,4 +1,3 @@
-mod agent;
 mod auth;
 mod bridge;
 mod commands;
@@ -37,7 +36,6 @@ pub fn run() {
         // 트리 항목을 OS(Finder/탐색기)로 끌어 내보내기 (네이티브 드래그아웃)
         .plugin(tauri_plugin_drag::init())
         .manage(auth::AuthState::default())
-        .manage(agent::AgentState::default())
         .manage(remote::RemoteState::default())
         .manage(watcher::WatcherState::default())
         .manage(bridge_state)
@@ -49,7 +47,6 @@ pub fn run() {
             commands::read_file,
             commands::write_file,
             commands::save_doc,
-            commands::agent_edit_file,
             commands::backlinks,
             commands::link_graph,
             commands::create_note,
@@ -82,9 +79,6 @@ pub fn run() {
             auth::github_login_poll,
             auth::github_user,
             auth::github_logout,
-            auth::set_agent_api_key,
-            auth::clear_agent_api_key,
-            auth::has_agent_api_key,
             sync::sync_status,
             sync::sync_now,
             sync::resolve_conflict,
@@ -98,10 +92,6 @@ pub fn run() {
             config_sync::config_sync_now,
             sync::file_history,
             sync::file_at_revision,
-            agent::agent_status,
-            agent::agent_send,
-            agent::agent_respond_permission,
-            agent::agent_stop,
             watcher::start_watching,
             watcher::stop_watching,
         ])

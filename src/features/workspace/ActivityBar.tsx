@@ -10,7 +10,6 @@ import {
   SearchIcon,
   SearchTextIcon,
   SidebarIcon,
-  SparkleIcon,
   TerminalIcon,
 } from "../../shared/Icons";
 import { shortcutLabel } from "../../shared/platform";
@@ -23,8 +22,6 @@ interface ActivityBarProps {
   onQuickOpen: () => void;
   onSearch: () => void;
   onGraph: () => void;
-  agentVisible: boolean;
-  onToggleAgent: () => void;
   terminalVisible: boolean;
   onToggleTerminal: () => void;
 }
@@ -36,8 +33,6 @@ export function ActivityBar({
   onQuickOpen,
   onSearch,
   onGraph,
-  agentVisible,
-  onToggleAgent,
   terminalVisible,
   onToggleTerminal,
 }: ActivityBarProps) {
@@ -46,7 +41,6 @@ export function ActivityBar({
   const openSettings = useSettings((s) => s.openSettings);
   const quickOpenShortcut = shortcutLabel(shortcutById("nav.quickOpen").keys);
   const searchShortcut = shortcutLabel(shortcutById("nav.search").keys);
-  const agentShortcut = shortcutLabel(shortcutById("view.toggleAgent").keys);
   const graphShortcut = shortcutLabel(shortcutById("view.graph").keys);
   const newWindowShortcut = shortcutLabel(shortcutById("window.new").keys);
   const settingsShortcut = shortcutLabel(shortcutById("settings.toggle").keys);
@@ -70,13 +64,6 @@ export function ActivityBar({
         </button>
         <button onClick={onGraph} title={t("activity.graph", { shortcut: graphShortcut })}>
           <GraphIcon size={18} />
-        </button>
-        <button
-          className={agentVisible ? "active" : ""}
-          onClick={onToggleAgent}
-          title={t("activity.agentPanel", { shortcut: agentShortcut })}
-        >
-          <SparkleIcon size={18} />
         </button>
         <button
           className={terminalVisible ? "active" : ""}

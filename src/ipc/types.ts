@@ -111,9 +111,6 @@ export type PollResult =
 // Rust synapse-core::settings::Settings 와 1:1 대응 (FR-5)
 export type Language = "ko" | "en";
 
-/** 에이전트 인증 방식 (2-D). API 키 자체는 OS 키체인에 저장되고 여기 없다. */
-export type AgentAuthMode = "subscription" | "apiKey";
-
 /** 테마 선택지: system(OS 따름) + 프리셋 테마들 */
 export type ThemeSetting = "system" | "light" | "dark" | "pink";
 
@@ -155,7 +152,6 @@ export interface Settings {
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
   files: { confirmDelete: boolean };
-  agent: { authMode: AgentAuthMode; model: string; permissionMode: string };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -169,53 +165,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },
   files: { confirmDelete: true },
-  agent: { authMode: "subscription", model: "", permissionMode: "" },
 };
-
-// Rust synapse-core::agent::EditPreview 와 1:1 대응 (2-B 안전 편집)
-export interface EditPreview {
-  /** 대상 파일 경로 (claude가 준 그대로 — 절대/상대 모두 가능) */
-  filePath: string;
-  /** Edit이면 찾을 문자열, Write이면 빈 문자열 */
-  oldString: string;
-  /** Edit이면 바꿀 문자열, Write이면 새 파일 전체 내용 */
-  newString: string;
-  /** Write(전체 교체)인지 Edit(부분 치환)인지 */
-  wholeFile: boolean;
-}
-
-// Rust synapse-core::agent::AgentEvent 와 1:1 대응 (PLAN-v0.4 / 2-B)
-export type AgentEvent =
-  | { kind: "started"; sessionId: string; model: string }
-  | { kind: "text"; text: string }
-  | { kind: "toolUse"; name: string; detail: string }
-  | {
-      kind: "permissionRequest";
-      requestId: string;
-      tool: string;
-      detail: string;
-      edit: EditPreview | null;
-    }
-  | {
-      kind: "completed";
-      ok: boolean;
-      result: string;
-      sessionId: string;
-      costUsd: number;
-      numTurns: number;
-    }
-  | { kind: "failed"; message: string }
-  | { kind: "aborted" };
-
-export interface AgentEventPayload {
-  runId: string;
-  event: AgentEvent;
-}
-
-export interface AgentStatus {
-  installed: boolean;
-  path: string | null;
-}
 
 export interface WorkspaceSession {
   openTabs: { path: string; name: string; fileType: FileType }[];
@@ -473,32 +423,6 @@ export interface SynapseIpc {
    */
   prepareHtmlView(cacheName: string, html: string): Promise<string>;
 
-  // ---- Claude 에이전트 (PLAN-v0.4 Phase 1) ----
-  /** claude CLI 설치 여부 (PATH + 표준 설치 경로 탐색) */
-  agentStatus(): Promise<AgentStatus>;
-  /**
-   * 헤드리스 claude 한 턴 실행 (cwd=root, 읽기 전용 도구만 허용).
-   * 응답은 onAgentEvent 스트림으로 runId와 함께 도착한다.
-   * sessionId를 주면 이전 대화를 이어간다(--resume).
-   */
-  agentSend(root: string, prompt: string, sessionId: string | null, runId: string): Promise<void>;
-  /**
-   * 권한 요청(permissionRequest)에 대한 사용자 결정을 CLI에 회신한다 (2-B).
-   * 편집 도구는 보통 allow=false로 회신해 CLI 직접 쓰기를 막고, 대신
-   * agentEditFile로 CRDT 경유 편집을 적용한다.
-   */
-  agentRespondPermission(requestId: string, allow: boolean): Promise<void>;
-  /**
-   * 승인된 AI 편집을 ai-assistant actor로 라우팅해 안전하게 적용한다 (2-B).
-   * 파일을 직접 덮어쓰지 않고 CRDT(log-ai-assistant.y)를 경유해 사용자
-   * 편집과 자동 병합하고, 합쳐진 최종 텍스트를 돌려준다.
-   */
-  agentEditFile(root: string, path: string, newContent: string, baseContent: string): Promise<string>;
-  /** 실행 중인 에이전트 프로세스 중단 (aborted 이벤트로 마감됨) */
-  agentStop(): Promise<void>;
-  /** 에이전트 이벤트 구독. 해제 함수를 반환한다 */
-  onAgentEvent(handler: (payload: AgentEventPayload) => void): Promise<() => void>;
-
   // ---- 외부 파일 변경 감시 (수동 새로고침 없이 자동 reload) ----
   /**
    * 워크스페이스 루트를 OS 워처로 재귀 감시 시작(기존 감시는 교체).
@@ -509,14 +433,6 @@ export interface SynapseIpc {
   stopWatching(): Promise<void>;
   /** 외부 파일 변경 이벤트 구독. 해제 함수를 반환한다 */
   onFilesChanged(handler: (payload: FilesChangedPayload) => void): Promise<() => void>;
-
-  // ---- 에이전트 API 키 (2-D) — 키는 OS 키체인에만 저장된다 ----
-  /** Anthropic API 키를 키체인에 저장(덮어쓰기). 빈 키는 거부 */
-  setAgentApiKey(key: string): Promise<void>;
-  /** 저장된 API 키 삭제 (idempotent) */
-  clearAgentApiKey(): Promise<void>;
-  /** 키체인에 API 키가 저장돼 있는지 (값은 노출하지 않음) */
-  hasAgentApiKey(): Promise<boolean>;
 
   // ---- 앱 업데이트 (F2) ----
   appVersion(): Promise<string>;
