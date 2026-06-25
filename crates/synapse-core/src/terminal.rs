@@ -50,6 +50,59 @@ pub fn codex_config_snippet(sidecar_path: &str) -> String {
     format!("[mcp_servers.synapse]\ncommand = \"{escaped}\"\nargs = []\n")
 }
 
+/// 기존 `.mcp.json`(있으면)에 synapse 서버를 추가/갱신한 내용을 만든다.
+///
+/// 다른 MCP 서버 항목은 보존한다(비파괴적 병합). 이미 같은 command로 등록돼 있으면
+/// `None`을 돌려준다(쓰기 불필요). 비밀은 넣지 않는다 — 포트/토큰은 부모 env 상속.
+pub fn merge_mcp_config(existing: Option<&str>, sidecar_path: &str) -> Option<String> {
+    let mut root: serde_json::Value = existing
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+    let obj = root.as_object_mut().expect("object");
+    let servers = obj
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+    if !servers.is_object() {
+        *servers = serde_json::json!({});
+    }
+    let servers = servers.as_object_mut().expect("object");
+    if let Some(cmd) = servers
+        .get("synapse")
+        .and_then(|s| s.get("command"))
+        .and_then(|c| c.as_str())
+    {
+        if cmd == sidecar_path {
+            return None; // 이미 최신 — 쓰기 불필요(쓸데없는 동기화/디스크 변경 방지)
+        }
+    }
+    servers.insert(
+        "synapse".to_string(),
+        serde_json::json!({ "command": sidecar_path, "args": [] }),
+    );
+    Some(serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 기존 `.gitignore`(있으면)에 `line`이 없으면 추가한 내용을 만든다. 이미 있으면 `None`.
+///
+/// `.mcp.json`에 머신별 사이드카 절대경로가 박히므로, 워크스페이스 git 동기화로
+/// 퍼지지 않도록 `.gitignore`에 넣어 격리한다.
+pub fn ensure_gitignore_line(existing: Option<&str>, line: &str) -> Option<String> {
+    let content = existing.unwrap_or("");
+    if content.lines().any(|l| l.trim() == line) {
+        return None;
+    }
+    let mut out = content.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(line);
+    out.push('\n');
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +133,56 @@ mod tests {
         assert!(snippet.starts_with("[mcp_servers.synapse]\n"));
         assert!(snippet.contains(r#"command = "C:\\tools\\synapse-mcp.exe""#));
         assert!(!snippet.contains("TOKEN"));
+    }
+
+    #[test]
+    fn merge_creates_config_when_absent() {
+        let out = merge_mcp_config(None, "/opt/synapse-mcp").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["mcpServers"]["synapse"]["command"], "/opt/synapse-mcp");
+        assert!(!out.contains("TOKEN"));
+    }
+
+    #[test]
+    fn merge_preserves_other_servers_and_updates_path() {
+        let existing = r#"{"mcpServers":{"other":{"command":"/bin/other"},"synapse":{"command":"/old/path"}}}"#;
+        let out = merge_mcp_config(Some(existing), "/new/synapse-mcp").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        // 다른 서버 보존
+        assert_eq!(v["mcpServers"]["other"]["command"], "/bin/other");
+        // synapse 경로 갱신
+        assert_eq!(v["mcpServers"]["synapse"]["command"], "/new/synapse-mcp");
+    }
+
+    #[test]
+    fn merge_returns_none_when_already_current() {
+        let existing = r#"{"mcpServers":{"synapse":{"command":"/opt/synapse-mcp","args":[]}}}"#;
+        assert!(merge_mcp_config(Some(existing), "/opt/synapse-mcp").is_none());
+    }
+
+    #[test]
+    fn merge_recovers_from_garbage_existing() {
+        // 깨진 기존 파일이면 새로 만든다(덮어쓰기).
+        let out = merge_mcp_config(Some("not json"), "/opt/synapse-mcp").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["mcpServers"]["synapse"]["command"], "/opt/synapse-mcp");
+    }
+
+    #[test]
+    fn gitignore_adds_line_when_missing() {
+        assert_eq!(
+            ensure_gitignore_line(None, ".mcp.json"),
+            Some(".mcp.json\n".to_string())
+        );
+        // 끝에 개행 없는 기존 내용에도 안전하게 덧붙인다.
+        assert_eq!(
+            ensure_gitignore_line(Some("node_modules"), ".mcp.json"),
+            Some("node_modules\n.mcp.json\n".to_string())
+        );
+    }
+
+    #[test]
+    fn gitignore_returns_none_when_present() {
+        assert!(ensure_gitignore_line(Some("foo\n.mcp.json\nbar\n"), ".mcp.json").is_none());
     }
 }

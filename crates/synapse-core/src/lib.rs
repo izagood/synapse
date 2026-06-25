@@ -40,6 +40,8 @@ pub use sftp::SftpBackend;
 pub use ssh::{
     connect as ssh_connect, expand_tilde, HostKeyPolicy, SshConfig, SshError, SshSession,
 };
-pub use terminal::{bridge_env, codex_config_snippet, mcp_config_json};
+pub use terminal::{
+    bridge_env, codex_config_snippet, ensure_gitignore_line, mcp_config_json, merge_mcp_config,
+};
 pub use tree::{build_tree, FileNode, FileType, NodeKind};
 pub use vfs::{Backend, DirEntry, LocalBackend, Meta};
