@@ -1,4 +1,5 @@
 //! 링크 그래프 위에서의 쿼리(이웃/검색/경로/구조). build_graph를 재사용하는 순수 로직.
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io;
 use std::path::Path;
@@ -6,6 +7,8 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::links::{build_graph, LinkGraph};
+use crate::retrieval::{extract_keywords, RetrievalOptions};
+use crate::search::{search_workspace, SearchOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -49,6 +52,78 @@ pub(crate) fn adjacency(graph: &LinkGraph) -> Adjacency {
         }
     }
     Adjacency { paths, names, out, in_ }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedNote {
+    pub path: String,
+    pub name: String,
+    pub score: u32,
+    pub reason: String,   // "keyword" | "neighbor"
+    pub snippet: String,
+}
+
+/// 키워드 검색으로 시드 노트를 찾고, hops 만큼 링크(양방향)를 따라 이웃을 보강한다.
+/// 점수: 직접 매칭 노트 = 매칭 키워드 수 * 10, 이웃 = (시드 점수 / 2^거리)로 감쇠.
+pub fn graph_search(root: &Path, query: &str, hops: usize) -> io::Result<Vec<RelatedNote>> {
+    let opts = RetrievalOptions::default();
+    let keywords = extract_keywords(query, &opts);
+    if keywords.is_empty() { return Ok(Vec::new()); }
+
+    let graph = build_graph(root)?;
+    let adj = adjacency(&graph);
+
+    // 1) 시드: 키워드별 검색 → 노트별 매칭 키워드 수 누적 + 대표 스니펫
+    let mut seed_score: HashMap<usize, u32> = HashMap::new();
+    let mut snippet: HashMap<usize, String> = HashMap::new();
+    let sopts = SearchOptions { max_matches_per_file: 1, ..SearchOptions::default() };
+    for kw in &keywords {
+        for hit in search_workspace(root, kw, &sopts) {
+            if let Some(i) = adj.index_of(&hit.path) {
+                *seed_score.entry(i).or_insert(0) += 10;
+                snippet.entry(i).or_insert_with(|| {
+                    hit.matches.first().map(|m| m.snippet.clone()).unwrap_or_default()
+                });
+            }
+        }
+    }
+    if seed_score.is_empty() { return Ok(Vec::new()); }
+
+    // 2) 이웃 보강: 각 시드에서 hops 만큼 BFS, 미방문 노트에 감쇠 점수
+    let mut best: HashMap<usize, (u32, String)> = HashMap::new(); // idx → (score, reason)
+    for (&seed, &sc) in &seed_score {
+        best.insert(seed, (sc, "keyword".to_string()));
+    }
+    for (&seed, &sc) in &seed_score {
+        let mut dist = vec![usize::MAX; adj.paths.len()];
+        let mut q = VecDeque::new();
+        dist[seed] = 0; q.push_back(seed);
+        while let Some(u) = q.pop_front() {
+            if dist[u] >= hops { continue; }
+            for &v in adj.out[u].iter().chain(adj.in_[u].iter()) {
+                if dist[v] == usize::MAX {
+                    dist[v] = dist[u] + 1;
+                    let decayed = sc >> dist[v]; // /2^거리
+                    let entry = best.entry(v).or_insert((0, "neighbor".to_string()));
+                    if decayed > entry.0 && !seed_score.contains_key(&v) {
+                        *entry = (decayed, "neighbor".to_string());
+                    }
+                    q.push_back(v);
+                }
+            }
+        }
+    }
+
+    let mut out: Vec<RelatedNote> = best.into_iter().map(|(i, (score, reason))| RelatedNote {
+        path: adj.paths[i].clone(),
+        name: adj.names[i].clone(),
+        score,
+        reason,
+        snippet: snippet.get(&i).cloned().unwrap_or_default(),
+    }).collect();
+    out.sort_by(|a, b| b.score.cmp(&a.score).then(a.path.cmp(&b.path)));
+    Ok(out)
 }
 
 /// BFS로 target에서 depth 홉 이내 이웃을 거리와 함께 모은다. 자기 자신 제외.
@@ -131,5 +206,32 @@ mod tests {
         assert!(names.contains(&"b.md")); // 1홉
         assert!(names.contains(&"c.md")); // 2홉
         assert!(!names.contains(&"a.md")); // 자기 자신 제외
+    }
+
+    #[test]
+    fn graph_search_expands_keyword_hits_along_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        // hub.md 가 키워드 매칭, related.md 는 hub 를 링크(이웃으로 보강)
+        fs::write(root.join("hub.md"), "rust 그래프 알고리즘").unwrap();
+        fs::write(root.join("related.md"), "see [[hub]] for details").unwrap();
+        fs::write(root.join("noise.md"), "전혀 무관").unwrap();
+        let got = graph_search(&root, "그래프", 1).unwrap();
+        let names: Vec<_> = got.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"hub.md"));      // 키워드 직접 매칭
+        assert!(names.contains(&"related.md"));  // 링크 이웃 보강
+        assert!(!names.contains(&"noise.md"));
+        // 직접 매칭이 이웃보다 점수가 높다
+        let hub = got.iter().find(|n| n.name == "hub.md").unwrap();
+        let rel = got.iter().find(|n| n.name == "related.md").unwrap();
+        assert!(hub.score > rel.score);
+        assert_eq!(hub.reason, "keyword");
+        assert_eq!(rel.reason, "neighbor");
+    }
+
+    #[test]
+    fn graph_search_empty_query_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(graph_search(dir.path(), "  ", 1).unwrap().is_empty());
     }
 }
