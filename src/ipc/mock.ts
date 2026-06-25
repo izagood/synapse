@@ -191,6 +191,12 @@ function assertInside(root: string, path: string) {
   }
 }
 
+/** PDF 주석 사이드카의 숨김 경로(`.synapse/draw/<상대경로>.draw.json`). Rust 정책 미러. */
+function pdfDrawSidecar(root: string, pdfPath: string): string {
+  const rel = pdfPath.slice(root.length + 1); // "docs/report.pdf"
+  return `${root}/.synapse/draw/${rel}.draw.json`;
+}
+
 /** 파일 경로로부터 결정적인(매번 동일한) 그럴듯한 더미 커밋 히스토리를 만든다 */
 function mockFileHistory(path: string): FileCommit[] {
   // 경로 해시로 항목 수(2~4개)를 정해 파일마다 조금씩 다르게 보이게 한다
@@ -252,6 +258,22 @@ export const mockIpc: SynapseIpc = {
   async writeFile(root, path, content) {
     assertInside(root, path);
     files.set(path, content);
+    sync.dirty = true;
+  },
+  async readPdfDraw(root, pdfPath) {
+    assertInside(root, pdfPath);
+    const sidecar = pdfDrawSidecar(root, pdfPath);
+    const fromNew = files.get(sidecar);
+    if (fromNew !== undefined) return fromNew;
+    const legacy = `${pdfPath}.draw.json`;
+    const fromLegacy = files.get(legacy);
+    if (fromLegacy !== undefined) return fromLegacy;
+    throw new Error(`no such file: ${sidecar}`);
+  },
+  async writePdfDraw(root, pdfPath, content) {
+    assertInside(root, pdfPath);
+    files.set(pdfDrawSidecar(root, pdfPath), content);
+    files.delete(`${pdfPath}.draw.json`); // 점진 이전: 레거시 사이드카 제거
     sync.dirty = true;
   },
   async saveDoc(root, path, content, _base) {

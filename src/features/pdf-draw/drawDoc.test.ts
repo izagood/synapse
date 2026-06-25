@@ -5,7 +5,6 @@ import {
   countStrokes,
   serializeDrawDoc,
   parseDrawDoc,
-  sidecarPathOf,
   bakedPdfNameOf,
   distanceToSegment,
   strokeHitsPoint,
@@ -83,11 +82,6 @@ describe("DrawDoc 직렬화", () => {
 });
 
 describe("경로 유도", () => {
-  it("사이드카 경로는 .draw.json 을 덧붙인다", () => {
-    expect(sidecarPathOf("/a/b/foo.pdf")).toBe("/a/b/foo.pdf.draw.json");
-    expect(sidecarPathOf("ssh://h/x/y.pdf")).toBe("ssh://h/x/y.pdf.draw.json");
-  });
-
   it("베이크 파일명은 (그림) 접미를 붙이고 확장자를 유지한다", () => {
     expect(bakedPdfNameOf("foo.pdf")).toBe("foo (그림).pdf");
     expect(bakedPdfNameOf("FOO.PDF")).toBe("FOO (그림).pdf");
