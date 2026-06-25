@@ -254,9 +254,12 @@ export function draw(ctx: CanvasRenderingContext2D, input: RenderInput): void {
         ctx.fillStyle = fill;
         ctx.globalAlpha = op.dimmed ? 0.2 : 1;
         ctx.fill();
-        ctx.strokeStyle = op.kind === "current" ? theme.halo : "transparent";
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        // current 노드만 테두리를 그린다 — 그 외엔 투명 stroke 의 no-op 비용을 피한다.
+        if (op.kind === "current") {
+          ctx.strokeStyle = theme.halo;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
         ctx.globalAlpha = 1;
         break;
       }

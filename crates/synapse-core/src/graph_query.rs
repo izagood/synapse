@@ -105,9 +105,13 @@ pub fn graph_search(root: &Path, query: &str, hops: usize) -> io::Result<Vec<Rel
                 if dist[v] == usize::MAX {
                     dist[v] = dist[u] + 1;
                     let decayed = sc >> dist[v]; // /2^거리
-                    let entry = best.entry(v).or_insert((0, "neighbor".to_string()));
-                    if decayed > entry.0 && !seed_score.contains_key(&v) {
-                        *entry = (decayed, "neighbor".to_string());
+                    // 감쇠로 0 이 된 이웃은 의미 있는 점수가 아니므로 추가하지 않는다.
+                    // (거리>=4, 시드 점수 10 이면 0 → score=0 항목이 출력에 새는 것을 막음)
+                    if decayed > 0 && !seed_score.contains_key(&v) {
+                        let entry = best.entry(v).or_insert((0, "neighbor".to_string()));
+                        if decayed > entry.0 {
+                            *entry = (decayed, "neighbor".to_string());
+                        }
                     }
                     q.push_back(v);
                 }
@@ -328,6 +332,31 @@ mod tests {
         assert!(hub.score > rel.score);
         assert_eq!(hub.reason, "keyword");
         assert_eq!(rel.reason, "neighbor");
+    }
+
+    #[test]
+    fn graph_search_excludes_decayed_zero_neighbors() {
+        // seed(키워드 매칭) → n1 → n2 → n3 → n4 사슬.
+        // 시드 점수 10 기준 감쇠: n1=5, n2=2, n3=1, n4=0.
+        // hops 를 넉넉히(5) 줘도 n4 는 score=0 이라 출력에서 빠져야 한다.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::write(root.join("seed.md"), "rust 그래프 알고리즘 [[n1]]").unwrap();
+        fs::write(root.join("n1.md"), "[[n2]]").unwrap();
+        fs::write(root.join("n2.md"), "[[n3]]").unwrap();
+        fs::write(root.join("n3.md"), "[[n4]]").unwrap();
+        fs::write(root.join("n4.md"), "leaf").unwrap();
+        let got = graph_search(&root, "그래프", 5).unwrap();
+        let names: Vec<_> = got.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"seed.md")); // 키워드 직접 매칭
+        assert!(names.contains(&"n1.md")); // 1홉, score 5
+        assert!(names.contains(&"n2.md")); // 2홉, score 2
+        assert!(names.contains(&"n3.md")); // 3홉, score 1
+        assert!(!names.contains(&"n4.md")); // 4홉, score 0 → 제외
+        // 살아남은 이웃은 모두 양수 점수
+        for n in &got {
+            assert!(n.score > 0, "{} 의 점수가 0", n.name);
+        }
     }
 
     #[test]

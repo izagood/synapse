@@ -63,6 +63,9 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [cam, setCam] = useState<Camera>(IDENTITY);
   const [sim, setSim] = useState<SimState | null>(null);
+  // 검색 팬 effect 가 의존성에 sim 을 넣지 않고도 현재 위치를 읽도록 미러링.
+  const simRef = useRef<SimState | null>(null);
+  simRef.current = sim;
 
   // 필터: 고립 노드 표시·최소 degree·로컬(현재 노트 N홉) 그래프.
   const [showIsolated, setShowIsolated] = useState(true);
@@ -211,16 +214,18 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     return a ?? b;
   }, [graph, hover, selected]);
 
-  // 검색어와 이름이 일치하는 노드 경로 집합
+  // 검색어와 이름이 일치하는 노드 경로 집합.
+  // 위치(sim)가 아니라 안정적인 graph.nodes 에서 도출한다 — 매 tick 마다
+  // 새 객체가 되는 sim 에 의존하면 검색 팬 effect 가 매 프레임 재발한다.
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q || !sim) return null;
+    if (!q || !graph) return null;
     const set = new Set<string>();
-    for (const n of sim.nodes) {
+    for (const n of graph.nodes) {
       if (n.name.toLowerCase().includes(q)) set.add(n.path);
     }
     return set.size ? set : new Set<string>();
-  }, [query, sim]);
+  }, [query, graph]);
 
   const focusing = hover != null || selected != null || matches != null;
 
@@ -347,9 +352,13 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   }, [sim, cam, hover, selected, matches, shownLabels, neighbors, activePath]);
 
   // ── 검색: 일치 노드로 카메라 팬+줌 ───────────────────────────
+  // matches 는 graph 에서 도출돼 query/graph 가 바뀔 때만 정체성이 변한다.
+  // 팬 타깃 위치는 effect 실행 시점의 현재 sim 위치(simRef)를 읽어 계산하므로,
+  // 활성 쿼리가 있어도 매 애니메이션 프레임마다 재-팬하지 않는다(검색어 변경 시 1회).
   useEffect(() => {
-    if (!matches || matches.size === 0 || !sim) return;
-    const pts = sim.nodes.filter((n) => matches.has(n.path));
+    const cur = simRef.current;
+    if (!matches || matches.size === 0 || !cur) return;
+    const pts = cur.nodes.filter((n) => matches.has(n.path));
     if (!pts.length) return;
     let minX = Infinity,
       minY = Infinity,
@@ -444,6 +453,9 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     const dx = pt.sx - d.sx;
     const dy = pt.sy - d.sy;
     if (Math.abs(dx) + Math.abs(dy) > PAN_THRESHOLD) panned.current = true;
+    // 임계(4px) 전에는 노드를 핀(고정)하지도, 팬하지도 않는다 — <4px 지터로
+    // 클릭이 노드를 fixed 로 얼리는 것을 막는다.
+    if (!panned.current) return;
 
     if (d.nodePath) {
       // 노드 드래그: 포인터 위치(world)로 노드를 옮기고 sim 재가열.
