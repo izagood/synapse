@@ -122,6 +122,21 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      # Synapse MCP 사이드카를 타깃 트리플로 빌드해 externalBin 자리(src-tauri/binaries)에 둔다.
+      # tauri build가 이 바이너리를 앱 옆에 번들한다 (없으면 빌드 실패).
+      - name: Synapse MCP 사이드카 빌드 (externalBin)
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="${{ matrix.rust_targets }}"
+          if [ -z "$triple" ]; then triple="$(rustc -Vv | sed -n 's/^host: //p')"; fi
+          echo "사이드카 타깃: $triple"
+          cargo build --manifest-path crates/synapse-mcp/Cargo.toml --release --target "$triple"
+          mkdir -p src-tauri/binaries
+          ext=""; case "$triple" in *windows*) ext=".exe";; esac
+          cp "crates/synapse-mcp/target/$triple/release/synapse-mcp$ext" \
+             "src-tauri/binaries/synapse-mcp-$triple$ext"
+          ls -l src-tauri/binaries
       # createUpdaterArtifacts: true 라서 서명 키가 필요하다.
       # 시크릿이 없는 환경(포크에서 온 PR)에서는 업데이터 아티팩트 생성을 끄고 빌드한다.
       # macOS 코드 서명도 릴리스와 동일하게 드라이런한다
