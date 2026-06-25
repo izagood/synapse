@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
 import {
-  countStrokes,
+  countShapes,
   emptyDrawDoc,
-  eraseStrokesAt,
+  eraseShapesAt,
   parseDrawDoc,
   serializeDrawDoc,
-  strokesOnPage,
+  shapesOnPage,
   type DrawDoc,
-  type Stroke,
+  type Shape,
   type ToolKind,
 } from "./drawDoc";
 
@@ -34,32 +34,32 @@ export interface PdfDrawApi {
   /** 그리기 가능한 도구가 선택돼 있는지(move 아님) */
   isDrawing: boolean;
 
-  strokeCount: number;
+  shapeCount: number;
   dirty: boolean;
 
-  /** 완성된 한 획을 페이지에 커밋(undo 가능). 빈 획은 무시. */
-  commitStroke: (page: number, stroke: Stroke) => void;
-  /** (x,y) 반경에 닿는 획 제거. 제거됐으면 true. */
+  /** 완성된 한 도형을 페이지에 커밋(undo 가능). 빈 도형은 무시. */
+  commitShape: (page: number, shape: Shape) => void;
+  /** (x,y) 반경에 닿는 도형 제거. 제거됐으면 true. */
   eraseAt: (page: number, x: number, y: number, radius: number) => boolean;
   /** 직전 변경 취소 */
   undo: () => void;
-  /** 한 페이지의 모든 획 삭제 */
+  /** 한 페이지의 모든 도형 삭제 */
   clearPage: (page: number) => void;
-  /** 전 페이지 모든 획 삭제 */
+  /** 전 페이지 모든 도형 삭제 */
   clearAll: () => void;
 
-  /** 굽기 등 즉시 직렬화가 필요할 때의 현재 문서 사본 */
+  /** 굽기 등 즉시 직렬화가 필요할 때의 현재 문서 */
   getDoc: () => DrawDoc;
 }
 
 interface UndoEntry {
   page: number;
-  strokes: Stroke[]; // 변경 직전 그 페이지의 획 배열(얕은 사본)
+  shapes: Shape[]; // 변경 직전 그 페이지의 도형 배열(얕은 사본)
 }
 
 /**
  * PDF 한 개의 드로잉 상태와 사이드카(JSON) 영속화를 담당한다.
- * 진행 중인(드래그 중) 획은 뷰어가 들고 있고, 여기엔 "완성된" 획만 커밋된다.
+ * 진행 중인(드래그 중) 도형은 뷰어가 들고 있고, 여기엔 "완성된" 도형만 커밋된다.
  */
 export function usePdfDraw(path: string): PdfDrawApi {
   const root = useWorkspace((s) => s.root);
@@ -72,7 +72,7 @@ export function usePdfDraw(path: string): PdfDrawApi {
   const [tool, setTool] = useState<ToolKind>("move");
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const [strokeCount, setStrokeCount] = useState(0);
+  const [shapeCount, setShapeCount] = useState(0);
   const [dirty, setDirty] = useState(false);
 
   // ---- 영속화 ----
@@ -108,20 +108,20 @@ export function usePdfDraw(path: string): PdfDrawApi {
     void flushSave();
     docRef.current = emptyDrawDoc();
     undoRef.current = [];
-    setStrokeCount(0);
+    setShapeCount(0);
     if (!root) return;
     ipc
       .readPdfDraw(root, path)
       .then((json) => {
         if (cancelled) return;
         docRef.current = parseDrawDoc(json);
-        setStrokeCount(countStrokes(docRef.current));
+        setShapeCount(countShapes(docRef.current));
       })
       .catch(() => {
         // 사이드카 없음(=주석 없는 PDF)은 정상.
         if (!cancelled) {
           docRef.current = emptyDrawDoc();
-          setStrokeCount(0);
+          setShapeCount(0);
         }
       });
     return () => {
@@ -142,17 +142,17 @@ export function usePdfDraw(path: string): PdfDrawApi {
 
   // ---- 변경 연산 ----
   const pushUndo = useCallback((page: number) => {
-    undoRef.current.push({ page, strokes: [...strokesOnPage(docRef.current, page)] });
+    undoRef.current.push({ page, shapes: [...shapesOnPage(docRef.current, page)] });
     if (undoRef.current.length > UNDO_LIMIT) undoRef.current.shift();
   }, []);
 
-  const commitStroke = useCallback(
-    (page: number, stroke: Stroke) => {
-      if (stroke.points.length < 2) return;
+  const commitShape = useCallback(
+    (page: number, shape: Shape) => {
+      if (shape.type === "path" && shape.points.length < 2) return;
       pushUndo(page);
       const prev = docRef.current.pages[page] ?? [];
-      docRef.current.pages[page] = [...prev, stroke];
-      setStrokeCount(countStrokes(docRef.current));
+      docRef.current.pages[page] = [...prev, shape];
+      setShapeCount(countShapes(docRef.current));
       scheduleSave();
     },
     [pushUndo, scheduleSave],
@@ -161,11 +161,11 @@ export function usePdfDraw(path: string): PdfDrawApi {
   const eraseAt = useCallback(
     (page: number, x: number, y: number, radius: number) => {
       const prev = docRef.current.pages[page] ?? [];
-      const next = eraseStrokesAt(prev, x, y, radius);
+      const next = eraseShapesAt(prev, x, y, radius);
       if (next.length === prev.length) return false;
       pushUndo(page);
       docRef.current.pages[page] = next;
-      setStrokeCount(countStrokes(docRef.current));
+      setShapeCount(countShapes(docRef.current));
       scheduleSave();
       return true;
     },
@@ -175,8 +175,8 @@ export function usePdfDraw(path: string): PdfDrawApi {
   const undo = useCallback(() => {
     const entry = undoRef.current.pop();
     if (!entry) return;
-    docRef.current.pages[entry.page] = entry.strokes;
-    setStrokeCount(countStrokes(docRef.current));
+    docRef.current.pages[entry.page] = entry.shapes;
+    setShapeCount(countShapes(docRef.current));
     scheduleSave();
   }, [scheduleSave]);
 
@@ -185,20 +185,20 @@ export function usePdfDraw(path: string): PdfDrawApi {
       if ((docRef.current.pages[page] ?? []).length === 0) return;
       pushUndo(page);
       docRef.current.pages[page] = [];
-      setStrokeCount(countStrokes(docRef.current));
+      setShapeCount(countShapes(docRef.current));
       scheduleSave();
     },
     [pushUndo, scheduleSave],
   );
 
   const clearAll = useCallback(() => {
-    if (countStrokes(docRef.current) === 0) return;
+    if (countShapes(docRef.current) === 0) return;
     // 페이지별로 undo 를 쌓아 한 번의 undo 로 전체 복구가 안 되는 점은 단순화.
     for (const page of Object.keys(docRef.current.pages)) {
       pushUndo(Number(page));
     }
     docRef.current.pages = {};
-    setStrokeCount(0);
+    setShapeCount(0);
     scheduleSave();
   }, [pushUndo, scheduleSave]);
 
@@ -218,9 +218,9 @@ export function usePdfDraw(path: string): PdfDrawApi {
     effectiveWidth,
     docRef,
     isDrawing: tool === "pen" || tool === "highlighter" || tool === "eraser",
-    strokeCount,
+    shapeCount,
     dirty,
-    commitStroke,
+    commitShape,
     eraseAt,
     undo,
     clearPage,
