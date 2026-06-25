@@ -84,6 +84,78 @@ pub async fn write_file(
     .await
 }
 
+/// PDF 주석(드로잉) 사이드카 읽기. 사이드카는 사용자에게 보이는 PDF 옆이 아니라
+/// 숨김 디렉토리 `.synapse/draw/<상대경로>.draw.json`에 보관한다. 신규 경로가 없으면
+/// 기존(레거시) PDF옆 `<pdf>.draw.json`을 폴백으로 읽는다(점진 이전). 둘 다 없으면
+/// `Err`를 돌려주고, 프론트는 이를 "주석 없음"으로 처리한다.
+#[tauri::command]
+pub async fn read_pdf_draw(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    pdf_path: String,
+) -> Result<String, String> {
+    let root_loc = parse_loc(&root)?;
+    let pdf_loc = parse_loc(&pdf_path)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let pdf = fs_path(&pdf_loc);
+    crate::sync::run_blocking(move || {
+        // 1순위: .synapse/draw 안의 새 위치.
+        let sidecar = synapse_core::pdf_draw_sidecar_path(&*backend, &root_path, &pdf)
+            .map_err(|e| e.to_string())?;
+        if let Ok(resolved) = backend.ensure_within(&root_path, &sidecar) {
+            if let Ok(s) = backend.read_to_string(&resolved) {
+                return Ok(s);
+            }
+        }
+        // 폴백: 기존 PDF옆 <pdf>.draw.json (아직 이전 안 된 주석).
+        let legacy = synapse_core::legacy_pdf_draw_sidecar(&pdf);
+        let resolved = backend
+            .ensure_within(&root_path, &legacy)
+            .map_err(|e| e.to_string())?;
+        backend.read_to_string(&resolved).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// PDF 주석(드로잉) 사이드카 쓰기. 항상 `.synapse/draw/<상대경로>.draw.json`에 저장하고
+/// (부모 디렉토리는 자동 생성), 저장에 성공하면 기존 PDF옆 `<pdf>.draw.json`이 남아
+/// 있을 경우 best-effort 삭제해 점진적으로 새 위치로 이전한다.
+#[tauri::command]
+pub async fn write_pdf_draw(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    pdf_path: String,
+    content: String,
+) -> Result<(), String> {
+    let root_loc = parse_loc(&root)?;
+    let pdf_loc = parse_loc(&pdf_path)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let pdf = fs_path(&pdf_loc);
+    crate::sync::run_blocking(move || {
+        let sidecar = synapse_core::pdf_draw_sidecar_path(&*backend, &root_path, &pdf)
+            .map_err(|e| e.to_string())?;
+        // ensure_writable_within이 부모를 canonicalize하므로 디렉토리를 먼저 만든다.
+        if let Some(parent) = sidecar.parent() {
+            backend.create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let resolved = backend
+            .ensure_writable_within(&root_path, &sidecar)
+            .map_err(|e| e.to_string())?;
+        backend
+            .write_atomic(&resolved, content.as_bytes())
+            .map_err(|e| e.to_string())?;
+        // 점진 이전: 새 위치 저장 성공 후 레거시 사이드카는 best-effort 삭제.
+        let legacy = synapse_core::legacy_pdf_draw_sidecar(&pdf);
+        if let Ok(resolved_legacy) = backend.ensure_within(&root_path, &legacy) {
+            let _ = backend.remove_file(&resolved_legacy);
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// 마크다운 문서 저장 (FR-6): frontmatter의 `synapse_id`를 보장하고 base→content
 /// 변경을 CRDT에 기록한 뒤, 합쳐진 최종 텍스트를 .md에 쓰고 돌려준다.
 /// 그 사이 원격 머지나 외부 편집이 있었다면 돌려준 텍스트에 합쳐져 있다.

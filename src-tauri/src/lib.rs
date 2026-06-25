@@ -49,6 +49,8 @@ pub fn run() {
             remote::disconnect_remote,
             commands::read_file,
             commands::write_file,
+            commands::read_pdf_draw,
+            commands::write_pdf_draw,
             commands::save_doc,
             commands::backlinks,
             commands::link_graph,
