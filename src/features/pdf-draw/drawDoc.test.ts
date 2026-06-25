@@ -14,6 +14,10 @@ import {
   smoothPath,
   effectiveOpacity,
   isNonEmptyShape,
+  shapeBounds,
+  translateShape,
+  scaleShape,
+  topmostShapeAt,
   DRAW_DOC_VERSION,
   type DrawDoc,
   type PathShape,
@@ -319,6 +323,56 @@ describe("도형(line/arrow/rect/ellipse)", () => {
     const e = rect([0, 0, 100, 50], { id: "e", type: "ellipse", fill: "#eee" });
     expect(shapeHitsPoint(e, 50, 25, 1)).toBe(true); // 중심
     expect(shapeHitsPoint(e, 2, 2, 1)).toBe(false); // 모서리(타원 밖)
+  });
+});
+
+describe("선택/편집 기하", () => {
+  const ln = (a: [number, number], b: [number, number]): LineShape => ({
+    id: "l",
+    type: "line",
+    color: "#000",
+    width: 2,
+    a,
+    b,
+  });
+  const rc = (
+    r: [number, number, number, number],
+    extra: Partial<RectLikeShape> = {},
+  ): RectLikeShape => ({ id: "r", type: "rect", stroke: "#000", width: 2, rect: r, ...extra });
+
+  it("shapeBounds: path/line/rect 의 bbox", () => {
+    expect(shapeBounds(pen([0, 0, 10, 20]))).toEqual([0, 0, 10, 20]);
+    expect(shapeBounds(ln([2, 3], [8, 1]))).toEqual([2, 1, 6, 2]);
+    expect(shapeBounds(rc([5, 5, 30, 40]))).toEqual([5, 5, 30, 40]);
+  });
+
+  it("translateShape: 모든 좌표를 평행이동", () => {
+    expect((translateShape(pen([0, 0, 10, 10]), 5, 3) as PathShape).points).toEqual([5, 3, 15, 13]);
+    const l = translateShape(ln([0, 0], [10, 10]), 1, 2) as LineShape;
+    expect(l.a).toEqual([1, 2]);
+    expect(l.b).toEqual([11, 12]);
+    expect((translateShape(rc([0, 0, 5, 5]), 2, 2) as RectLikeShape).rect).toEqual([2, 2, 5, 5]);
+  });
+
+  it("scaleShape: bbox old→new 로 선형 매핑(2배)", () => {
+    const r = scaleShape(rc([0, 0, 10, 10]), [0, 0, 10, 10], [0, 0, 20, 20]) as RectLikeShape;
+    expect(r.rect).toEqual([0, 0, 20, 20]);
+    const r2 = scaleShape(rc([10, 10, 10, 10]), [0, 0, 20, 20], [0, 0, 40, 40]) as RectLikeShape;
+    expect(r2.rect).toEqual([20, 20, 20, 20]);
+  });
+
+  it("scaleShape: 변이 0인 축은 평행이동만(0 나눗셈 방지)", () => {
+    // 가로선 path: bounds 높이 0
+    const horiz = pen([0, 5, 10, 5]);
+    const out = scaleShape(horiz, [0, 5, 10, 0], [0, 9, 20, 0]) as PathShape;
+    expect(out.points).toEqual([0, 9, 20, 9]); // x 2배, y 평행이동
+  });
+
+  it("topmostShapeAt: z-순서 역순(맨 위 우선)", () => {
+    const a = rc([0, 0, 100, 100], { id: "a", fill: "#eee" });
+    const b = rc([0, 0, 100, 100], { id: "b", fill: "#ddd" });
+    expect(topmostShapeAt([a, b], 50, 50, 1)).toBe("b"); // 나중에 그린 b 가 위
+    expect(topmostShapeAt([a, b], 500, 500, 1)).toBeNull();
   });
 });
 
