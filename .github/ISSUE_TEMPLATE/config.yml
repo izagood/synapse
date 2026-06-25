@@ -1,0 +1,6 @@
+# https://docs.github.com/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions & discussion
+    url: https://github.com/izagood/synapse/discussions
+    about: For open-ended questions, usage help, or design debate, start a Discussion instead of an issue. The docs in /docs are the best starting point for rationale.

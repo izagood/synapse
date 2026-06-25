@@ -1,0 +1,79 @@
+name: 🔧 Change request / feature
+description: Propose a change to existing behavior, the UI, defaults, or docs — or request a new feature.
+title: "[change] <short summary>"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to propose a change! 🙏
+
+        > 🌐 **Any language is welcome.** Write this issue in whatever language you're most comfortable with — English, 한국어, 日本語, etc. Maintainers will translate as needed. Don't let language stop you from filing.
+
+        Before filing, please skim the [docs](https://github.com/izagood/synapse/tree/main/docs) (requirements, architecture, roadmap) — they often explain "why is it like this?" and what's already planned.
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior
+      description: What does Synapse do today that you'd like changed? Be concrete — a menu, shortcut, editor behavior, sync state, or doc section. For a brand-new feature, describe what's missing.
+      placeholder: |
+        e.g. Quick Open (Ctrl/Cmd+P) only matches file names, not folder paths.
+    validations:
+      required: true
+  - type: textarea
+    id: desired
+    attributes:
+      label: Desired behavior
+      description: What should it do instead?
+      placeholder: |
+        e.g. Quick Open should also fuzzy-match against the relative folder path.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why / use case
+      description: What problem does this solve? Who benefits, and how often does it come up?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - Workspace / file tree / tabs / Quick Open
+        - Markdown editor (WYSIWYG / source mode)
+        - HTML viewer
+        - GitHub sync / conflicts
+        - Settings
+        - Updater / packaging / installers
+        - Claude panel
+        - Docs / README
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you're using today, or other approaches you weighed?
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Synapse version
+      description: From the app's About / update screen (or the commit you're on).
+      placeholder: "e.g. 0.4.68"
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true
+        - label: I checked the Roadmap in the README to see if it's already planned.
+          required: false
