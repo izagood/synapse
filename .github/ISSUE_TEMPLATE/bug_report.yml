@@ -1,0 +1,73 @@
+name: 🐞 Bug report
+description: Something behaves incorrectly, crashes, or produces an unexpected result.
+title: "[bug] <short summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! A small reproducible example is worth a thousand words.
+
+        > 🌐 **Any language is welcome.** Write this issue in whatever language you're most comfortable with — English, 한국어, 日本語, etc. Maintainers will translate as needed. Don't let language stop you from filing.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Describe the bug. Be concrete about which area is affected — editor, file tree, HTML viewer, GitHub sync, settings, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact steps to trigger the bug, starting from a fresh launch.
+      placeholder: |
+        1. Open Folder → choose ...
+        2. Open a `.md` file
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. actual
+      description: What did you expect, and what did you get instead? Include any error dialog text or console output.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Synapse version
+      description: From the app's About / update screen (or the commit you built from).
+      placeholder: "e.g. 0.4.68"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux (dev build)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Prebuilt installer (.dmg / .msi)
+        - Built from source (npm run tauri dev/build)
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true
+        - label: I'm on the latest released version (or noted my version above).
+          required: true

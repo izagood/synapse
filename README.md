@@ -256,6 +256,27 @@ See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) and the plan documents in
 Issues and pull requests are welcome. By submitting a pull request, you agree
 to license your contribution under the [Apache License 2.0](LICENSE).
 
+### Filing an issue
+
+Hit a bug or have something you'd like changed while using Synapse? Please open
+an issue rather than sending free-form feedback — structured reports are far
+easier to act on. Two templates are provided under
+[`.github/ISSUE_TEMPLATE`](.github/ISSUE_TEMPLATE):
+
+- **🐞 Bug report** — something behaves incorrectly, crashes, or produces an
+  unexpected result.
+- **🔧 Change request / feature** — propose a change to existing behavior, the
+  UI, defaults, or docs, or request a new feature.
+
+> 🌐 **Any language is welcome.** File your issue in whatever language you're
+> most comfortable with — English, 한국어, 日本語, etc. Maintainers will translate
+> as needed; don't let language be a barrier to reporting.
+
+For open-ended questions or design debate, start a
+[Discussion](https://github.com/izagood/synapse/discussions) instead.
+
+### Pull requests
+
 Before opening a pull request, run the relevant checks:
 
 ```bash
