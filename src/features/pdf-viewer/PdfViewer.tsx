@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { resolveAssetUrl } from "../../ipc/ipc";
+import { ipc, resolveAssetUrl } from "../../ipc/ipc";
+import { useWorkspace } from "../../stores/workspace";
+import { basename, dirname } from "../../shared/pathUtils";
+import { bytesToBase64 } from "../pdf-draw/bakePdf";
 import { useT } from "../../i18n";
 import { useViewerGesture } from "../viewer-zoom/useViewerGesture";
 import { ZoomControls } from "../viewer-zoom/ZoomControls";
@@ -64,6 +67,9 @@ export function PdfViewer({ path }: { path: string }) {
   const dprRef = useRef(1);
   const renderTokenRef = useRef(0);
   const renderTasksRef = useRef<RenderTask[]>([]);
+  const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const imageLoadingRef = useRef<Set<string>>(new Set());
+  const root = useWorkspace((s) => s.root);
 
   const [zoom, setZoom] = useState(1);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -101,7 +107,7 @@ export function PdfViewer({ path }: { path: string }) {
         const sel = drawRef.current.selection;
         if (sel && sel.page === page) selected = arr.find((s) => s.id === sel.id) ?? null;
       }
-      redrawOverlay(overlay, arr, scale, dprRef.current, extra, selected);
+      redrawOverlay(overlay, arr, scale, dprRef.current, extra, selected, imageCacheRef.current);
     },
     [],
   );
@@ -295,6 +301,69 @@ export function PdfViewer({ path }: { path: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [draw]);
+
+  // 이미지 도형의 픽셀을 비동기 로드해 캐시에 채운다(완료 시 그 페이지 재렌더).
+  useEffect(() => {
+    if (status !== "ready") return;
+    const doc = draw.docRef.current;
+    if (!doc) return;
+    const cache = imageCacheRef.current;
+    const loading = imageLoadingRef.current;
+    for (const [pageStr, shapes] of Object.entries(doc.pages)) {
+      const pg = Number(pageStr);
+      for (const s of shapes) {
+        if (s.type !== "image" || cache.has(s.src) || loading.has(s.src)) continue;
+        loading.add(s.src);
+        const img = new Image();
+        img.onload = () => {
+          cache.set(s.src, img);
+          loading.delete(s.src);
+          redrawPage(pg);
+        };
+        img.onerror = () => loading.delete(s.src);
+        img.src = resolveAssetUrl(`${dirname(path)}/${s.src}`);
+      }
+    }
+  }, [status, draw.revision, draw.shapeCount, path, redrawPage, draw.docRef]);
+
+  // 클립보드 이미지 붙여넣기 → PDF 옆에 파일로 저장하고 페이지 1에 이미지 도형 추가.
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      if (status !== "ready" || !root) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const item = Array.from(items).find((it) => it.type.startsWith("image/"));
+      const blob = item?.getAsFile();
+      if (!blob) return;
+      e.preventDefault();
+      try {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const ext = blob.type === "image/png" ? "png" : "jpg";
+        const fileName = await ipc.writeBinaryUnique(
+          root,
+          dirname(path),
+          `${basename(path)}.draw.${ext}`,
+          bytesToBase64(bytes),
+        );
+        const bmp = await createImageBitmap(blob);
+        const pageW = firstPageWidthRef.current || bmp.width || 1;
+        const w = Math.min(bmp.width || pageW * 0.5, pageW * 0.6);
+        const h = bmp.height && bmp.width ? w * (bmp.height / bmp.width) : w;
+        bmp.close?.();
+        drawRef.current.commitShape(1, {
+          id: newShapeId(),
+          type: "image",
+          src: fileName,
+          opacity: drawRef.current.opacity,
+          rect: [20, 20, w, h],
+        });
+      } catch {
+        // 붙여넣기/저장 실패는 조용히 무시
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [status, root, path]);
 
   // ---- 포인터 드로잉/지우개 ----
   useEffect(() => {

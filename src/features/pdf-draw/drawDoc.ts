@@ -25,7 +25,7 @@ export type ToolKind =
 export type StrokeTool = "pen" | "highlighter";
 
 /** 저장되는 도형의 종류(판별자). 단계별로 멤버가 늘어난다. */
-export type ShapeType = "path" | "line" | "arrow" | "rect" | "ellipse" | "text";
+export type ShapeType = "path" | "line" | "arrow" | "rect" | "ellipse" | "text" | "image";
 
 /** 모든 도형이 공유하는 메타. id는 선택/이동/삭제의 대상 식별자다. */
 export interface ShapeBase {
@@ -93,8 +93,27 @@ export interface TextShape extends ShapeBase {
   pos: [number, number];
 }
 
+/**
+ * 이미지. src 는 PDF 와 같은 폴더에 저장된 파일명(상대). JSON 비대를 피하려고
+ * 픽셀 데이터는 사이드카에 넣지 않고 별도 파일로 둔다.
+ */
+export interface ImageShape extends ShapeBase {
+  type: "image";
+  /** PDF 와 같은 폴더 내 이미지 파일명 */
+  src: string;
+  /** 0..1 불투명도(생략 시 1) */
+  opacity?: number;
+  /** 정규화된 bbox [x,y,w,h] (scale 1) */
+  rect: [number, number, number, number];
+}
+
 /** 디스크에 저장되는 도형. 단계별로 유니온이 넓어진다. */
-export type Shape = PathShape | LineShape | RectLikeShape | TextShape;
+export type Shape = PathShape | LineShape | RectLikeShape | TextShape | ImageShape;
+
+/** PDF 경로 → 그 PDF 의 그림 이미지에 쓸 파일명 접두사. */
+export function imageAssetPrefixOf(pdfName: string): string {
+  return `${pdfName}.draw`;
+}
 
 /** 텍스트 크기 추정 상수(선택 박스/히트테스트용 근사). */
 const TEXT_CHAR_W = 0.6; // fontSize 대비 평균 글자 폭
@@ -177,6 +196,8 @@ export function isNonEmptyShape(s: Shape): boolean {
     case "rect":
     case "ellipse":
       return s.rect[2] > 0 || s.rect[3] > 0;
+    case "image":
+      return s.rect[2] > 0 && s.rect[3] > 0;
     case "text":
       return s.text.trim().length > 0;
   }
@@ -256,6 +277,13 @@ function coerceShape(raw: unknown): Shape | null {
     return { id, type: "text", text: o.text, color: o.color, fontSize: o.fontSize, ...withOpacity, pos };
   }
 
+  if (type === "image") {
+    if (typeof o.src !== "string" || o.src.length === 0) return null;
+    const rect = asRect(o.rect);
+    if (!rect) return null;
+    return { id, type: "image", src: o.src, ...withOpacity, rect };
+  }
+
   // 미지 타입(상위 버전이 저장한 것)은 조용히 버린다.
   return null;
 }
@@ -306,6 +334,14 @@ function serializeShape(s: Shape): Record<string, unknown> {
         fontSize: round2(s.fontSize),
         ...withOpacity,
         pos: [round2(s.pos[0]), round2(s.pos[1])],
+      };
+    case "image":
+      return {
+        id: s.id,
+        type: "image",
+        src: s.src,
+        ...withOpacity,
+        rect: s.rect.map(round2),
       };
   }
 }
@@ -438,6 +474,10 @@ export function shapeHitsPoint(shape: Shape, x: number, y: number, radius: numbe
         y <= shape.pos[1] + h + radius
       );
     }
+    case "image": {
+      const [rx, ry, rw, rh] = shape.rect;
+      return x >= rx - radius && x <= rx + rw + radius && y >= ry - radius && y <= ry + rh + radius;
+    }
   }
 }
 
@@ -493,6 +533,7 @@ export function shapeBounds(s: Shape): [number, number, number, number] {
       ];
     case "rect":
     case "ellipse":
+    case "image":
       return [s.rect[0], s.rect[1], s.rect[2], s.rect[3]];
     case "text": {
       const [w, h] = textSize(s);
@@ -511,6 +552,7 @@ export function translateShape(s: Shape, dx: number, dy: number): Shape {
       return { ...s, a: [s.a[0] + dx, s.a[1] + dy], b: [s.b[0] + dx, s.b[1] + dy] };
     case "rect":
     case "ellipse":
+    case "image":
       return { ...s, rect: [s.rect[0] + dx, s.rect[1] + dy, s.rect[2], s.rect[3]] };
     case "text":
       return { ...s, pos: [s.pos[0] + dx, s.pos[1] + dy] };
@@ -542,6 +584,7 @@ export function scaleShape(
       };
     case "rect":
     case "ellipse":
+    case "image":
       return { ...s, rect: [mapX(s.rect[0]), mapY(s.rect[1]), s.rect[2] * sx, s.rect[3] * sy] };
     case "text":
       return { ...s, pos: [mapX(s.pos[0]), mapY(s.pos[1])], fontSize: s.fontSize * sy };

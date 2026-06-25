@@ -2,12 +2,16 @@ import {
   effectiveOpacity,
   shapeBounds,
   smoothPath,
+  type ImageShape,
   type LineShape,
   type PathShape,
   type RectLikeShape,
   type Shape,
   type TextShape,
 } from "./drawDoc";
+
+/** 로드 완료된 이미지 캐시(src 파일명 → 디코드된 엘리먼트). */
+export type ImageCache = Map<string, HTMLImageElement>;
 
 /** 텍스트 줄 높이 배수(drawDoc.textSize 와 일치). */
 const TEXT_LINE_H = 1.3;
@@ -107,8 +111,21 @@ function drawText(ctx: CanvasRenderingContext2D, t: TextShape): void {
   ctx.restore();
 }
 
+function drawImageShape(ctx: CanvasRenderingContext2D, s: ImageShape, images?: ImageCache): void {
+  const img = images?.get(s.src);
+  if (!img) return; // 아직 로드 전 — 로드 완료 시 다시 그린다
+  ctx.save();
+  ctx.globalAlpha = effectiveOpacity(s);
+  ctx.drawImage(img, s.rect[0], s.rect[1], s.rect[2], s.rect[3]);
+  ctx.restore();
+}
+
 /** 한 도형을 type 별로 분기해 그린다. 단계별로 case 가 늘어난다. */
-export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape): void {
+export function drawShape(
+  ctx: CanvasRenderingContext2D,
+  shape: Shape,
+  images?: ImageCache,
+): void {
   switch (shape.type) {
     case "path":
       drawPath(ctx, shape);
@@ -123,6 +140,9 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape): void {
       break;
     case "text":
       drawText(ctx, shape);
+      break;
+    case "image":
+      drawImageShape(ctx, shape, images);
       break;
   }
 }
@@ -167,6 +187,7 @@ export function redrawOverlay(
   dpr: number,
   extra?: Shape | null,
   selected?: Shape | null,
+  images?: ImageCache,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -174,7 +195,7 @@ export function redrawOverlay(
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const s = scale * dpr;
   ctx.setTransform(s, 0, 0, s, 0, 0);
-  for (const shape of shapes) drawShape(ctx, shape);
-  if (extra) drawShape(ctx, extra);
+  for (const shape of shapes) drawShape(ctx, shape, images);
+  if (extra) drawShape(ctx, extra, images);
   if (selected) drawSelection(ctx, selected, scale);
 }

@@ -63,7 +63,7 @@ export function PdfDrawMenu({
     setMsg(t("pdfDraw.baking"));
     try {
       const original = await fetchPdfBytes(path);
-      const baked = await buildBakedPdf(original, draw.getDoc());
+      const baked = await buildBakedPdf(original, draw.getDoc(), path);
       const dir = dirname(path);
       const desired = bakedPdfNameOf(basename(path));
       const finalName = await ipc.writeBinaryUnique(

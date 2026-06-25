@@ -19,12 +19,14 @@ import {
   scaleShape,
   topmostShapeAt,
   textSize,
+  imageAssetPrefixOf,
   DRAW_DOC_VERSION,
   type DrawDoc,
   type PathShape,
   type LineShape,
   type RectLikeShape,
   type TextShape,
+  type ImageShape,
 } from "./drawDoc";
 
 const pen = (points: number[], extra: Partial<PathShape> = {}): PathShape => ({
@@ -423,6 +425,51 @@ describe("텍스트(text)", () => {
     expect((translateShape(txt(), 5, 5) as TextShape).pos).toEqual([15, 25]);
     const sc = scaleShape(txt({ fontSize: 10 }), [10, 20, 100, 100], [10, 20, 100, 200]) as TextShape;
     expect(sc.fontSize).toBe(20); // sy = 2
+  });
+});
+
+describe("이미지(image)", () => {
+  const im = (
+    rect: [number, number, number, number],
+    extra: Partial<ImageShape> = {},
+  ): ImageShape => ({ id: "i1", type: "image", src: "pic.png", rect, ...extra });
+
+  it("직렬화·복원(src/rect/opacity)", () => {
+    const doc: DrawDoc = { version: 2, pages: { 1: [im([10, 20, 100, 80], { opacity: 0.5 })] } };
+    const r = parseDrawDoc(serializeDrawDoc(doc)).pages[1][0] as ImageShape;
+    expect(r.type).toBe("image");
+    expect(r.src).toBe("pic.png");
+    expect(r.rect).toEqual([10, 20, 100, 80]);
+    expect(r.opacity).toBe(0.5);
+  });
+
+  it("src 없거나 rect 불완전하면 버린다", () => {
+    const json = JSON.stringify({
+      version: 2,
+      pages: {
+        1: [
+          { id: "a", type: "image", rect: [0, 0, 10, 10] }, // src 없음
+          { id: "b", type: "image", src: "x.png", rect: [0, 0, 10] }, // rect 길이 3
+        ],
+      },
+    });
+    expect(isEmptyDoc(parseDrawDoc(json))).toBe(true);
+  });
+
+  it("isNonEmptyShape: 0 크기 이미지는 빈 것", () => {
+    expect(isNonEmptyShape(im([0, 0, 0, 0]))).toBe(false);
+    expect(isNonEmptyShape(im([0, 0, 10, 10]))).toBe(true);
+  });
+
+  it("bounds/translate/scale: rect 기반", () => {
+    expect(shapeBounds(im([5, 5, 30, 40]))).toEqual([5, 5, 30, 40]);
+    expect((translateShape(im([0, 0, 10, 10]), 3, 4) as ImageShape).rect).toEqual([3, 4, 10, 10]);
+    const sc = scaleShape(im([0, 0, 10, 10]), [0, 0, 10, 10], [0, 0, 20, 20]) as ImageShape;
+    expect(sc.rect).toEqual([0, 0, 20, 20]);
+  });
+
+  it("imageAssetPrefixOf: PDF 이름 기반 접두사", () => {
+    expect(imageAssetPrefixOf("foo.pdf")).toBe("foo.pdf.draw");
   });
 });
 

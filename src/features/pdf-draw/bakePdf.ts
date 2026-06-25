@@ -1,9 +1,11 @@
 import { resolveAssetUrl } from "../../ipc/ipc";
+import { dirname } from "../../shared/pathUtils";
 import {
   effectiveOpacity,
   shapesOnPage,
   strokeToSvgPath,
   type DrawDoc,
+  type ImageShape,
   type LineShape,
   type PathShape,
   type RectLikeShape,
@@ -56,6 +58,7 @@ export async function fetchPdfBytes(path: string): Promise<Uint8Array> {
 export async function buildBakedPdf(
   originalBytes: Uint8Array,
   doc: DrawDoc,
+  pdfPath?: string,
 ): Promise<Uint8Array> {
   const lib = await import("pdf-lib");
   const { PDFDocument, rgb, LineCapStyle } = lib;
@@ -178,7 +181,33 @@ export async function buildBakedPdf(
     });
   };
 
-  const bakeShape = (page: Page, height: number, shape: Shape) => {
+  // 이미지: PDF 와 같은 폴더의 파일을 fetch 해 PNG/JPG 로 임베드.
+  const assetDir = pdfPath ? dirname(pdfPath) : null;
+  const bakeImage = async (page: Page, height: number, s: ImageShape) => {
+    if (!assetDir) return;
+    try {
+      const res = await fetch(resolveAssetUrl(`${assetDir}/${s.src}`));
+      if (!res.ok) return;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let img;
+      try {
+        img = await pdf.embedPng(bytes);
+      } catch {
+        img = await pdf.embedJpg(bytes);
+      }
+      page.drawImage(img, {
+        x: s.rect[0],
+        y: flipY(height, s.rect[1] + s.rect[3]),
+        width: s.rect[2],
+        height: s.rect[3],
+        opacity: effectiveOpacity(s),
+      });
+    } catch {
+      // 이미지 로드/임베드 실패 시 그 도형만 건너뛴다
+    }
+  };
+
+  const bakeShape = async (page: Page, height: number, shape: Shape) => {
     switch (shape.type) {
       case "path":
         bakePath(page, height, shape);
@@ -194,6 +223,9 @@ export async function buildBakedPdf(
       case "text":
         bakeText(page, height, shape);
         break;
+      case "image":
+        await bakeImage(page, height, shape);
+        break;
     }
   };
 
@@ -202,7 +234,7 @@ export async function buildBakedPdf(
     if (shapes.length === 0) continue;
     const page = pages[i];
     const { height } = page.getSize();
-    for (const shape of shapes) bakeShape(page, height, shape);
+    for (const shape of shapes) await bakeShape(page, height, shape);
   }
   return pdf.save();
 }
