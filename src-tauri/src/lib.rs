@@ -21,11 +21,14 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 윈도우가 닫히면 브리지 세션(토큰+라이브 상태)을 정리해 누수를 막는다.
+            // 윈도우가 닫히면 그 윈도우의 브리지 세션·PTY를 정리해 누수/좀비를 막는다.
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
                 if let Some(state) = window.try_state::<bridge::BridgeState>() {
                     state.0.drop_window(window.label());
+                }
+                if let Some(pty) = window.try_state::<terminal::PtyState>() {
+                    pty.drop_window(window.label());
                 }
             }
         })

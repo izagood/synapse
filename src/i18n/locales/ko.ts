@@ -37,7 +37,7 @@ export const ko = {
     toggleSidebar: "사이드바 토글",
     quickOpen: "빠른 열기 ({shortcut})",
     search: "전체 검색 ({shortcut})",
-    terminal: "터미널 토글",
+    terminal: "터미널 토글 ({shortcut})",
     graph: "그래프 뷰 ({shortcut})",
     newWindow: "새 창 ({shortcut}) - 다른 폴더를 동시에",
     openAnotherFolder: "다른 폴더 열기",
@@ -46,6 +46,8 @@ export const ko = {
   },
   terminal: {
     title: "터미널",
+    tabName: "터미널 {n}",
+    new: "새 터미널",
   },
   workspace: {
     newNote: "새 노트",
@@ -324,6 +326,7 @@ export const ko = {
       closeTab: "현재 탭 닫기 (마지막 탭이면 창 닫기)",
       toggleSidebar: "사이드바 토글",
       graph: "그래프 뷰 토글",
+      toggleTerminal: "터미널 토글",
       find: "문서에서 찾기",
       bold: "굵게",
       italic: "기울임",

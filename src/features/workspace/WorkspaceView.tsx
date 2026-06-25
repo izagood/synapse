@@ -9,7 +9,8 @@ import { ActivityBar } from "./ActivityBar";
 import { CreateMenu } from "./CreateMenu";
 import { createTargetDir } from "./fileTreeUtils";
 import { SyncBar } from "../sync/SyncBar";
-import { TerminalPanel } from "../terminal/TerminalPanel";
+import { TerminalDock } from "../terminal/TerminalDock";
+import { useTerminal } from "../../stores/terminal";
 import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
@@ -22,7 +23,6 @@ const SIDEBAR_DEFAULT = 260;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 520;
 const SIDEBAR_KEY = "synapse.sidebarWidth";
-const TERMINAL_PANEL_KEY = "synapse.terminalPanelVisible";
 
 function loadSidebarWidth(): number {
   const saved = Number(localStorage.getItem(SIDEBAR_KEY));
@@ -44,9 +44,8 @@ export function WorkspaceView() {
   const [graph, setGraph] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const [terminalVisible, setTerminalVisible] = useState(
-    () => localStorage.getItem(TERMINAL_PANEL_KEY) === "1",
-  );
+  const terminalVisible = useTerminal((s) => s.visible);
+  const toggleTerminal = useTerminal((s) => s.toggle);
   const historyPath = useHistoryUi((s) => s.path);
   const closeHistory = useHistoryUi((s) => s.close);
   const dragging = useRef(false);
@@ -68,13 +67,6 @@ export function WorkspaceView() {
       if (cur) return null;
       const r = plusBtnRef.current?.getBoundingClientRect();
       return r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 };
-    });
-  }, []);
-
-  const toggleTerminal = useCallback(() => {
-    setTerminalVisible((v) => {
-      localStorage.setItem(TERMINAL_PANEL_KEY, v ? "0" : "1");
-      return !v;
     });
   }, []);
 
@@ -111,6 +103,9 @@ export function WorkspaceView() {
       } else if (isShortcut(e, "view.toggleSidebar")) {
         e.preventDefault();
         setSidebarVisible((v) => !v);
+      } else if (isShortcut(e, "view.toggleTerminal")) {
+        e.preventDefault();
+        toggleTerminal();
       } else if (isShortcut(e, "tab.close")) {
         // 탭이 열려 있으면 현재 탭만 닫는다. 탭이 없으면 가로채지 않고
         // OS 기본 동작(창/앱 닫기)에 맡겨, 마지막 노트까지 닫혔을 때만 앱이 닫힌다.
@@ -123,7 +118,7 @@ export function WorkspaceView() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir]);
+  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir, toggleTerminal]);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -220,7 +215,8 @@ export function WorkspaceView() {
           <div className="content-pane">
             <ContentPane />
           </div>
-          {terminalVisible && <TerminalPanel onClose={toggleTerminal} />}
+          {/* 항상 마운트(터미널 있으면). 숨김은 Dock 내부에서 CSS로 처리 → 토글해도 세션 유지 */}
+          <TerminalDock />
         </main>
       </div>
       <SyncBar />

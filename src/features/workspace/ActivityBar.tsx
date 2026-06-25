@@ -42,6 +42,7 @@ export function ActivityBar({
   const quickOpenShortcut = shortcutLabel(shortcutById("nav.quickOpen").keys);
   const searchShortcut = shortcutLabel(shortcutById("nav.search").keys);
   const graphShortcut = shortcutLabel(shortcutById("view.graph").keys);
+  const terminalShortcut = shortcutLabel(shortcutById("view.toggleTerminal").keys);
   const newWindowShortcut = shortcutLabel(shortcutById("window.new").keys);
   const settingsShortcut = shortcutLabel(shortcutById("settings.toggle").keys);
   const t = useT();
@@ -68,7 +69,7 @@ export function ActivityBar({
         <button
           className={terminalVisible ? "active" : ""}
           onClick={onToggleTerminal}
-          title={t("activity.terminal")}
+          title={t("activity.terminal", { shortcut: terminalShortcut })}
         >
           <TerminalIcon size={18} />
         </button>
