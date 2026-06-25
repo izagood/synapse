@@ -18,13 +18,14 @@ export type ToolKind =
   | "line"
   | "arrow"
   | "rect"
-  | "ellipse";
+  | "ellipse"
+  | "text";
 
 /** 자유곡선을 만드는 펜 계열 도구. */
 export type StrokeTool = "pen" | "highlighter";
 
 /** 저장되는 도형의 종류(판별자). 단계별로 멤버가 늘어난다. */
-export type ShapeType = "path" | "line" | "arrow" | "rect" | "ellipse";
+export type ShapeType = "path" | "line" | "arrow" | "rect" | "ellipse" | "text";
 
 /** 모든 도형이 공유하는 메타. id는 선택/이동/삭제의 대상 식별자다. */
 export interface ShapeBase {
@@ -78,8 +79,33 @@ export interface RectLikeShape extends ShapeBase {
   rect: [number, number, number, number];
 }
 
+/** 텍스트 박스. pos(좌상단) 기준, \n 으로 여러 줄. */
+export interface TextShape extends ShapeBase {
+  type: "text";
+  text: string;
+  /** "#rrggbb" 형식 글자 색 */
+  color: string;
+  /** 글자 크기(pt, scale 1) */
+  fontSize: number;
+  /** 0..1 불투명도(생략 시 1) */
+  opacity?: number;
+  /** 좌상단 기준점 [x,y] (scale 1) */
+  pos: [number, number];
+}
+
 /** 디스크에 저장되는 도형. 단계별로 유니온이 넓어진다. */
-export type Shape = PathShape | LineShape | RectLikeShape;
+export type Shape = PathShape | LineShape | RectLikeShape | TextShape;
+
+/** 텍스트 크기 추정 상수(선택 박스/히트테스트용 근사). */
+const TEXT_CHAR_W = 0.6; // fontSize 대비 평균 글자 폭
+const TEXT_LINE_H = 1.3; // 줄 높이 배수
+
+/** 텍스트의 추정 [폭, 높이] (scale 1). 줄 수·최대 줄 길이 기반 근사. */
+export function textSize(s: TextShape): [number, number] {
+  const lines = s.text.split("\n");
+  const cols = Math.max(1, ...lines.map((l) => l.length));
+  return [cols * s.fontSize * TEXT_CHAR_W, lines.length * s.fontSize * TEXT_LINE_H];
+}
 
 export interface DrawDoc {
   version: 2;
@@ -151,6 +177,8 @@ export function isNonEmptyShape(s: Shape): boolean {
     case "rect":
     case "ellipse":
       return s.rect[2] > 0 || s.rect[3] > 0;
+    case "text":
+      return s.text.trim().length > 0;
   }
 }
 
@@ -219,6 +247,15 @@ function coerceShape(raw: unknown): Shape | null {
     };
   }
 
+  if (type === "text") {
+    if (typeof o.text !== "string" || o.text.length === 0) return null;
+    if (typeof o.color !== "string") return null;
+    if (!isNum(o.fontSize)) return null;
+    const pos = asPoint(o.pos);
+    if (!pos) return null;
+    return { id, type: "text", text: o.text, color: o.color, fontSize: o.fontSize, ...withOpacity, pos };
+  }
+
   // 미지 타입(상위 버전이 저장한 것)은 조용히 버린다.
   return null;
 }
@@ -259,6 +296,16 @@ function serializeShape(s: Shape): Record<string, unknown> {
         ...withOpacity,
         ...(s.radius !== undefined ? { radius: round2(s.radius) } : {}),
         rect: s.rect.map(round2),
+      };
+    case "text":
+      return {
+        id: s.id,
+        type: "text",
+        text: s.text,
+        color: s.color,
+        fontSize: round2(s.fontSize),
+        ...withOpacity,
+        pos: [round2(s.pos[0]), round2(s.pos[1])],
       };
   }
 }
@@ -382,6 +429,15 @@ export function shapeHitsPoint(shape: Shape, x: number, y: number, radius: numbe
         ((y - cy) / Math.max(0.0001, ay - tol)) ** 2;
       return inner >= 1; // 테두리만: 안쪽 구멍 제외
     }
+    case "text": {
+      const [w, h] = textSize(shape);
+      return (
+        x >= shape.pos[0] - radius &&
+        x <= shape.pos[0] + w + radius &&
+        y >= shape.pos[1] - radius &&
+        y <= shape.pos[1] + h + radius
+      );
+    }
   }
 }
 
@@ -438,6 +494,10 @@ export function shapeBounds(s: Shape): [number, number, number, number] {
     case "rect":
     case "ellipse":
       return [s.rect[0], s.rect[1], s.rect[2], s.rect[3]];
+    case "text": {
+      const [w, h] = textSize(s);
+      return [s.pos[0], s.pos[1], w, h];
+    }
   }
 }
 
@@ -452,6 +512,8 @@ export function translateShape(s: Shape, dx: number, dy: number): Shape {
     case "rect":
     case "ellipse":
       return { ...s, rect: [s.rect[0] + dx, s.rect[1] + dy, s.rect[2], s.rect[3]] };
+    case "text":
+      return { ...s, pos: [s.pos[0] + dx, s.pos[1] + dy] };
   }
 }
 
@@ -481,6 +543,8 @@ export function scaleShape(
     case "rect":
     case "ellipse":
       return { ...s, rect: [mapX(s.rect[0]), mapY(s.rect[1]), s.rect[2] * sx, s.rect[3] * sy] };
+    case "text":
+      return { ...s, pos: [mapX(s.pos[0]), mapY(s.pos[1])], fontSize: s.fontSize * sy };
   }
 }
 

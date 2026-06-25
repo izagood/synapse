@@ -261,6 +261,7 @@ export const ko = {
     arrow: "화살표",
     rect: "사각형",
     ellipse: "원",
+    text: "텍스트",
     color: "색",
     fill: "채우기",
     noFill: "채우기 없음",

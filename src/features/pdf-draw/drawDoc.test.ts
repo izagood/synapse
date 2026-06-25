@@ -18,11 +18,13 @@ import {
   translateShape,
   scaleShape,
   topmostShapeAt,
+  textSize,
   DRAW_DOC_VERSION,
   type DrawDoc,
   type PathShape,
   type LineShape,
   type RectLikeShape,
+  type TextShape,
 } from "./drawDoc";
 
 const pen = (points: number[], extra: Partial<PathShape> = {}): PathShape => ({
@@ -373,6 +375,54 @@ describe("선택/편집 기하", () => {
     const b = rc([0, 0, 100, 100], { id: "b", fill: "#ddd" });
     expect(topmostShapeAt([a, b], 50, 50, 1)).toBe("b"); // 나중에 그린 b 가 위
     expect(topmostShapeAt([a, b], 500, 500, 1)).toBeNull();
+  });
+});
+
+describe("텍스트(text)", () => {
+  const txt = (extra: Partial<TextShape> = {}): TextShape => ({
+    id: "t1",
+    type: "text",
+    text: "가나다",
+    color: "#000",
+    fontSize: 16,
+    pos: [10, 20],
+    ...extra,
+  });
+
+  it("직렬화·복원(한글 포함, opacity)", () => {
+    const doc: DrawDoc = { version: 2, pages: { 1: [txt({ text: "한글 abc", opacity: 0.7 })] } };
+    const t = parseDrawDoc(serializeDrawDoc(doc)).pages[1][0] as TextShape;
+    expect(t.type).toBe("text");
+    expect(t.text).toBe("한글 abc");
+    expect(t.fontSize).toBe(16);
+    expect(t.opacity).toBe(0.7);
+    expect(t.pos).toEqual([10, 20]);
+  });
+
+  it("빈 텍스트(내용 없음)는 버린다", () => {
+    const json = JSON.stringify({
+      version: 2,
+      pages: { 1: [{ id: "x", type: "text", text: "", color: "#000", fontSize: 16, pos: [0, 0] }] },
+    });
+    expect(isEmptyDoc(parseDrawDoc(json))).toBe(true);
+  });
+
+  it("isNonEmptyShape: 공백만이면 빈 것", () => {
+    expect(isNonEmptyShape(txt({ text: "   " }))).toBe(false);
+    expect(isNonEmptyShape(txt({ text: "x" }))).toBe(true);
+  });
+
+  it("textSize/shapeBounds: 줄 수·최대 줄 길이 기반", () => {
+    const [w, h] = textSize(txt({ text: "ab\ncde", fontSize: 10 }));
+    expect(h).toBeCloseTo(2 * 10 * 1.3);
+    expect(w).toBeCloseTo(3 * 10 * 0.6);
+    expect(shapeBounds(txt({ fontSize: 10, text: "ab" }))[0]).toBe(10);
+  });
+
+  it("translate/scale: 위치 이동·세로 배율로 글자 크기 조절", () => {
+    expect((translateShape(txt(), 5, 5) as TextShape).pos).toEqual([15, 25]);
+    const sc = scaleShape(txt({ fontSize: 10 }), [10, 20, 100, 100], [10, 20, 100, 200]) as TextShape;
+    expect(sc.fontSize).toBe(20); // sy = 2
   });
 });
 

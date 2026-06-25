@@ -37,8 +37,18 @@ const RENDER_DEBOUNCE_MS = 120;
 const ERASER_SCREEN_PX = 10; // 지우개 반경(화면 px)
 const MIN_POINT_SCREEN_PX = 2; // 점 추가 최소 이동(화면 px) — 좌표 수 절약
 const SELECT_TOL_PX = 8; // 선택/핸들 히트 허용(화면 px)
+const TEXT_DEFAULT_SIZE = 16; // 새 텍스트 기본 크기(pt, scale 1)
 
 type Corner = "nw" | "ne" | "sw" | "se";
+
+interface TextEdit {
+  page: number;
+  x: number; // scale 1 좌표
+  y: number;
+  clientX: number; // 화면 고정 위치
+  clientY: number;
+  scale: number; // 생성 시점 표시 배율(textarea 폰트 px = size*scale)
+}
 
 // 네이티브 iframe 대신 pdf.js로 캔버스 렌더링한다. 트랙패드 핀치(ctrl+휠)/터치 핀치로
 // 확대·축소하면 해당 배율로 다시 렌더해 항상 선명하다. 패닝은 네이티브 스크롤.
@@ -58,6 +68,8 @@ export function PdfViewer({ path }: { path: string }) {
   const [zoom, setZoom] = useState(1);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [menu, setMenu] = useState<{ x: number; y: number; page: number | null } | null>(null);
+  const [textEdit, setTextEdit] = useState<TextEdit | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const t = useT();
 
   const draw = usePdfDraw(path);
@@ -417,6 +429,19 @@ export function PdfViewer({ path }: { path: string }) {
         return;
       }
 
+      if (api.tool === "text") {
+        e.preventDefault();
+        setTextEdit({
+          page: hit.page,
+          x: hit.x,
+          y: hit.y,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          scale: fitScaleRef.current * zoomRef.current || 1,
+        });
+        return;
+      }
+
       if (!api.isDrawing) return;
       e.preventDefault();
       activeId = e.pointerId;
@@ -576,6 +601,25 @@ export function PdfViewer({ path }: { path: string }) {
     setZoom(1);
   };
 
+  // 텍스트 편집 textarea 의 값을 TextShape 로 커밋(빈 값은 버림).
+  const commitText = () => {
+    if (!textEdit) return;
+    const value = textareaRef.current?.value ?? "";
+    if (value.trim()) {
+      const api = drawRef.current;
+      api.commitShape(textEdit.page, {
+        id: newShapeId(),
+        type: "text",
+        text: value,
+        color: api.color,
+        fontSize: TEXT_DEFAULT_SIZE,
+        opacity: api.opacity,
+        pos: [textEdit.x, textEdit.y],
+      });
+    }
+    setTextEdit(null);
+  };
+
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     const wrap = (e.target as HTMLElement).closest<HTMLDivElement>(".pdf-page-wrap");
@@ -619,6 +663,30 @@ export function PdfViewer({ path }: { path: string }) {
           path={path}
           draw={draw}
           onClose={() => setMenu(null)}
+        />
+      )}
+      {textEdit && (
+        <textarea
+          ref={textareaRef}
+          className="pdf-text-input"
+          autoFocus
+          defaultValue=""
+          style={{
+            left: textEdit.clientX,
+            top: textEdit.clientY,
+            fontSize: TEXT_DEFAULT_SIZE * textEdit.scale,
+            color: draw.color,
+          }}
+          onBlur={commitText}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setTextEdit(null);
+            } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              commitText();
+            }
+          }}
         />
       )}
     </div>

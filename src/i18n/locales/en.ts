@@ -267,6 +267,7 @@ export const en: LocaleShape<KoMessages> = {
     arrow: "Arrow",
     rect: "Rectangle",
     ellipse: "Ellipse",
+    text: "Text",
     color: "Color",
     fill: "Fill",
     noFill: "No fill",

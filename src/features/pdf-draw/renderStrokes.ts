@@ -6,7 +6,11 @@ import {
   type PathShape,
   type RectLikeShape,
   type Shape,
+  type TextShape,
 } from "./drawDoc";
+
+/** 텍스트 줄 높이 배수(drawDoc.textSize 와 일치). */
+const TEXT_LINE_H = 1.3;
 
 /** 선택 표시(테두리·핸들) 색. */
 const SELECT_COLOR = "#2563eb";
@@ -92,6 +96,17 @@ function drawRectLike(ctx: CanvasRenderingContext2D, shape: RectLikeShape): void
   ctx.restore();
 }
 
+function drawText(ctx: CanvasRenderingContext2D, t: TextShape): void {
+  ctx.save();
+  ctx.globalAlpha = effectiveOpacity(t);
+  ctx.fillStyle = t.color;
+  ctx.font = `${t.fontSize}px sans-serif`;
+  ctx.textBaseline = "top";
+  const lh = t.fontSize * TEXT_LINE_H;
+  t.text.split("\n").forEach((line, i) => ctx.fillText(line, t.pos[0], t.pos[1] + i * lh));
+  ctx.restore();
+}
+
 /** 한 도형을 type 별로 분기해 그린다. 단계별로 case 가 늘어난다. */
 export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape): void {
   switch (shape.type) {
@@ -105,6 +120,9 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape): void {
     case "rect":
     case "ellipse":
       drawRectLike(ctx, shape);
+      break;
+    case "text":
+      drawText(ctx, shape);
       break;
   }
 }
