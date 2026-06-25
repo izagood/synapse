@@ -2,7 +2,7 @@ import { useT } from "../../i18n";
 import type { PdfDrawApi } from "./usePdfDraw";
 import type { ToolKind } from "./drawDoc";
 
-// 펜/형광펜에 공통으로 쓰는 기본 색 팔레트.
+// 펜/형광펜/도형에 공통으로 쓰는 기본 색 팔레트.
 const COLORS = ["#e02424", "#1f2937", "#2563eb", "#16a34a", "#f59e0b", "#db2777"];
 const WIDTHS: { key: "thin" | "medium" | "thick"; value: number }[] = [
   { key: "thin", value: 2 },
@@ -17,13 +17,28 @@ const TOOL_ICON: Record<ToolKind, string> = {
   pen: "✎",
   highlighter: "🖍",
   eraser: "▱",
+  line: "╱",
+  arrow: "↗",
+  rect: "▭",
+  ellipse: "◯",
 };
 
 export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
   const t = useT();
-  const tools: ToolKind[] = ["move", "pen", "highlighter", "eraser"];
-  // 색/굵기/불투명도는 그리는 도구일 때만 의미가 있다.
-  const showStyle = draw.tool === "pen" || draw.tool === "highlighter";
+  const tools: ToolKind[] = [
+    "move",
+    "pen",
+    "highlighter",
+    "eraser",
+    "line",
+    "arrow",
+    "rect",
+    "ellipse",
+  ];
+  // 색/굵기/불투명도는 그리는 도구일 때만 의미가 있다(이동/지우개 제외).
+  const showStyle = draw.tool !== "move" && draw.tool !== "eraser";
+  // 채우기는 닫힌 도형(사각형/타원)에만 적용한다.
+  const showFill = draw.tool === "rect" || draw.tool === "ellipse";
 
   return (
     <div className="pdf-draw-toolbar" role="toolbar" aria-label={t("pdfDraw.pen")}>
@@ -82,6 +97,33 @@ export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
                   aria-label={c}
                   title={c}
                   onClick={() => draw.setColor(c)}
+                />
+              ))}
+            </div>
+          )}
+
+          {showFill && (
+            <div className="pdf-draw-group" aria-label={t("pdfDraw.fill")}>
+              <button
+                type="button"
+                className={`pdf-draw-swatch pdf-draw-swatch-none${draw.fill === null ? " active" : ""}`}
+                aria-pressed={draw.fill === null}
+                title={t("pdfDraw.noFill")}
+                aria-label={t("pdfDraw.noFill")}
+                onClick={() => draw.setFill(null)}
+              >
+                ⊘
+              </button>
+              {COLORS.map((c) => (
+                <button
+                  key={`fill-${c}`}
+                  type="button"
+                  className={`pdf-draw-swatch${draw.fill === c ? " active" : ""}`}
+                  style={{ background: c }}
+                  aria-pressed={draw.fill === c}
+                  aria-label={c}
+                  title={c}
+                  onClick={() => draw.setFill(c)}
                 />
               ))}
             </div>
