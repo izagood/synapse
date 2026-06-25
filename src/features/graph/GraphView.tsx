@@ -382,8 +382,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
       Math.min(MAX_ZOOM, Math.min((vw * 0.6) / spanX, (vh * 0.6) / spanY)),
     );
     setCam({ k, tx: vw / 2 - cx * k, ty: vh / 2 - cy * k });
-    // sim 위치는 매 tick 바뀌므로 검색어 변화에만 반응한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // sim 위치는 매 tick 바뀌므로 검색어 변화(matches)에만 반응한다.
   }, [matches]);
 
   // ── 휠 줌: non-passive 리스너 + zoomAround ────────────────────

@@ -230,9 +230,9 @@ export function tickSim(s: SimState): SimState {
   // 노드 간 반발 (O(n²))
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      let dx = s.nodes[i].x - s.nodes[j].x;
-      let dy = s.nodes[i].y - s.nodes[j].y;
-      let d2 = dx * dx + dy * dy || 0.01;
+      const dx = s.nodes[i].x - s.nodes[j].x;
+      const dy = s.nodes[i].y - s.nodes[j].y;
+      const d2 = dx * dx + dy * dy || 0.01;
       const d = Math.sqrt(d2);
       const f = (repulsion / d2) * s.alpha;
       const ux = dx / d;
