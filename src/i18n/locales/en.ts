@@ -256,6 +256,10 @@ export const en: LocaleShape<KoMessages> = {
   },
   pdfDraw: {
     move: "Move / scroll",
+    select: "Select",
+    deleteShape: "Delete",
+    bringFront: "Bring to front",
+    sendBack: "Send to back",
     pen: "Pen",
     highlighter: "Highlighter",
     eraser: "Eraser",
