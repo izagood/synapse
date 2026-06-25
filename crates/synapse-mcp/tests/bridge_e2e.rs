@@ -349,14 +349,8 @@ fn graph_overview_tool_roundtrips_over_bridge() {
     assert!(res.get("error").is_none(), "JSON-RPC 오류: {res}");
     assert_ne!(res["result"]["isError"], json!(true), "도구 오류: {res}");
     let text = tool_text(&res);
-    assert!(
-        text.contains("그래프 요약"),
-        "요약 헤더 없음: {text}"
-    );
-    assert!(
-        text.contains("노드 2"),
-        "노드 수 불일치: {text}"
-    );
+    assert!(text.contains("그래프 요약"), "요약 헤더 없음: {text}");
+    assert!(text.contains("노드 2"), "노드 수 불일치: {text}");
 
     let _ = child.kill();
     let _ = child.wait();

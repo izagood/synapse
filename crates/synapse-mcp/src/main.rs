@@ -309,8 +309,8 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
             let root = local_root(&live)?;
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
             let hops = args.get("hops").and_then(Value::as_u64).unwrap_or(1) as usize;
-            let rs = graph_search(&root, query, hops)
-                .map_err(|e| format!("그래프 검색 실패: {e}"))?;
+            let rs =
+                graph_search(&root, query, hops).map_err(|e| format!("그래프 검색 실패: {e}"))?;
             Ok(format_related(query, &rs))
         }),
         "note_path" => ctx.fetch_live().and_then(|live| {
@@ -330,8 +330,7 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
         }),
         "graph_overview" => ctx.fetch_live().and_then(|live| {
             let root = local_root(&live)?;
-            let ov =
-                graph_overview(&root).map_err(|e| format!("그래프 요약 실패: {e}"))?;
+            let ov = graph_overview(&root).map_err(|e| format!("그래프 요약 실패: {e}"))?;
             Ok(format_overview(&ov))
         }),
         other => Err(format!("알 수 없는 도구: {other}")),
@@ -354,9 +353,7 @@ fn local_root(live: &LiveState) -> Result<std::path::PathBuf, String> {
         .as_deref()
         .ok_or_else(|| "워크스페이스가 열려 있지 않습니다".to_string())?;
     if root.starts_with("ssh://") {
-        return Err(
-            "원격(ssh) 워크스페이스에서는 그래프 도구를 쓸 수 없습니다".to_string(),
-        );
+        return Err("원격(ssh) 워크스페이스에서는 그래프 도구를 쓸 수 없습니다".to_string());
     }
     Ok(std::path::PathBuf::from(root))
 }
@@ -444,7 +441,10 @@ fn format_neighbors(path: &str, ns: &[NeighborNote]) -> String {
     }
     let mut s = format!("# '{path}'의 연결 노트 ({}개)\n", ns.len());
     for n in ns {
-        s.push_str(&format!("- {} ({}홉)\n  경로: {}\n", n.name, n.distance, n.path));
+        s.push_str(&format!(
+            "- {} ({}홉)\n  경로: {}\n",
+            n.name, n.distance, n.path
+        ));
     }
     s
 }
@@ -486,7 +486,10 @@ fn format_overview(ov: &GraphOverview) -> String {
         ov.node_count, ov.edge_count, ov.component_count
     );
     for h in &ov.hubs {
-        s.push_str(&format!("- {} (degree {})\n  {}\n", h.name, h.degree, h.path));
+        s.push_str(&format!(
+            "- {} (degree {})\n  {}\n",
+            h.name, h.degree, h.path
+        ));
     }
     s.push_str(&format!("\n## 고립 노트 ({}개)\n", ov.isolated.len()));
     for p in ov.isolated.iter().take(20) {
@@ -654,8 +657,12 @@ mod tests {
     #[test]
     fn tool_defs_includes_graph_tools() {
         let defs = tool_defs();
-        let names: Vec<&str> = defs.as_array().unwrap().iter()
-            .filter_map(|d| d["name"].as_str()).collect();
+        let names: Vec<&str> = defs
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|d| d["name"].as_str())
+            .collect();
         for n in ["note_links", "find_related", "note_path", "graph_overview"] {
             assert!(names.contains(&n), "missing tool: {n}");
         }
@@ -669,8 +676,13 @@ mod tests {
     fn graph_overview_format_lists_hubs() {
         use synapse_core::{GraphOverview, HubNote};
         let ov = GraphOverview {
-            node_count: 3, edge_count: 2,
-            hubs: vec![HubNote { path: "/ws/hub.md".into(), name: "hub.md".into(), degree: 2 }],
+            node_count: 3,
+            edge_count: 2,
+            hubs: vec![HubNote {
+                path: "/ws/hub.md".into(),
+                name: "hub.md".into(),
+                degree: 2,
+            }],
             isolated: vec!["/ws/lone.md".into()],
             component_count: 2,
         };
