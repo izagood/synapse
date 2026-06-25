@@ -21,11 +21,13 @@ describe("buildEditorUrl", () => {
     expect(url.startsWith("vendor/drawio-app/index.html?")).toBe(true);
   });
 
-  it("never enables drawio dark mode (always light canvas)", () => {
+  it("forces light canvas with explicit dark=0 (not by omitting the param)", () => {
+    // dark 를 생략하면 drawio 가 스스로 다크를 판정해(macOS WKWebView 는 OS 다크를
+    // 따라감) 캔버스가 검정으로 떴다. 라이트 고정은 dark="0" 을 *명시* 해야 한다.
     const plain = new URL(buildEditorUrl({ basePath: "a" }), "http://x/").searchParams;
-    expect(plain.get("dark")).toBeNull();
+    expect(plain.get("dark")).toBe("0");
     const withLang = new URL(buildEditorUrl({ basePath: "a", lang: "ko" }), "http://x/").searchParams;
-    expect(withLang.get("dark")).toBeNull();
+    expect(withLang.get("dark")).toBe("0");
   });
 
   it("adds lang only when requested", () => {
