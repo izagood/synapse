@@ -233,6 +233,12 @@ export const mockIpc: SynapseIpc = {
   async disconnectRemote() {
     // 브라우저 mock에서는 원격 세션이 없으므로 no-op
   },
+  async parseSshCommand() {
+    throw new Error("원격 연결은 데스크톱 앱에서만 가능합니다");
+  },
+  async listRemoteDir() {
+    throw new Error("원격 연결은 데스크톱 앱에서만 가능합니다");
+  },
   async listWorkspace(path) {
     if (path !== MOCK_ROOT) throw new Error(`not a directory: ${path}`);
     return buildMockTree();

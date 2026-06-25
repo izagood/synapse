@@ -47,6 +47,8 @@ pub fn run() {
             commands::list_workspace,
             remote::connect_remote,
             remote::disconnect_remote,
+            remote::parse_ssh_command,
+            remote::list_remote_dir,
             commands::read_file,
             commands::write_file,
             commands::save_doc,

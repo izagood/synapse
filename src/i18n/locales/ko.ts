@@ -16,14 +16,12 @@ export const ko = {
     recentFolders: "최근 폴더",
     remote: {
       title: "원격 폴더 열기 (SSH)",
-      host: "호스트",
-      port: "포트",
-      user: "사용자",
-      path: "경로 (비우면 홈 디렉토리)",
-      keyPath: "SSH 키 경로 (선택)",
-      browse: "찾아보기…",
-      password: "비밀번호 (선택)",
+      commandPlaceholder: "ssh user@host -p 22 -i ~/.ssh/key",
+      commandHint: "ssh 명령어를 붙여넣으세요. ~/.ssh/config 별칭도 됩니다.",
+      password: "비밀번호",
       passphrase: "키 passphrase (선택)",
+      passwordNeeded:
+        "SSH 에이전트/키로 인증하지 못했습니다. 비밀번호를 입력해 다시 시도하세요.",
       connect: "연결",
       connecting: "연결 중…",
       cancel: "취소",
@@ -31,6 +29,11 @@ export const ko = {
       trustAndConnect: "신뢰하고 연결",
       hostKeyMismatch:
         "경고: 호스트키가 기록과 다릅니다(fingerprint: {fingerprint}). 중간자 공격일 수 있어 연결을 거부했습니다.",
+      browseTitle: "열 폴더를 고르세요",
+      parentDir: "상위 디렉터리",
+      openThisFolder: "이 폴더 열기",
+      emptyDir: "하위 폴더가 없습니다",
+      loadingDir: "불러오는 중…",
     },
   },
   activity: {
