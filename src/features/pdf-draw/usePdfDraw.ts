@@ -7,9 +7,11 @@ import {
   eraseShapesAt,
   HIGHLIGHTER_OPACITY,
   isNonEmptyShape,
+  newShapeId,
   parseDrawDoc,
   serializeDrawDoc,
   shapesOnPage,
+  translateShape,
   type DrawDoc,
   type Shape,
   type ToolKind,
@@ -47,6 +49,8 @@ export interface PdfDrawApi {
   updateShape: (page: number, id: string, next: Shape) => void;
   /** 선택 도형 삭제 */
   removeSelected: () => void;
+  /** 선택 도형을 약간 어긋나게 복제하고 사본을 선택 */
+  duplicateSelected: () => void;
   /** 선택 도형을 z-순서 맨 앞/뒤로 */
   bringSelectedToFront: () => void;
   sendSelectedToBack: () => void;
@@ -339,6 +343,21 @@ export function usePdfDraw(path: string): PdfDrawApi {
   const bringSelectedToFront = useCallback(() => reorderSelected(true), [reorderSelected]);
   const sendSelectedToBack = useCallback(() => reorderSelected(false), [reorderSelected]);
 
+  const duplicateSelected = useCallback(() => {
+    if (!selection) return;
+    const { page, id } = selection;
+    const arr = docRef.current.pages[page];
+    const sh = arr?.find((s) => s.id === id);
+    if (!arr || !sh) return;
+    const copy: Shape = { ...translateShape(sh, 10, 10), id: newShapeId() };
+    pushUndo(page);
+    docRef.current.pages[page] = [...arr, copy];
+    setShapeCount(countShapes(docRef.current));
+    bumpRevision();
+    scheduleSave();
+    setSelection({ page, id: copy.id });
+  }, [selection, pushUndo, scheduleSave, bumpRevision]);
+
   const effectiveWidth = useCallback(() => {
     return tool === "highlighter" ? width * 4 : width;
   }, [tool, width]);
@@ -363,6 +382,7 @@ export function usePdfDraw(path: string): PdfDrawApi {
     clearSelection,
     updateShape,
     removeSelected,
+    duplicateSelected,
     bringSelectedToFront,
     sendSelectedToBack,
     effectiveWidth,

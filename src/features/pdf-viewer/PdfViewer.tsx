@@ -17,10 +17,14 @@ import {
   scaleShape,
   shapeBounds,
   shapesOnPage,
+  snapMove,
   topmostShapeAt,
   translateShape,
   type Shape,
 } from "../pdf-draw/drawDoc";
+
+/** 스냅 가이드선 좌표(scale 1). */
+type Guides = { vx: number | null; hy: number | null };
 import { PdfDrawToolbar } from "../pdf-draw/PdfDrawToolbar";
 import { PdfDrawMenu } from "../pdf-draw/PdfDrawMenu";
 
@@ -88,7 +92,7 @@ export function PdfViewer({ path }: { path: string }) {
   // pdf 캔버스와 함께 CSS 로만 확대/축소되므로 표시 배율과 무관하게 이 값으로 그린다.
   // extra: 진행 중 새 도형. preview: 편집 중 도형(같은 id 를 치환해 그린다).
   const redrawPage = useCallback(
-    (page: number, extra?: Shape | null, preview?: Shape | null) => {
+    (page: number, extra?: Shape | null, preview?: Shape | null, guides?: Guides | null) => {
       const host = pagesRef.current;
       if (!host) return;
       const overlay = host.querySelector<HTMLCanvasElement>(
@@ -107,7 +111,16 @@ export function PdfViewer({ path }: { path: string }) {
         const sel = drawRef.current.selection;
         if (sel && sel.page === page) selected = arr.find((s) => s.id === sel.id) ?? null;
       }
-      redrawOverlay(overlay, arr, scale, dprRef.current, extra, selected, imageCacheRef.current);
+      redrawOverlay(
+        overlay,
+        arr,
+        scale,
+        dprRef.current,
+        extra,
+        selected,
+        imageCacheRef.current,
+        guides,
+      );
     },
     [],
   );
@@ -296,6 +309,9 @@ export function PdfViewer({ path }: { path: string }) {
         draw.removeSelected();
       } else if (e.key === "Escape") {
         draw.clearSelection();
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        draw.duplicateSelected();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -568,12 +584,30 @@ export function PdfViewer({ path }: { path: string }) {
       if (api.tool === "select") {
         if (!editOrig || !editMode) return;
         e.preventDefault();
-        const preview =
-          editMode === "move"
-            ? translateShape(editOrig, hit.x - dragX, hit.y - dragY)
-            : scaleShape(editOrig, editBounds, resizeBounds(editBounds, editCorner ?? "se", hit.x, hit.y));
-        editPreview = preview;
-        redrawPage(curPage, null, preview);
+        if (editMode === "move") {
+          let preview = translateShape(editOrig, hit.x - dragX, hit.y - dragY);
+          // 같은 페이지의 다른 도형 가장자리/중심에 스냅.
+          const doc = drawRef.current.docRef.current;
+          const origId = editOrig.id;
+          const others = doc
+            ? shapesOnPage(doc, curPage)
+                .filter((s) => s.id !== origId)
+                .map(shapeBounds)
+            : [];
+          const tol = SELECT_TOL_PX / (fitScaleRef.current * zoomRef.current || 1);
+          const snap = snapMove(shapeBounds(preview), others, tol);
+          if (snap.dx || snap.dy) preview = translateShape(preview, snap.dx, snap.dy);
+          editPreview = preview;
+          redrawPage(curPage, null, preview, { vx: snap.vx, hy: snap.hy });
+        } else {
+          const preview = scaleShape(
+            editOrig,
+            editBounds,
+            resizeBounds(editBounds, editCorner ?? "se", hit.x, hit.y),
+          );
+          editPreview = preview;
+          redrawPage(curPage, null, preview);
+        }
         return;
       }
       if (api.tool === "eraser") {
