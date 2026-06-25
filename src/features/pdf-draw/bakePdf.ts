@@ -4,7 +4,9 @@ import {
   shapesOnPage,
   strokeToSvgPath,
   type DrawDoc,
+  type LineShape,
   type PathShape,
+  type RectLikeShape,
   type Shape,
 } from "./drawDoc";
 
@@ -57,25 +59,97 @@ export async function buildBakedPdf(
   const pages = pdf.getPages();
 
   // pdf-lib 의 rgb/LineCapStyle 을 클로저로 캡처해 도형별 베이커에 넘긴다.
-  const bakePath = (page: (typeof pages)[number], height: number, path: PathShape) => {
+  type Page = (typeof pages)[number];
+  const toRgb = (hex: string) => {
+    const { r, g, b } = hexToRgb01(hex);
+    return rgb(r, g, b);
+  };
+  // scale1(top-left, y-down) → pdf 페이지 좌표(bottom-left, y-up).
+  const flipY = (height: number, y: number) => height - y;
+
+  const bakePath = (page: Page, height: number, path: PathShape) => {
     const d = strokeToSvgPath(path.points);
     if (!d) return;
-    const { r, g, b } = hexToRgb01(path.color);
     page.drawSvgPath(d, {
       x: 0,
       y: height,
       scale: 1,
-      borderColor: rgb(r, g, b),
+      borderColor: toRgb(path.color),
       borderWidth: path.width,
       borderOpacity: effectiveOpacity(path),
       borderLineCap: LineCapStyle.Round,
     });
   };
 
-  const bakeShape = (page: (typeof pages)[number], height: number, shape: Shape) => {
+  const bakeLine = (page: Page, height: number, line: LineShape) => {
+    const col = toRgb(line.color);
+    const op = effectiveOpacity(line);
+    const start = { x: line.a[0], y: flipY(height, line.a[1]) };
+    const end = { x: line.b[0], y: flipY(height, line.b[1]) };
+    const seg = { thickness: line.width, color: col, opacity: op, lineCap: LineCapStyle.Round };
+    page.drawLine({ start, end, ...seg });
+    if (line.type === "arrow") {
+      // 화살촉: pdf 좌표(y-up)에서 끝점 뒤로 두 갈래.
+      const angle = Math.atan2(end.y - start.y, end.x - start.x);
+      const len = Math.max(8, line.width * 3);
+      const spread = Math.PI / 7;
+      const h1 = {
+        x: end.x - len * Math.cos(angle - spread),
+        y: end.y - len * Math.sin(angle - spread),
+      };
+      const h2 = {
+        x: end.x - len * Math.cos(angle + spread),
+        y: end.y - len * Math.sin(angle + spread),
+      };
+      page.drawLine({ start: end, end: h1, ...seg });
+      page.drawLine({ start: end, end: h2, ...seg });
+    }
+  };
+
+  const bakeRectLike = (page: Page, height: number, shape: RectLikeShape) => {
+    const [x, y, w, h] = shape.rect;
+    const op = effectiveOpacity(shape);
+    const fillCol = shape.fill ? toRgb(shape.fill) : undefined;
+    const strokeCol = shape.stroke ? toRgb(shape.stroke) : undefined;
+    const common = {
+      color: fillCol,
+      opacity: fillCol ? op : undefined,
+      borderColor: strokeCol,
+      borderWidth: strokeCol ? shape.width : undefined,
+      borderOpacity: strokeCol ? op : undefined,
+    };
+    if (shape.type === "ellipse") {
+      // drawEllipse 의 x,y 는 중심. (둥근 모서리 radius 는 베이크에서 무시 — 화면 전용)
+      page.drawEllipse({
+        x: x + w / 2,
+        y: flipY(height, y + h / 2),
+        xScale: w / 2,
+        yScale: h / 2,
+        ...common,
+      });
+    } else {
+      page.drawRectangle({
+        x,
+        y: flipY(height, y + h), // 좌하단 모서리
+        width: w,
+        height: h,
+        ...common,
+      });
+    }
+  };
+
+  const bakeShape = (page: Page, height: number, shape: Shape) => {
     switch (shape.type) {
       case "path":
         bakePath(page, height, shape);
+        break;
+      case "line":
+      case "arrow":
+        bakeLine(page, height, shape);
+        break;
+      case "rect":
+      case "ellipse":
+        bakeRectLike(page, height, shape);
         break;
     }
   };

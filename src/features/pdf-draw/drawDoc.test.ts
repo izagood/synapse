@@ -13,9 +13,12 @@ import {
   strokeToSvgPath,
   smoothPath,
   effectiveOpacity,
+  isNonEmptyShape,
   DRAW_DOC_VERSION,
   type DrawDoc,
   type PathShape,
+  type LineShape,
+  type RectLikeShape,
 } from "./drawDoc";
 
 const pen = (points: number[], extra: Partial<PathShape> = {}): PathShape => ({
@@ -46,9 +49,9 @@ describe("DrawDoc 직렬화", () => {
     };
     const restored = parseDrawDoc(serializeDrawDoc(doc));
     expect(countShapes(restored)).toBe(2);
-    expect(restored.pages[1][0].points).toEqual([10, 20, 30, 40]);
+    expect((restored.pages[1][0] as PathShape).points).toEqual([10, 20, 30, 40]);
     expect(restored.pages[1][0].id).toBe("p1");
-    expect(restored.pages[3][0].tool).toBe("highlighter");
+    expect((restored.pages[3][0] as PathShape).tool).toBe("highlighter");
   });
 
   it("좌표를 소수 2자리로 반올림한다", () => {
@@ -129,12 +132,12 @@ describe("v1 → v2 마이그레이션", () => {
     const doc = parseDrawDoc(v1);
     expect(doc.version).toBe(2);
     expect(countShapes(doc)).toBe(2);
-    const s = doc.pages[1][0];
+    const s = doc.pages[1][0] as PathShape;
     expect(s.type).toBe("path");
     expect(s.tool).toBe("pen");
     expect(s.points).toEqual([10, 20, 30, 40]);
     expect(typeof s.id).toBe("string");
-    expect(doc.pages[2][0].tool).toBe("highlighter");
+    expect((doc.pages[2][0] as PathShape).tool).toBe("highlighter");
   });
 
   it("v1 문서를 다시 저장하면 v2 로 굳는다", () => {
@@ -214,6 +217,108 @@ describe("곡선 스무딩 / SVG path", () => {
     expect(sp?.startX).toBe(0);
     expect(sp?.startY).toBe(0);
     expect((sp?.segs.length ?? 0) >= 2).toBe(true);
+  });
+});
+
+describe("도형(line/arrow/rect/ellipse)", () => {
+  const line = (a: [number, number], b: [number, number], extra: Partial<LineShape> = {}): LineShape => ({
+    id: "l1",
+    type: "line",
+    color: "#000",
+    width: 2,
+    a,
+    b,
+    ...extra,
+  });
+  const rect = (r: [number, number, number, number], extra: Partial<RectLikeShape> = {}): RectLikeShape => ({
+    id: "r1",
+    type: "rect",
+    stroke: "#000",
+    width: 2,
+    rect: r,
+    ...extra,
+  });
+
+  it("line/arrow 를 직렬화·복원한다(opacity 포함)", () => {
+    const doc: DrawDoc = {
+      version: 2,
+      pages: {
+        1: [line([0, 0], [10, 10]), line([1, 1], [5, 5], { id: "a1", type: "arrow", opacity: 0.5 })],
+      },
+    };
+    const r = parseDrawDoc(serializeDrawDoc(doc));
+    expect(countShapes(r)).toBe(2);
+    expect(r.pages[1][0].type).toBe("line");
+    expect((r.pages[1][0] as LineShape).b).toEqual([10, 10]);
+    expect(r.pages[1][1].type).toBe("arrow");
+    expect(r.pages[1][1].opacity).toBe(0.5);
+  });
+
+  it("rect/ellipse 를 직렬화·복원한다(stroke/fill/radius)", () => {
+    const doc: DrawDoc = {
+      version: 2,
+      pages: {
+        1: [
+          rect([0, 0, 10, 20], { fill: "#eee", radius: 4 }),
+          rect([5, 5, 30, 30], { id: "e1", type: "ellipse", stroke: "#00f", width: 1 }),
+        ],
+      },
+    };
+    const r = parseDrawDoc(serializeDrawDoc(doc));
+    expect(countShapes(r)).toBe(2);
+    const got = r.pages[1][0] as RectLikeShape;
+    expect(got.type).toBe("rect");
+    expect(got.fill).toBe("#eee");
+    expect(got.radius).toBe(4);
+    expect(got.rect).toEqual([0, 0, 10, 20]);
+    expect(r.pages[1][1].type).toBe("ellipse");
+  });
+
+  it("stroke·fill 둘 다 없는 rect 는 보이지 않으므로 버린다", () => {
+    const json = JSON.stringify({
+      version: 2,
+      pages: { 1: [{ id: "x", type: "rect", width: 2, rect: [0, 0, 5, 5] }] },
+    });
+    expect(isEmptyDoc(parseDrawDoc(json))).toBe(true);
+  });
+
+  it("좌표가 불완전한 도형은 버린다", () => {
+    const json = JSON.stringify({
+      version: 2,
+      pages: {
+        1: [
+          { id: "l", type: "line", color: "#000", width: 2, a: [0, 0] }, // b 없음
+          { id: "r", type: "rect", stroke: "#000", width: 2, rect: [0, 0, 5] }, // rect 길이 3
+        ],
+      },
+    });
+    expect(isEmptyDoc(parseDrawDoc(json))).toBe(true);
+  });
+
+  it("isNonEmptyShape: 길이 0 line·0 크기 rect 는 빈 것", () => {
+    expect(isNonEmptyShape(line([3, 3], [3, 3]))).toBe(false);
+    expect(isNonEmptyShape(rect([0, 0, 0, 0]))).toBe(false);
+    expect(isNonEmptyShape(rect([0, 0, 5, 0]))).toBe(true); // 한 변이라도 있으면
+  });
+
+  it("shapeHitsPoint(line): 선분 근처만 히트", () => {
+    const l = line([0, 0], [100, 0]);
+    expect(shapeHitsPoint(l, 50, 0, 1)).toBe(true);
+    expect(shapeHitsPoint(l, 50, 20, 1)).toBe(false);
+  });
+
+  it("shapeHitsPoint(rect): 채우면 내부도, 테두리만이면 내부 비히트", () => {
+    const filled = rect([0, 0, 100, 100], { fill: "#eee" });
+    expect(shapeHitsPoint(filled, 50, 50, 1)).toBe(true);
+    const bordered = rect([0, 0, 100, 100]);
+    expect(shapeHitsPoint(bordered, 50, 50, 1)).toBe(false);
+    expect(shapeHitsPoint(bordered, 0, 50, 1)).toBe(true); // 왼쪽 테두리
+  });
+
+  it("shapeHitsPoint(ellipse): 채운 타원 내부 히트", () => {
+    const e = rect([0, 0, 100, 50], { id: "e", type: "ellipse", fill: "#eee" });
+    expect(shapeHitsPoint(e, 50, 25, 1)).toBe(true); // 중심
+    expect(shapeHitsPoint(e, 2, 2, 1)).toBe(false); // 모서리(타원 밖)
   });
 });
 
