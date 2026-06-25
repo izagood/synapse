@@ -1748,6 +1748,34 @@ body.resizing-sidebar {
   border-radius: 50%;
 }
 
+/* 커스텀 색 선택: 무지개 스와치 위에 투명한 color input 을 겹친다. */
+.pdf-draw-swatch-custom {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  background: conic-gradient(red, #ff0, lime, cyan, blue, magenta, red);
+}
+
+.pdf-draw-swatch-custom input[type="color"] {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pdf-draw-range {
+  width: 84px;
+  cursor: pointer;
+  accent-color: var(--fg);
+}
+
 .context-menu-note {
   padding: 6px 12px;
   font-size: 0.8rem;

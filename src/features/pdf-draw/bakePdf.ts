@@ -1,6 +1,6 @@
 import { resolveAssetUrl } from "../../ipc/ipc";
 import {
-  HIGHLIGHTER_OPACITY,
+  effectiveOpacity,
   shapesOnPage,
   strokeToSvgPath,
   type DrawDoc,
@@ -67,7 +67,7 @@ export async function buildBakedPdf(
       scale: 1,
       borderColor: rgb(r, g, b),
       borderWidth: path.width,
-      borderOpacity: path.tool === "highlighter" ? HIGHLIGHTER_OPACITY : 1,
+      borderOpacity: effectiveOpacity(path),
       borderLineCap: LineCapStyle.Round,
     });
   };

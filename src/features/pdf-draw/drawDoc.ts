@@ -31,6 +31,8 @@ export interface PathShape extends ShapeBase {
   color: string;
   /** scale 1 페이지 좌표 단위(pt) 선 굵기 */
   width: number;
+  /** 0..1 불투명도. 생략하면 도구 기본값(형광펜 0.4, 펜 1)을 쓴다. */
+  opacity?: number;
   /** 평탄화된 좌표열 [x0,y0,x1,y1,...] (scale 1 좌표) */
   points: number[];
 }
@@ -45,8 +47,14 @@ export interface DrawDoc {
 }
 
 export const DRAW_DOC_VERSION = 2 as const;
-/** 형광펜 불투명도(펜은 1.0). 베이크/렌더 양쪽에서 동일하게 쓴다. */
+/** 형광펜 기본 불투명도(펜은 1.0). 사용자가 opacity 를 지정하면 그 값이 우선. */
 export const HIGHLIGHTER_OPACITY = 0.4;
+
+/** path 의 실제 불투명도. opacity 가 있으면 그 값, 없으면 도구 기본값. */
+export function effectiveOpacity(shape: PathShape): number {
+  if (typeof shape.opacity === "number") return shape.opacity;
+  return shape.tool === "highlighter" ? HIGHLIGHTER_OPACITY : 1;
+}
 
 /** 짧은 도형 식별자. 페이지당 도형 수가 적어 충돌 확률은 무시 가능. */
 export function newShapeId(): string {
@@ -102,12 +110,17 @@ function coerceShape(raw: unknown): Shape | null {
     ) {
       return null;
     }
+    const opacity =
+      typeof o.opacity === "number" && Number.isFinite(o.opacity)
+        ? Math.max(0, Math.min(1, o.opacity))
+        : undefined;
     return {
       id: typeof o.id === "string" && o.id.length > 0 ? o.id : newShapeId(),
       type: "path",
       tool: o.tool,
       color: o.color,
       width: o.width,
+      ...(opacity !== undefined ? { opacity } : {}),
       points: o.points as number[],
     };
   }
@@ -125,6 +138,7 @@ function serializeShape(s: Shape): Record<string, unknown> {
         tool: s.tool,
         color: s.color,
         width: round2(s.width),
+        ...(s.opacity !== undefined ? { opacity: round2(s.opacity) } : {}),
         points: s.points.map(round2),
       };
   }
@@ -230,21 +244,68 @@ export function eraseShapesAt(
   return shapes.filter((s) => !shapeHitsPoint(s, x, y, radius));
 }
 
-// ---- 베이크 (SVG path) ----
+// ---- 곡선 스무딩 (화면 렌더·베이크 공유) ----
+
+/** 2차 베지어 한 구간: 제어점 (cx,cy) → 끝점 (x,y). */
+export interface QuadSeg {
+  cx: number;
+  cy: number;
+  x: number;
+  y: number;
+}
+
+/** moveTo 시작점 + 2차 베지어 구간들. */
+export interface SmoothPath {
+  startX: number;
+  startY: number;
+  segs: QuadSeg[];
+}
 
 /**
- * 좌표열을 SVG path 데이터로 변환한다(pdf-lib drawSvgPath 입력).
- * 점이 하나뿐이면 아주 짧은 선분을 만들어 점이 찍히게 한다.
+ * 좌표열 [x0,y0,...] 을 부드러운 2차 베지어 경로로 변환한다(중점 기법).
+ * 각 내부 점을 제어점으로, 인접 점과의 중점을 끝점으로 삼아 모서리를 둥글린다.
+ * 화면(canvas quadraticCurveTo)과 베이크(SVG Q)가 같은 곡선을 그리도록 공유한다.
+ * 점이 없으면 null. 점 하나면 같은 자리로 미세 구간을 만들어 점이 찍히게 한다.
  */
+export function smoothPath(points: number[]): SmoothPath | null {
+  const n = Math.floor(points.length / 2);
+  if (n < 1) return null;
+  const startX = points[0];
+  const startY = points[1];
+  const segs: QuadSeg[] = [];
+
+  if (n === 1) {
+    // 단일 점 → 같은 자리로 미세 구간(둥근 캡이 점처럼 보임)
+    segs.push({ cx: startX, cy: startY, x: startX + 0.01, y: startY + 0.01 });
+    return { startX, startY, segs };
+  }
+  if (n === 2) {
+    // 두 점 → 직선(제어점을 시작점에 둬 사실상 직선)
+    segs.push({ cx: startX, cy: startY, x: points[2], y: points[3] });
+    return { startX, startY, segs };
+  }
+  // 3점 이상 → 내부 점은 제어점, 끝점은 인접 중점.
+  for (let i = 1; i < n - 1; i++) {
+    const px = points[i * 2];
+    const py = points[i * 2 + 1];
+    const nx = points[(i + 1) * 2];
+    const ny = points[(i + 1) * 2 + 1];
+    segs.push({ cx: px, cy: py, x: (px + nx) / 2, y: (py + ny) / 2 });
+  }
+  // 마지막 점으로 마무리.
+  const lx = points[(n - 1) * 2];
+  const ly = points[(n - 1) * 2 + 1];
+  segs.push({ cx: lx, cy: ly, x: lx, y: ly });
+  return { startX, startY, segs };
+}
+
+// ---- 베이크 (SVG path) ----
+
+/** 좌표열을 부드러운 SVG path 데이터로 변환한다(pdf-lib drawSvgPath 입력). */
 export function strokeToSvgPath(points: number[]): string {
-  if (points.length < 2) return "";
-  const cmds: string[] = [`M ${points[0]} ${points[1]}`];
-  for (let i = 2; i + 1 < points.length; i += 2) {
-    cmds.push(`L ${points[i]} ${points[i + 1]}`);
-  }
-  if (points.length === 2) {
-    // 단일 점 → 같은 자리로 미세 선분(둥근 캡이 점처럼 보임)
-    cmds.push(`L ${points[0] + 0.01} ${points[1] + 0.01}`);
-  }
-  return cmds.join(" ");
+  const sp = smoothPath(points);
+  if (!sp) return "";
+  let d = `M ${sp.startX} ${sp.startY}`;
+  for (const s of sp.segs) d += ` Q ${s.cx} ${s.cy} ${s.x} ${s.y}`;
+  return d;
 }

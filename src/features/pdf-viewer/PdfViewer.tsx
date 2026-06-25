@@ -292,6 +292,7 @@ export function PdfViewer({ path }: { path: string }) {
         tool: api.tool === "highlighter" ? "highlighter" : "pen",
         color: api.color,
         width: api.effectiveWidth(),
+        opacity: api.opacity,
         points: [hit.x, hit.y],
       };
       redrawPage(hit.page, curShape);
