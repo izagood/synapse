@@ -171,6 +171,56 @@ pub fn neighbors(root: &Path, target: &Path, dir: Direction, depth: usize)
     Ok(out)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HubNote { pub path: String, pub name: String, pub degree: usize }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphOverview {
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub hubs: Vec<HubNote>,
+    pub isolated: Vec<String>,
+    pub component_count: usize,
+}
+
+const OVERVIEW_TOP_HUBS: usize = 10;
+
+pub fn graph_overview(root: &Path) -> io::Result<GraphOverview> {
+    let graph = build_graph(root)?;
+    let adj = adjacency(&graph);
+    let n = adj.paths.len();
+    let degree: Vec<usize> = (0..n).map(|i| adj.out[i].len() + adj.in_[i].len()).collect();
+
+    let mut hubs: Vec<HubNote> = (0..n).filter(|&i| degree[i] > 0).map(|i| HubNote {
+        path: adj.paths[i].clone(), name: adj.names[i].clone(), degree: degree[i],
+    }).collect();
+    hubs.sort_by(|a, b| b.degree.cmp(&a.degree).then(a.path.cmp(&b.path)));
+    hubs.truncate(OVERVIEW_TOP_HUBS);
+
+    let isolated: Vec<String> = (0..n).filter(|&i| degree[i] == 0)
+        .map(|i| adj.paths[i].clone()).collect();
+
+    // 연결 컴포넌트 수(무방향 union-find)
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut Vec<usize>, x: usize) -> usize {
+        if p[x] != x { let r = find(p, p[x]); p[x] = r; } p[x]
+    }
+    for u in 0..n {
+        for &v in &adj.out[u] {
+            let (ru, rv) = (find(&mut parent, u), find(&mut parent, v));
+            if ru != rv { parent[ru] = rv; }
+        }
+    }
+    let component_count = (0..n).filter(|&i| find(&mut parent, i) == i).count();
+
+    Ok(GraphOverview {
+        node_count: n, edge_count: graph.edges.len(),
+        hubs, isolated, component_count,
+    })
+}
+
 /// from→to 최단 연결 경로(엣지를 양방향으로 취급). 경로 없으면 None.
 pub fn path_between(root: &Path, from: &Path, to: &Path) -> io::Result<Option<Vec<PathStep>>> {
     let graph = build_graph(root)?;
@@ -208,6 +258,21 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn overview_reports_hubs_isolated_and_components() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::write(root.join("hub.md"), "[a](a.md) [b](b.md)").unwrap(); // degree 2 (out)
+        fs::write(root.join("a.md"), "back [[hub]]").unwrap();
+        fs::write(root.join("b.md"), "leaf").unwrap();
+        fs::write(root.join("lone.md"), "고립").unwrap();               // degree 0
+        let ov = graph_overview(&root).unwrap();
+        assert_eq!(ov.node_count, 4);
+        assert_eq!(ov.hubs.first().unwrap().name, "hub.md");
+        assert!(ov.isolated.iter().any(|p| p.ends_with("lone.md")));
+        assert_eq!(ov.component_count, 2); // {hub,a,b} 와 {lone}
+    }
 
     // 임시 워크스페이스: a→b, b→c (마크다운 링크)
     fn fixture() -> (tempfile::TempDir, PathBuf) {
