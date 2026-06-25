@@ -78,7 +78,11 @@ pub fn graph_search(root: &Path, query: &str, hops: usize) -> io::Result<Vec<Rel
         return Ok(Vec::new());
     }
 
-    let graph = build_graph(root)?;
+    // build_graph는 내부에서 root를 canonicalize하지만 search_workspace는 받은 root를
+    // 그대로 노드 경로로 쓴다. 두 경로 표현(특히 Windows의 `\\?\` UNC verbatim)이
+    // 어긋나면 index_of 문자열 매칭이 깨지므로, 양쪽에 같은 canonical root를 넘긴다.
+    let root = root.canonicalize()?;
+    let graph = build_graph(&root)?;
     let adj = adjacency(&graph);
 
     // 1) 시드: 키워드별 검색 → 노트별 매칭 키워드 수 누적 + 대표 스니펫
@@ -89,7 +93,7 @@ pub fn graph_search(root: &Path, query: &str, hops: usize) -> io::Result<Vec<Rel
         ..SearchOptions::default()
     };
     for kw in &keywords {
-        for hit in search_workspace(root, kw, &sopts) {
+        for hit in search_workspace(&root, kw, &sopts) {
             if let Some(i) = adj.index_of(&hit.path) {
                 *seed_score.entry(i).or_insert(0) += 10;
                 snippet.entry(i).or_insert_with(|| {
