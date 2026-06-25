@@ -646,6 +646,59 @@ export function smoothPath(points: number[]): SmoothPath | null {
   return { startX, startY, segs };
 }
 
+// ---- 스냅 정렬 (이동 보조) ----
+
+/** 스냅 결과: 보정량 dx/dy + 스냅된 정렬선 좌표(vx 세로선, hy 가로선, 없으면 null). */
+export interface SnapGuides {
+  dx: number;
+  dy: number;
+  vx: number | null;
+  hy: number | null;
+}
+
+/**
+ * moving bbox 의 좌/중/우·상/중/하 모서리를 others 의 같은 모서리들과 맞춰,
+ * tol 안이면 가장 가까운 것으로 스냅한다. 화면 가이드선 좌표도 함께 돌려준다.
+ */
+export function snapMove(
+  moving: [number, number, number, number],
+  others: [number, number, number, number][],
+  tol: number,
+): SnapGuides {
+  const [mx, my, mw, mh] = moving;
+  const mXs = [mx, mx + mw / 2, mx + mw];
+  const mYs = [my, my + mh / 2, my + mh];
+  let bestDx = 0;
+  let vx: number | null = null;
+  let distX = tol + 1;
+  let bestDy = 0;
+  let hy: number | null = null;
+  let distY = tol + 1;
+  for (const [ox, oy, ow, oh] of others) {
+    for (const a of mXs) {
+      for (const b of [ox, ox + ow / 2, ox + ow]) {
+        const d = Math.abs(a - b);
+        if (d <= tol && d < distX) {
+          distX = d;
+          bestDx = b - a;
+          vx = b;
+        }
+      }
+    }
+    for (const a of mYs) {
+      for (const b of [oy, oy + oh / 2, oy + oh]) {
+        const d = Math.abs(a - b);
+        if (d <= tol && d < distY) {
+          distY = d;
+          bestDy = b - a;
+          hy = b;
+        }
+      }
+    }
+  }
+  return { dx: bestDx, dy: bestDy, vx, hy };
+}
+
 // ---- 베이크 (SVG path) ----
 
 /** 좌표열을 부드러운 SVG path 데이터로 변환한다(pdf-lib drawSvgPath 입력). */

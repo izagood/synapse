@@ -180,6 +180,33 @@ function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape, scale: numbe
  * extra 는 진행 중인(아직 커밋 안 된) 도형 — 있으면 마지막에 덧그린다.
  * selected 가 있으면 그 위에 선택 표시(핸들)를 얹는다.
  */
+/** 스냅 정렬 가이드선(vx 세로·hy 가로)을 페이지 전체에 점선으로 그린다. */
+function drawGuides(
+  ctx: CanvasRenderingContext2D,
+  guides: { vx: number | null; hy: number | null },
+  scale: number,
+): void {
+  const px = 1 / (scale || 1);
+  ctx.save();
+  ctx.strokeStyle = "#db2777";
+  ctx.lineWidth = px;
+  ctx.setLineDash([3 * px, 3 * px]);
+  const FAR = 100000;
+  if (guides.vx != null) {
+    ctx.beginPath();
+    ctx.moveTo(guides.vx, -FAR);
+    ctx.lineTo(guides.vx, FAR);
+    ctx.stroke();
+  }
+  if (guides.hy != null) {
+    ctx.beginPath();
+    ctx.moveTo(-FAR, guides.hy);
+    ctx.lineTo(FAR, guides.hy);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function redrawOverlay(
   canvas: HTMLCanvasElement,
   shapes: Shape[],
@@ -188,6 +215,7 @@ export function redrawOverlay(
   extra?: Shape | null,
   selected?: Shape | null,
   images?: ImageCache,
+  guides?: { vx: number | null; hy: number | null } | null,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -198,4 +226,5 @@ export function redrawOverlay(
   for (const shape of shapes) drawShape(ctx, shape, images);
   if (extra) drawShape(ctx, extra, images);
   if (selected) drawSelection(ctx, selected, scale);
+  if (guides && (guides.vx != null || guides.hy != null)) drawGuides(ctx, guides, scale);
 }

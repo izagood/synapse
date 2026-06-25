@@ -20,6 +20,7 @@ import {
   topmostShapeAt,
   textSize,
   imageAssetPrefixOf,
+  snapMove,
   DRAW_DOC_VERSION,
   type DrawDoc,
   type PathShape,
@@ -470,6 +471,23 @@ describe("이미지(image)", () => {
 
   it("imageAssetPrefixOf: PDF 이름 기반 접두사", () => {
     expect(imageAssetPrefixOf("foo.pdf")).toBe("foo.pdf.draw");
+  });
+});
+
+describe("스냅 정렬(snapMove)", () => {
+  it("tol 안의 모서리에 스냅하고 가이드선 좌표를 돌려준다", () => {
+    // moving 좌변 8 → other 우변 10 과 거리 2(≤5) → dx=2, 세로 가이드 vx=10
+    const r = snapMove([8, 0, 10, 10], [[0, 0, 10, 10]], 5);
+    expect(r.dx).toBe(2);
+    expect(r.vx).toBe(10);
+  });
+
+  it("tol 밖이면 스냅하지 않는다", () => {
+    const r = snapMove([0, 0, 10, 10], [[100, 100, 10, 10]], 5);
+    expect(r.dx).toBe(0);
+    expect(r.dy).toBe(0);
+    expect(r.vx).toBeNull();
+    expect(r.hy).toBeNull();
   });
 });
 
