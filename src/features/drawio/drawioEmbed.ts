@@ -19,9 +19,15 @@ export interface EmbedUrlOptions {
 /**
  * embed 모드 진입 URL을 만든다.
  *
- * 다크는 일부러 켜지 않는다 — drawio 다크 모드는 캔버스/크롬만 어둡게 할 뿐 도형
- * 색은 그대로라, 라이트로 그린 다이어그램이 검정-위-검정으로 안 보인다.
- * 앱 테마와 무관하게 항상 라이트 캔버스로 편집한다.
+ * 앱 테마와 무관하게 항상 라이트 캔버스로 편집한다 — drawio 다크 모드는 캔버스/크롬만
+ * 어둡게 할 뿐 도형 색은 그대로라, 라이트로 그린 다이어그램이 검정-위-검정으로 안 보인다.
+ *
+ * 중요: `dark`를 "0"으로 *명시* 한다. 파라미터를 생략하면 라이트가 아니라 drawio 가
+ * 스스로 다크 여부를 판정하는데(Editor.currentTheme / prefers-color-scheme), macOS
+ * WKWebView 에선 OS 다크 모드를 따라가 캔버스가 #1B1D1E(거의 검정)로 떠 에디터가
+ * "검정 화면"으로 보였다. drawio 는 `dark` 파라미터가 있으면 그 값을 그대로 쓰므로
+ * (app.min.js: `if(null!=urlParams.dark) y=urlParams.dark`), "0"을 주면 OS/테마와
+ * 무관하게 라이트로 고정된다.
  */
 export function buildEditorUrl(opts: EmbedUrlOptions): string {
   const params = new URLSearchParams({
@@ -34,6 +40,7 @@ export function buildEditorUrl(opts: EmbedUrlOptions): string {
     saveAndExit: "0",
     offline: "1", // 클라우드/스토리지 기능 비활성
     stealth: "1", // 외부 네트워크 요청 차단 (오프라인 보장)
+    dark: "0", // OS 다크 모드를 따라가 검정 캔버스가 되는 것을 막고 라이트로 고정
   });
   if (opts.lang) params.set("lang", opts.lang);
   return `${opts.basePath}?${params.toString()}`;
