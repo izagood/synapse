@@ -100,6 +100,27 @@ export const SHORTCUTS: ShortcutDef[] = [
   },
   // --- 파일 ---
   {
+    id: "file.newNote",
+    category: "file",
+    keys: ["Mod", "N"],
+    descriptionKey: "shortcuts.desc.newNote",
+    handledBy: "app",
+  },
+  {
+    id: "file.newDrawing",
+    category: "file",
+    keys: ["Mod", "Shift", "D"],
+    descriptionKey: "shortcuts.desc.newDrawing",
+    handledBy: "app",
+  },
+  {
+    id: "file.newDiagram",
+    category: "file",
+    keys: ["Mod", "Shift", "M"],
+    descriptionKey: "shortcuts.desc.newDiagram",
+    handledBy: "app",
+  },
+  {
     id: "file.save",
     category: "file",
     keys: ["Mod", "S"],
