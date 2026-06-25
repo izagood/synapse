@@ -106,11 +106,6 @@ export function parseDrawDoc(json: string): DrawDoc {
   return { version: DRAW_DOC_VERSION, pages };
 }
 
-/** PDF 절대경로/URI → 사이드카 경로. 예: `/a/foo.pdf` → `/a/foo.pdf.draw.json` */
-export function sidecarPathOf(pdfPath: string): string {
-  return `${pdfPath}.draw.json`;
-}
-
 /** 굽기 결과 PDF 파일명. 예: `foo.pdf` → `foo (그림).pdf` */
 export function bakedPdfNameOf(pdfName: string): string {
   const lower = pdfName.toLowerCase();

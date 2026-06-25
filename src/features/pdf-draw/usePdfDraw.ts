@@ -7,7 +7,6 @@ import {
   eraseStrokesAt,
   parseDrawDoc,
   serializeDrawDoc,
-  sidecarPathOf,
   strokesOnPage,
   type DrawDoc,
   type Stroke,
@@ -64,7 +63,6 @@ interface UndoEntry {
  */
 export function usePdfDraw(path: string): PdfDrawApi {
   const root = useWorkspace((s) => s.root);
-  const sidecar = sidecarPathOf(path);
 
   const docRef = useRef<DrawDoc>(emptyDrawDoc());
   const undoRef = useRef<UndoEntry[]>([]);
@@ -88,13 +86,13 @@ export function usePdfDraw(path: string): PdfDrawApi {
     dirtyRef.current = false;
     setDirty(false);
     try {
-      await ipc.writeFile(root, sidecar, json);
+      await ipc.writePdfDraw(root, path, json);
     } catch {
       // 저장 실패 시 다시 dirty 로 두어 다음 변경/언마운트 때 재시도
       dirtyRef.current = true;
       setDirty(true);
     }
-  }, [root, sidecar]);
+  }, [root, path]);
 
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true;
@@ -113,7 +111,7 @@ export function usePdfDraw(path: string): PdfDrawApi {
     setStrokeCount(0);
     if (!root) return;
     ipc
-      .readFile(root, sidecar)
+      .readPdfDraw(root, path)
       .then((json) => {
         if (cancelled) return;
         docRef.current = parseDrawDoc(json);
@@ -130,17 +128,17 @@ export function usePdfDraw(path: string): PdfDrawApi {
       cancelled = true;
     };
     // path/root 가 바뀔 때만 재로딩. flushSave 는 그 둘에만 의존.
-  }, [root, sidecar, flushSave]);
+  }, [root, path, flushSave]);
 
   // 언마운트 시 미저장분 저장(베스트 에포트).
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       if (dirtyRef.current && root) {
-        void ipc.writeFile(root, sidecar, serializeDrawDoc(docRef.current));
+        void ipc.writePdfDraw(root, path, serializeDrawDoc(docRef.current));
       }
     };
-  }, [root, sidecar]);
+  }, [root, path]);
 
   // ---- 변경 연산 ----
   const pushUndo = useCallback((page: number) => {

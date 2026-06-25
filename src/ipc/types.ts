@@ -282,6 +282,17 @@ export interface SynapseIpc {
   /** 루트 내부 경로에만 원자적 쓰기 허용 (새 파일 생성 포함) */
   writeFile(root: string, path: string, content: string): Promise<void>;
   /**
+   * PDF 주석(드로잉) 사이드카 읽기. 숨김 디렉토리 `.synapse/draw/<상대경로>.draw.json`을
+   * 우선 읽고, 없으면 기존 PDF옆 `<pdf>.draw.json`을 폴백으로 읽는다(점진 이전).
+   * 둘 다 없으면 reject — 호출측은 "주석 없음"으로 처리한다.
+   */
+  readPdfDraw(root: string, pdfPath: string): Promise<string>;
+  /**
+   * PDF 주석(드로잉) 사이드카 쓰기. 항상 `.synapse/draw` 안에 저장하고, 저장 성공 후
+   * 기존 PDF옆 `<pdf>.draw.json`이 남아 있으면 삭제해 새 위치로 이전한다.
+   */
+  writePdfDraw(root: string, pdfPath: string, content: string): Promise<void>;
+  /**
    * 마크다운 문서 저장 (FR-6 협업): base(에디터가 마지막으로 본 텍스트) 대비
    * content의 변경을 CRDT에 기록하고, 원격 머지·외부 편집까지 합쳐진 최종
    * 텍스트를 디스크에 쓴 뒤 돌려준다. frontmatter에 synapse_id가 보장된다.
