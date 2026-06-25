@@ -83,6 +83,20 @@ interface WorkspaceState {
       acceptNewHostKey?: boolean;
     },
   ): Promise<RemoteConnectError | null>;
+  /**
+   * `ssh ...` 명령어를 파싱·접속만 한다(워크스페이스 루트는 바꾸지 않는다).
+   * 성공하면 해소된 원격 홈 URI(`{ home }`)를 돌려줘 디렉토리 브라우저의
+   * 시작점으로 쓴다. 실패는 분류된 오류(호스트키/비밀번호/일반)를 돌려준다.
+   * 폴더를 고른 뒤 캐시된 세션으로 `openFolder(uri)`를 부르면 재접속 없이 열린다.
+   */
+  connectRemoteSession(
+    command: string,
+    opts: {
+      password?: string | null;
+      passphrase?: string | null;
+      acceptNewHostKey?: boolean;
+    },
+  ): Promise<{ home: string } | RemoteConnectError>;
   refreshTree(): Promise<void>;
   closeWorkspace(): void;
 
@@ -241,6 +255,26 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 연결 성공 → 해소된 루트 URI로 평소처럼 트리를 연다.
       await get().openFolder(conn.root);
       return null;
+    } catch (e) {
+      set({ loading: false });
+      return parseRemoteConnectError(e);
+    }
+  },
+
+  async connectRemoteSession(command, opts) {
+    set({ loading: true, error: null });
+    try {
+      // 1) 명령어 → 접속 대상(별칭 해소). 2) 접속만 하고 루트는 그대로 둔다.
+      const target = await ipc.parseSshCommand(command);
+      const conn = await ipc.connectRemote(
+        target.uri,
+        target.keyPath,
+        opts.password ?? null,
+        opts.passphrase ?? null,
+        opts.acceptNewHostKey ?? false,
+      );
+      set({ loading: false });
+      return { home: conn.root };
     } catch (e) {
       set({ loading: false });
       return parseRemoteConnectError(e);

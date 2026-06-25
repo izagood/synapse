@@ -14,6 +14,8 @@ pub mod secrets;
 pub mod settings;
 pub mod sftp;
 pub mod ssh;
+pub mod ssh_command;
+pub mod ssh_config;
 pub mod terminal;
 pub mod tree;
 pub mod vfs;
@@ -40,6 +42,8 @@ pub use sftp::SftpBackend;
 pub use ssh::{
     connect as ssh_connect, expand_tilde, HostKeyPolicy, SshConfig, SshError, SshSession,
 };
+pub use ssh_command::{parse_ssh_command, SshCommandError, SshInvocation};
+pub use ssh_config::{resolve_host, HostConfig};
 pub use terminal::{
     bridge_env, codex_config_snippet, ensure_gitignore_line, mcp_config_json, merge_mcp_config,
 };

@@ -248,6 +248,20 @@ export type RemoteConnectError =
   | { kind: "hostKeyMismatch"; fingerprint: string }
   | { kind: "generic"; message: string };
 
+// Rust remote::ParsedRemoteTarget 과 1:1 대응 (ssh 명령어 → 접속 대상)
+export interface ParsedRemoteTarget {
+  /** ssh://user@host[:port] (경로는 비어 있음 — 연결 후 홈으로 해소) */
+  uri: string;
+  /** -i/IdentityFile 로 지정된 키 경로 (없으면 null) */
+  keyPath: string | null;
+}
+
+// Rust remote::RemoteDirEntry 과 1:1 대응 (디렉토리 브라우저 한 항목)
+export interface RemoteDirEntry {
+  name: string;
+  isDir: boolean;
+}
+
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
@@ -267,6 +281,13 @@ export interface SynapseIpc {
   ): Promise<RemoteConnection>;
   /** 원격 세션을 끊는다(같은 호스트의 공유 연결 종료) */
   disconnectRemote(uri: string): Promise<void>;
+  /**
+   * `ssh ...` 명령어 한 줄을 접속 대상으로 해소한다(~/.ssh/config 별칭 병합).
+   * 연결은 하지 않는다 — 결과 uri/keyPath를 connectRemote에 넘긴다.
+   */
+  parseSshCommand(command: string): Promise<ParsedRemoteTarget>;
+  /** 연결된 원격 세션에서 uri가 가리키는 디렉토리의 바로 아래 항목을 나열한다. */
+  listRemoteDir(uri: string): Promise<RemoteDirEntry[]>;
   /** 폴더를 재귀 스캔해 파일 트리 반환 */
   listWorkspace(path: string): Promise<FileNode>;
   /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */

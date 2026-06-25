@@ -166,3 +166,103 @@ pub fn disconnect_remote(state: tauri::State<'_, RemoteState>, uri: String) -> R
     }
     Ok(())
 }
+
+/// `ssh ...` 명령어 파싱 결과(접속에 바로 쓸 수 있게 해소한 형태).
+#[derive(Serialize)]
+pub struct ParsedRemoteTarget {
+    /// `ssh://user@host[:port]` — 경로는 비워 둔다(연결 후 홈으로 해소).
+    pub uri: String,
+    /// `-i`/IdentityFile 로 지정된 키 경로(틸드 미확장, 없으면 None).
+    pub key_path: Option<String>,
+}
+
+/// 사용자가 붙여넣은 `ssh ...` 한 줄을 접속 대상으로 해소한다.
+///
+/// `~/.ssh/config` 의 Host 별칭(HostName/User/Port/IdentityFile)을 읽어 병합한다.
+/// 병합 우선순위는 ssh와 동일하게 **명령줄 옵션 > config > 기본값**이며,
+/// user 미지정 시 로컬 사용자(`$USER`/`$USERNAME`), port 기본값은 22다.
+/// 인증(에이전트/키/비밀번호)과 실제 연결은 [`connect_remote`]가 맡는다.
+#[tauri::command]
+pub fn parse_ssh_command(command: String) -> Result<ParsedRemoteTarget, String> {
+    let inv = synapse_core::parse_ssh_command(&command).map_err(|e| e.to_string())?;
+
+    // ~/.ssh/config 가 있으면 읽어 별칭을 해소한다(없으면 빈 설정으로 진행).
+    let cfg_text = dirs::home_dir()
+        .map(|h| h.join(".ssh").join("config"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_default();
+    let hc = synapse_core::resolve_host(&inv.host, &cfg_text);
+
+    let host = inv
+        .host_name
+        .clone()
+        .or(hc.host_name)
+        .unwrap_or_else(|| inv.host.clone());
+    let port = inv
+        .port
+        .or(hc.port)
+        .unwrap_or(synapse_core::DEFAULT_SSH_PORT);
+    let user = inv
+        .user
+        .clone()
+        .or(hc.user)
+        .or_else(default_local_user)
+        .ok_or("사용자를 알 수 없습니다. user@host 형태로 입력하세요.")?;
+    let key_path = inv.identity_file.clone().or(hc.identity_file);
+
+    let loc = SshLocation {
+        user,
+        host,
+        port,
+        path: String::new(),
+    };
+    Ok(ParsedRemoteTarget {
+        uri: Location::Ssh(loc).to_uri(),
+        key_path,
+    })
+}
+
+/// 로그인한 OS 사용자명(이름을 명령줄·config 어디에도 안 줬을 때의 마지막 기본값).
+fn default_local_user() -> Option<String> {
+    std::env::var("USER")
+        .ok()
+        .or_else(|| std::env::var("USERNAME").ok())
+        .filter(|s| !s.is_empty())
+}
+
+/// 원격 디렉토리 한 단계의 항목들(이름 + 디렉토리 여부). 디렉토리 브라우저용.
+#[derive(Serialize)]
+pub struct RemoteDirEntry {
+    pub name: String,
+    pub is_dir: bool,
+}
+
+/// 연결된 원격 세션에서 `uri` 가 가리키는 디렉토리의 바로 아래 항목을 나열한다.
+/// 디렉토리를 앞으로, 그 안에서 이름순(대소문자 무시)으로 정렬한다.
+#[tauri::command]
+pub async fn list_remote_dir(
+    state: tauri::State<'_, RemoteState>,
+    uri: String,
+) -> Result<Vec<RemoteDirEntry>, String> {
+    let loc = Location::parse(&uri).map_err(|e| e.to_string())?;
+    let backend = backend_for(&state, &loc)?;
+    let dir = fs_path(&loc);
+    crate::sync::run_blocking(move || {
+        let entries = backend.read_dir(&dir).map_err(|e| e.to_string())?;
+        let mut out: Vec<RemoteDirEntry> = entries
+            .into_iter()
+            .map(|e| {
+                // 심링크 대상까지 따라가 디렉토리 여부를 본다(따라가다 실패하면 파일 취급).
+                let is_dir = backend.metadata(&e.path).map(|m| m.is_dir).unwrap_or(false);
+                RemoteDirEntry { name: e.name, is_dir }
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.is_dir
+                .cmp(&a.is_dir)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        Ok(out)
+    })
+    .await
+}

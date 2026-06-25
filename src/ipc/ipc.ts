@@ -16,9 +16,11 @@ import type {
   DeviceCode,
   FileCommit,
   FileNode,
+  ParsedRemoteTarget,
   PollResult,
   PtyDataPayload,
   RemoteConnection,
+  RemoteDirEntry,
   RetrievalResult,
   SearchHit,
   Settings,
@@ -49,6 +51,9 @@ const tauriIpc: SynapseIpc = {
       acceptNewHostKey,
     }),
   disconnectRemote: (uri) => invoke<void>("disconnect_remote", { uri }),
+  parseSshCommand: (command) =>
+    invoke<ParsedRemoteTarget>("parse_ssh_command", { command }),
+  listRemoteDir: (uri) => invoke<RemoteDirEntry[]>("list_remote_dir", { uri }),
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
   searchWorkspace: (root, query) =>
     invoke<SearchHit[]>("search_workspace", { root, query }),
