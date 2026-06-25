@@ -76,7 +76,7 @@ export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
           className="pdf-draw-tool"
           title={t("pdfDraw.undo")}
           aria-label={t("pdfDraw.undo")}
-          disabled={draw.strokeCount === 0}
+          disabled={draw.shapeCount === 0}
           onClick={() => draw.undo()}
         >
           ↺

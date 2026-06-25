@@ -99,7 +99,7 @@ export function PdfDrawMenu({
       )}
       <button
         type="button"
-        disabled={busy || draw.strokeCount === 0}
+        disabled={busy || draw.shapeCount === 0}
         onClick={() => run(() => draw.clearAll())}
       >
         {t("pdfDraw.clearAll")}

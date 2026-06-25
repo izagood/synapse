@@ -9,7 +9,7 @@ import { ZoomControls } from "../viewer-zoom/ZoomControls";
 import { anchoredScroll, clampScale, MAX_SCALE, previewSize } from "../viewer-zoom/zoomMath";
 import { usePdfDraw } from "../pdf-draw/usePdfDraw";
 import { redrawOverlay } from "../pdf-draw/renderStrokes";
-import { strokesOnPage, type Stroke } from "../pdf-draw/drawDoc";
+import { newShapeId, shapesOnPage, type PathShape, type Shape } from "../pdf-draw/drawDoc";
 import { PdfDrawToolbar } from "../pdf-draw/PdfDrawToolbar";
 import { PdfDrawMenu } from "../pdf-draw/PdfDrawMenu";
 
@@ -57,7 +57,7 @@ export function PdfViewer({ path }: { path: string }) {
   // 한 페이지의 오버레이를 "래스터화된" 배율로 다시 그린다(진행 중 획 extra 포함).
   // 오버레이 백킹스토어는 pdf 캔버스와 같은 배율(fit*renderedZoom)이고, 프리뷰 중에는
   // pdf 캔버스와 함께 CSS 로만 확대/축소되므로 표시 배율과 무관하게 이 값으로 그린다.
-  const redrawPage = useCallback((page: number, extra?: Stroke | null) => {
+  const redrawPage = useCallback((page: number, extra?: Shape | null) => {
     const host = pagesRef.current;
     if (!host) return;
     const overlay = host.querySelector<HTMLCanvasElement>(
@@ -67,7 +67,7 @@ export function PdfViewer({ path }: { path: string }) {
     const doc = drawRef.current.docRef.current;
     if (!doc) return;
     const scale = fitScaleRef.current * renderedZoomRef.current;
-    redrawOverlay(overlay, strokesOnPage(doc, page), scale, dprRef.current, extra);
+    redrawOverlay(overlay, shapesOnPage(doc, page), scale, dprRef.current, extra);
   }, []);
 
   const redrawAllOverlays = useCallback(() => {
@@ -236,17 +236,17 @@ export function PdfViewer({ path }: { path: string }) {
     };
   }, [renderAll]);
 
-  // 사이드카 로드/undo/clear 등으로 획 수가 바뀌면 오버레이를 다시 그린다.
+  // 사이드카 로드/undo/clear 등으로 도형 수가 바뀌면 오버레이를 다시 그린다.
   useEffect(() => {
     if (status === "ready") redrawAllOverlays();
-  }, [status, draw.strokeCount, redrawAllOverlays]);
+  }, [status, draw.shapeCount, redrawAllOverlays]);
 
   // ---- 포인터 드로잉/지우개 ----
   useEffect(() => {
     const host = pagesRef.current;
     if (!host) return;
 
-    let curStroke: Stroke | null = null;
+    let curShape: PathShape | null = null;
     let curPage = 0;
     let curOverlay: HTMLCanvasElement | null = null;
     let activeId: number | null = null;
@@ -282,17 +282,19 @@ export function PdfViewer({ path }: { path: string }) {
       hit.overlay.setPointerCapture?.(e.pointerId);
 
       if (api.tool === "eraser") {
-        curStroke = null;
+        curShape = null;
         if (api.eraseAt(hit.page, hit.x, hit.y, eraserRadius())) redrawPage(hit.page);
         return;
       }
-      curStroke = {
+      curShape = {
+        id: newShapeId(),
+        type: "path",
         tool: api.tool === "highlighter" ? "highlighter" : "pen",
         color: api.color,
         width: api.effectiveWidth(),
         points: [hit.x, hit.y],
       };
-      redrawPage(hit.page, curStroke);
+      redrawPage(hit.page, curShape);
     };
 
     const onMove = (e: PointerEvent) => {
@@ -305,13 +307,13 @@ export function PdfViewer({ path }: { path: string }) {
         if (api.eraseAt(hit.page, hit.x, hit.y, eraserRadius())) redrawPage(hit.page);
         return;
       }
-      if (!curStroke) return;
+      if (!curShape) return;
       e.preventDefault();
-      const pts = curStroke.points;
+      const pts = curShape.points;
       const minD = MIN_POINT_SCREEN_PX / (fitScaleRef.current * zoomRef.current || 1);
       if (Math.hypot(hit.x - pts[pts.length - 2], hit.y - pts[pts.length - 1]) >= minD) {
         pts.push(hit.x, hit.y);
-        redrawPage(curPage, curStroke);
+        redrawPage(curPage, curShape);
       }
     };
 
@@ -319,9 +321,9 @@ export function PdfViewer({ path }: { path: string }) {
       if (activeId !== e.pointerId) return;
       curOverlay?.releasePointerCapture?.(e.pointerId);
       activeId = null;
-      if (curStroke) {
-        drawRef.current.commitStroke(curPage, curStroke);
-        curStroke = null;
+      if (curShape) {
+        drawRef.current.commitShape(curPage, curShape);
+        curShape = null;
       }
       curOverlay = null;
     };
