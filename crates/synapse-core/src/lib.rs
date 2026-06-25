@@ -29,7 +29,7 @@ pub use fs_io::{
     ensure_writable_within, is_safe_file_name,
 };
 pub use git::{ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, SyncState, SyncStatus};
-pub use graph_query::{graph_search, neighbors, Direction, NeighborNote, RelatedNote};
+pub use graph_query::{graph_search, neighbors, path_between, Direction, NeighborNote, PathStep, RelatedNote};
 pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, LinkGraph};
 pub use location::{
     path_to_uri, urify_tree, Location, LocationError, SshLocation, DEFAULT_SSH_PORT,

@@ -126,6 +126,10 @@ pub fn graph_search(root: &Path, query: &str, hops: usize) -> io::Result<Vec<Rel
     Ok(out)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathStep { pub path: String, pub name: String }
+
 /// BFS로 target에서 depth 홉 이내 이웃을 거리와 함께 모은다. 자기 자신 제외.
 pub fn neighbors(root: &Path, target: &Path, dir: Direction, depth: usize)
     -> io::Result<Vec<NeighborNote>> {
@@ -165,6 +169,38 @@ pub fn neighbors(root: &Path, target: &Path, dir: Direction, depth: usize)
     }
     out.sort_by(|a, b| a.distance.cmp(&b.distance).then(a.path.cmp(&b.path)));
     Ok(out)
+}
+
+/// from→to 최단 연결 경로(엣지를 양방향으로 취급). 경로 없으면 None.
+pub fn path_between(root: &Path, from: &Path, to: &Path) -> io::Result<Option<Vec<PathStep>>> {
+    let graph = build_graph(root)?;
+    let adj = adjacency(&graph);
+    let abs = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()).display().to_string();
+    let (Some(s), Some(t)) = (adj.index_of(&abs(from)), adj.index_of(&abs(to)))
+        else { return Ok(None); };
+    if s == t { return Ok(Some(vec![PathStep { path: adj.paths[s].clone(), name: adj.names[s].clone() }])); }
+
+    let mut prev = vec![usize::MAX; adj.paths.len()];
+    let mut seen = vec![false; adj.paths.len()];
+    let mut q = VecDeque::new();
+    seen[s] = true; q.push_back(s);
+    while let Some(u) = q.pop_front() {
+        for &v in adj.out[u].iter().chain(adj.in_[u].iter()) {
+            if !seen[v] {
+                seen[v] = true; prev[v] = u; q.push_back(v);
+                if v == t {
+                    let mut chain = vec![t];
+                    let mut cur = t;
+                    while cur != s { cur = prev[cur]; chain.push(cur); }
+                    chain.reverse();
+                    return Ok(Some(chain.into_iter().map(|i| PathStep {
+                        path: adj.paths[i].clone(), name: adj.names[i].clone(),
+                    }).collect()));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -233,5 +269,21 @@ mod tests {
     fn graph_search_empty_query_returns_empty() {
         let dir = tempfile::tempdir().unwrap();
         assert!(graph_search(dir.path(), "  ", 1).unwrap().is_empty());
+    }
+
+    #[test]
+    fn path_between_finds_shortest_chain() {
+        let (_d, root) = fixture(); // a→b→c
+        let p = path_between(&root, &root.join("a.md"), &root.join("c.md")).unwrap().unwrap();
+        assert_eq!(p.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["a.md", "b.md", "c.md"]);
+    }
+
+    #[test]
+    fn path_between_returns_none_when_disconnected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::write(root.join("x.md"), "lone").unwrap();
+        fs::write(root.join("y.md"), "lone").unwrap();
+        assert!(path_between(&root, &root.join("x.md"), &root.join("y.md")).unwrap().is_none());
     }
 }
