@@ -33,7 +33,9 @@ pub fn resolve_host(alias: &str, config_text: &str) -> HostConfig {
         let key = keyword.to_ascii_lowercase();
 
         if key == "host" {
-            active = value.split_whitespace().any(|pat| pattern_matches(pat, alias));
+            active = value
+                .split_whitespace()
+                .any(|pat| pattern_matches(pat, alias));
             continue;
         }
         if !active {
@@ -43,14 +45,10 @@ pub fn resolve_host(alias: &str, config_text: &str) -> HostConfig {
             "hostname" => set_if_none(&mut cfg.host_name, value.to_string()),
             "user" => set_if_none(&mut cfg.user, value.to_string()),
             "identityfile" => set_if_none(&mut cfg.identity_file, value.to_string()),
-            "port" => {
-                if cfg.port.is_none() {
-                    if let Ok(p) = value.trim().parse::<u16>() {
-                        if p != 0 {
-                            cfg.port = Some(p);
-                        }
-                    }
-                }
+            // 첫 매칭만 채택. 잘못된/0 포트 줄은 무시(None 유지)하고
+            // 뒤따르는 유효한 Port 줄이 채울 수 있게 둔다.
+            "port" if cfg.port.is_none() => {
+                cfg.port = value.trim().parse::<u16>().ok().filter(|p| *p != 0);
             }
             _ => {}
         }

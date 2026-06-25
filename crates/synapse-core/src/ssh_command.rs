@@ -51,8 +51,24 @@ impl std::error::Error for SshCommandError {}
 fn takes_arg(flag: char) -> bool {
     matches!(
         flag,
-        'p' | 'i' | 'l' | 'o' | 'J' | 'F' | 'b' | 'c' | 'D' | 'E' | 'I' | 'L' | 'm' | 'O' | 'Q'
-            | 'R' | 'S' | 'W' | 'w'
+        'p' | 'i'
+            | 'l'
+            | 'o'
+            | 'J'
+            | 'F'
+            | 'b'
+            | 'c'
+            | 'D'
+            | 'E'
+            | 'I'
+            | 'L'
+            | 'm'
+            | 'O'
+            | 'Q'
+            | 'R'
+            | 'S'
+            | 'W'
+            | 'w'
     )
 }
 
