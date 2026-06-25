@@ -250,6 +250,10 @@ export const ko = {
   },
   pdfDraw: {
     move: "이동/스크롤",
+    select: "선택",
+    deleteShape: "삭제",
+    bringFront: "맨 앞으로",
+    sendBack: "맨 뒤로",
     pen: "펜",
     highlighter: "형광펜",
     eraser: "지우개",

@@ -11,6 +11,7 @@
 /** 화면에서 고를 수 있는 도구. move는 그리지 않고 스크롤/줌만 한다. */
 export type ToolKind =
   | "move"
+  | "select"
   | "pen"
   | "highlighter"
   | "eraser"
@@ -392,6 +393,95 @@ export function eraseShapesAt(
   radius: number,
 ): Shape[] {
   return shapes.filter((s) => !shapeHitsPoint(s, x, y, radius));
+}
+
+// ---- 선택/편집 (이동·리사이즈) ----
+
+/** z-순서 역순(맨 위 우선)으로 (x,y) 에 닿는 첫 도형의 id. 없으면 null. */
+export function topmostShapeAt(
+  shapes: Shape[],
+  x: number,
+  y: number,
+  radius: number,
+): string | null {
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    if (shapeHitsPoint(shapes[i], x, y, radius)) return shapes[i].id;
+  }
+  return null;
+}
+
+/** 도형의 bounding box [x,y,w,h] (scale 1). */
+export function shapeBounds(s: Shape): [number, number, number, number] {
+  switch (s.type) {
+    case "path": {
+      const pts = s.points;
+      let minX = pts[0];
+      let minY = pts[1];
+      let maxX = pts[0];
+      let maxY = pts[1];
+      for (let i = 2; i + 1 < pts.length; i += 2) {
+        minX = Math.min(minX, pts[i]);
+        maxX = Math.max(maxX, pts[i]);
+        minY = Math.min(minY, pts[i + 1]);
+        maxY = Math.max(maxY, pts[i + 1]);
+      }
+      return [minX, minY, maxX - minX, maxY - minY];
+    }
+    case "line":
+    case "arrow":
+      return [
+        Math.min(s.a[0], s.b[0]),
+        Math.min(s.a[1], s.b[1]),
+        Math.abs(s.a[0] - s.b[0]),
+        Math.abs(s.a[1] - s.b[1]),
+      ];
+    case "rect":
+    case "ellipse":
+      return [s.rect[0], s.rect[1], s.rect[2], s.rect[3]];
+  }
+}
+
+/** 도형을 (dx,dy) 만큼 평행이동한 새 도형(원본 불변). */
+export function translateShape(s: Shape, dx: number, dy: number): Shape {
+  switch (s.type) {
+    case "path":
+      return { ...s, points: s.points.map((v, i) => (i % 2 === 0 ? v + dx : v + dy)) };
+    case "line":
+    case "arrow":
+      return { ...s, a: [s.a[0] + dx, s.a[1] + dy], b: [s.b[0] + dx, s.b[1] + dy] };
+    case "rect":
+    case "ellipse":
+      return { ...s, rect: [s.rect[0] + dx, s.rect[1] + dy, s.rect[2], s.rect[3]] };
+  }
+}
+
+/**
+ * 도형을 bbox old → next 로 선형 매핑한 새 도형(리사이즈). old 의 변이 0이면
+ * 그 축은 평행이동만 한다(0 나눗셈 방지).
+ */
+export function scaleShape(
+  s: Shape,
+  old: [number, number, number, number],
+  next: [number, number, number, number],
+): Shape {
+  const sx = old[2] !== 0 ? next[2] / old[2] : 1;
+  const sy = old[3] !== 0 ? next[3] / old[3] : 1;
+  const mapX = (x: number) => next[0] + (x - old[0]) * sx;
+  const mapY = (y: number) => next[1] + (y - old[1]) * sy;
+  switch (s.type) {
+    case "path":
+      return { ...s, points: s.points.map((v, i) => (i % 2 === 0 ? mapX(v) : mapY(v))) };
+    case "line":
+    case "arrow":
+      return {
+        ...s,
+        a: [mapX(s.a[0]), mapY(s.a[1])],
+        b: [mapX(s.b[0]), mapY(s.b[1])],
+      };
+    case "rect":
+    case "ellipse":
+      return { ...s, rect: [mapX(s.rect[0]), mapY(s.rect[1]), s.rect[2] * sx, s.rect[3] * sy] };
+  }
 }
 
 // ---- 곡선 스무딩 (화면 렌더·베이크 공유) ----

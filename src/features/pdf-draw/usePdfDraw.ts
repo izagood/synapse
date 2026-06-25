@@ -37,6 +37,20 @@ export interface PdfDrawApi {
   /** 최근 사용한 색(중복 제거, 최신순). */
   recentColors: string[];
 
+  /** 오버레이 재렌더 트리거용 리비전(개수 불변 편집·선택 포함). */
+  revision: number;
+  /** 현재 선택된 도형(select 도구). 없으면 null. */
+  selection: { page: number; id: string } | null;
+  selectShape: (page: number, id: string) => void;
+  clearSelection: () => void;
+  /** 선택 도형을 새 도형으로 교체(이동/리사이즈 commit). undo 가능. */
+  updateShape: (page: number, id: string, next: Shape) => void;
+  /** 선택 도형 삭제 */
+  removeSelected: () => void;
+  /** 선택 도형을 z-순서 맨 앞/뒤로 */
+  bringSelectedToFront: () => void;
+  sendSelectedToBack: () => void;
+
   /** 도구별 굵기(형광펜은 더 굵게)를 적용한 현재 획 굵기 */
   effectiveWidth: () => number;
 
@@ -94,6 +108,10 @@ export function usePdfDraw(path: string): PdfDrawApi {
   const [shapeCount, setShapeCount] = useState(0);
   const [canRedo, setCanRedo] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [selection, setSelection] = useState<{ page: number; id: string } | null>(null);
+
+  const bumpRevision = useCallback(() => setRevision((r) => r + 1), []);
 
   // 도구를 고르면 그 도구의 기본 불투명도로 맞춘다(이후 슬라이더로 미세조정).
   const setTool = useCallback((t: ToolKind) => {
@@ -144,6 +162,7 @@ export function usePdfDraw(path: string): PdfDrawApi {
     redoRef.current = [];
     setCanRedo(false);
     setShapeCount(0);
+    setSelection(null);
     if (!root) return;
     ipc
       .readPdfDraw(root, path)
@@ -257,6 +276,69 @@ export function usePdfDraw(path: string): PdfDrawApi {
     scheduleSave();
   }, [pushUndo, scheduleSave]);
 
+  // ---- 선택/편집 ----
+  const selectShape = useCallback((page: number, id: string) => {
+    setSelection({ page, id });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelection(null), []);
+
+  const updateShape = useCallback(
+    (page: number, id: string, next: Shape) => {
+      const arr = docRef.current.pages[page];
+      if (!arr) return;
+      const idx = arr.findIndex((s) => s.id === id);
+      if (idx < 0) return;
+      pushUndo(page);
+      const copy = [...arr];
+      copy[idx] = next;
+      docRef.current.pages[page] = copy;
+      bumpRevision();
+      scheduleSave();
+    },
+    [pushUndo, scheduleSave, bumpRevision],
+  );
+
+  const removeSelected = useCallback(() => {
+    if (!selection) return;
+    const { page, id } = selection;
+    const arr = docRef.current.pages[page];
+    if (arr) {
+      const next = arr.filter((s) => s.id !== id);
+      if (next.length !== arr.length) {
+        pushUndo(page);
+        docRef.current.pages[page] = next;
+        setShapeCount(countShapes(docRef.current));
+        bumpRevision();
+        scheduleSave();
+      }
+    }
+    setSelection(null);
+  }, [selection, pushUndo, scheduleSave, bumpRevision]);
+
+  const reorderSelected = useCallback(
+    (toFront: boolean) => {
+      if (!selection) return;
+      const { page, id } = selection;
+      const arr = docRef.current.pages[page];
+      if (!arr) return;
+      const idx = arr.findIndex((s) => s.id === id);
+      if (idx < 0) return;
+      pushUndo(page);
+      const copy = [...arr];
+      const [sh] = copy.splice(idx, 1);
+      if (toFront) copy.push(sh);
+      else copy.unshift(sh);
+      docRef.current.pages[page] = copy;
+      bumpRevision();
+      scheduleSave();
+    },
+    [selection, pushUndo, scheduleSave, bumpRevision],
+  );
+
+  const bringSelectedToFront = useCallback(() => reorderSelected(true), [reorderSelected]);
+  const sendSelectedToBack = useCallback(() => reorderSelected(false), [reorderSelected]);
+
   const effectiveWidth = useCallback(() => {
     return tool === "highlighter" ? width * 4 : width;
   }, [tool, width]);
@@ -275,9 +357,17 @@ export function usePdfDraw(path: string): PdfDrawApi {
     fill,
     setFill,
     recentColors,
+    revision,
+    selection,
+    selectShape,
+    clearSelection,
+    updateShape,
+    removeSelected,
+    bringSelectedToFront,
+    sendSelectedToBack,
     effectiveWidth,
     docRef,
-    isDrawing: tool !== "move",
+    isDrawing: tool !== "move" && tool !== "select",
     shapeCount,
     dirty,
     commitShape,

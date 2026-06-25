@@ -9,7 +9,15 @@ import { ZoomControls } from "../viewer-zoom/ZoomControls";
 import { anchoredScroll, clampScale, MAX_SCALE, previewSize } from "../viewer-zoom/zoomMath";
 import { usePdfDraw } from "../pdf-draw/usePdfDraw";
 import { redrawOverlay } from "../pdf-draw/renderStrokes";
-import { newShapeId, shapesOnPage, type Shape } from "../pdf-draw/drawDoc";
+import {
+  newShapeId,
+  scaleShape,
+  shapeBounds,
+  shapesOnPage,
+  topmostShapeAt,
+  translateShape,
+  type Shape,
+} from "../pdf-draw/drawDoc";
 import { PdfDrawToolbar } from "../pdf-draw/PdfDrawToolbar";
 import { PdfDrawMenu } from "../pdf-draw/PdfDrawMenu";
 
@@ -28,6 +36,9 @@ const PDF_MIN_SCALE = 0.25;
 const RENDER_DEBOUNCE_MS = 120;
 const ERASER_SCREEN_PX = 10; // 지우개 반경(화면 px)
 const MIN_POINT_SCREEN_PX = 2; // 점 추가 최소 이동(화면 px) — 좌표 수 절약
+const SELECT_TOL_PX = 8; // 선택/핸들 히트 허용(화면 px)
+
+type Corner = "nw" | "ne" | "sw" | "se";
 
 // 네이티브 iframe 대신 pdf.js로 캔버스 렌더링한다. 트랙패드 핀치(ctrl+휠)/터치 핀치로
 // 확대·축소하면 해당 배율로 다시 렌더해 항상 선명하다. 패닝은 네이티브 스크롤.
@@ -57,18 +68,31 @@ export function PdfViewer({ path }: { path: string }) {
   // 한 페이지의 오버레이를 "래스터화된" 배율로 다시 그린다(진행 중 획 extra 포함).
   // 오버레이 백킹스토어는 pdf 캔버스와 같은 배율(fit*renderedZoom)이고, 프리뷰 중에는
   // pdf 캔버스와 함께 CSS 로만 확대/축소되므로 표시 배율과 무관하게 이 값으로 그린다.
-  const redrawPage = useCallback((page: number, extra?: Shape | null) => {
-    const host = pagesRef.current;
-    if (!host) return;
-    const overlay = host.querySelector<HTMLCanvasElement>(
-      `.pdf-page-wrap[data-page="${page}"] .pdf-draw`,
-    );
-    if (!overlay) return;
-    const doc = drawRef.current.docRef.current;
-    if (!doc) return;
-    const scale = fitScaleRef.current * renderedZoomRef.current;
-    redrawOverlay(overlay, shapesOnPage(doc, page), scale, dprRef.current, extra);
-  }, []);
+  // extra: 진행 중 새 도형. preview: 편집 중 도형(같은 id 를 치환해 그린다).
+  const redrawPage = useCallback(
+    (page: number, extra?: Shape | null, preview?: Shape | null) => {
+      const host = pagesRef.current;
+      if (!host) return;
+      const overlay = host.querySelector<HTMLCanvasElement>(
+        `.pdf-page-wrap[data-page="${page}"] .pdf-draw`,
+      );
+      if (!overlay) return;
+      const doc = drawRef.current.docRef.current;
+      if (!doc) return;
+      const scale = fitScaleRef.current * renderedZoomRef.current;
+      let arr = shapesOnPage(doc, page);
+      let selected: Shape | null = null;
+      if (preview) {
+        arr = arr.map((s) => (s.id === preview.id ? preview : s));
+        selected = preview;
+      } else {
+        const sel = drawRef.current.selection;
+        if (sel && sel.page === page) selected = arr.find((s) => s.id === sel.id) ?? null;
+      }
+      redrawOverlay(overlay, arr, scale, dprRef.current, extra, selected);
+    },
+    [],
+  );
 
   const redrawAllOverlays = useCallback(() => {
     const host = pagesRef.current;
@@ -236,10 +260,29 @@ export function PdfViewer({ path }: { path: string }) {
     };
   }, [renderAll]);
 
-  // 사이드카 로드/undo/clear 등으로 도형 수가 바뀌면 오버레이를 다시 그린다.
+  // 도형 수·내용(revision)·선택이 바뀌면 오버레이를 다시 그린다.
   useEffect(() => {
     if (status === "ready") redrawAllOverlays();
-  }, [status, draw.shapeCount, redrawAllOverlays]);
+  }, [status, draw.shapeCount, draw.revision, draw.selection, redrawAllOverlays]);
+
+  // select 도구: Delete/Backspace 로 선택 도형 삭제, Esc 로 선택 해제.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!draw.selection) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) {
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        draw.removeSelected();
+      } else if (e.key === "Escape") {
+        draw.clearSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [draw]);
 
   // ---- 포인터 드로잉/지우개 ----
   useEffect(() => {
@@ -251,6 +294,62 @@ export function PdfViewer({ path }: { path: string }) {
     let curPage = 0;
     let curOverlay: HTMLCanvasElement | null = null;
     let activeId: number | null = null;
+    // select 편집 상태
+    let editMode: "move" | "resize" | null = null;
+    let editOrig: Shape | null = null;
+    let editBounds: [number, number, number, number] = [0, 0, 0, 0];
+    let editCorner: Corner | null = null;
+    let editPreview: Shape | null = null;
+    let dragX = 0;
+    let dragY = 0;
+
+    // 도형 bbox 의 코너 핸들 히트테스트(tol 안이면 코너 반환).
+    const hitCorner = (shape: Shape, x: number, y: number, tol: number): Corner | null => {
+      const [bx, by, bw, bh] = shapeBounds(shape);
+      const corners: [Corner, number, number][] = [
+        ["nw", bx, by],
+        ["ne", bx + bw, by],
+        ["sw", bx, by + bh],
+        ["se", bx + bw, by + bh],
+      ];
+      for (const [k, cx, cy] of corners) {
+        if (Math.hypot(x - cx, y - cy) <= tol) return k;
+      }
+      return null;
+    };
+
+    // 코너 드래그 → 새 bbox(반대 코너 고정, 최소 크기 1).
+    const resizeBounds = (
+      ob: [number, number, number, number],
+      corner: Corner,
+      x: number,
+      y: number,
+    ): [number, number, number, number] => {
+      let nx = ob[0];
+      let ny = ob[1];
+      let nw = ob[2];
+      let nh = ob[3];
+      const right = ob[0] + ob[2];
+      const bottom = ob[1] + ob[3];
+      if (corner === "se") {
+        nw = x - ob[0];
+        nh = y - ob[1];
+      } else if (corner === "nw") {
+        nx = x;
+        ny = y;
+        nw = right - x;
+        nh = bottom - y;
+      } else if (corner === "ne") {
+        ny = y;
+        nw = x - ob[0];
+        nh = bottom - y;
+      } else {
+        nx = x;
+        nw = right - x;
+        nh = y - ob[1];
+      }
+      return [nx, ny, Math.max(1, nw), Math.max(1, nh)];
+    };
 
     // 이벤트 → (페이지, scale1 좌표). 표시 배율(fit*zoom) 기준으로 역산하므로
     // 핀치 프리뷰 중(렌더 배율과 표시 배율이 다른 동안)에도 정확하다.
@@ -273,9 +372,52 @@ export function PdfViewer({ path }: { path: string }) {
 
     const onDown = (e: PointerEvent) => {
       const api = drawRef.current;
-      if (!api.isDrawing || e.button !== 0) return;
+      if (e.button !== 0) return;
       const hit = locate(e);
       if (!hit) return;
+
+      if (api.tool === "select") {
+        e.preventDefault();
+        activeId = e.pointerId;
+        curOverlay = hit.overlay;
+        curPage = hit.page;
+        hit.overlay.setPointerCapture?.(e.pointerId);
+        const doc = drawRef.current.docRef.current;
+        const shapes = doc ? shapesOnPage(doc, hit.page) : [];
+        const tol = SELECT_TOL_PX / (fitScaleRef.current * zoomRef.current || 1);
+        editPreview = null;
+        // 1) 선택된 도형의 코너 핸들 위면 리사이즈
+        const sel = api.selection;
+        if (sel && sel.page === hit.page) {
+          const shape = shapes.find((s) => s.id === sel.id);
+          if (shape) {
+            const corner = hitCorner(shape, hit.x, hit.y, tol);
+            if (corner) {
+              editMode = "resize";
+              editCorner = corner;
+              editOrig = shape;
+              editBounds = shapeBounds(shape);
+              return;
+            }
+          }
+        }
+        // 2) 도형 위면 선택 + 이동, 빈 곳이면 선택 해제
+        const id = topmostShapeAt(shapes, hit.x, hit.y, tol);
+        if (id) {
+          api.selectShape(hit.page, id);
+          editMode = "move";
+          editOrig = shapes.find((s) => s.id === id) ?? null;
+          dragX = hit.x;
+          dragY = hit.y;
+        } else {
+          api.clearSelection();
+          editMode = null;
+          editOrig = null;
+        }
+        return;
+      }
+
+      if (!api.isDrawing) return;
       e.preventDefault();
       activeId = e.pointerId;
       curOverlay = hit.overlay;
@@ -329,6 +471,17 @@ export function PdfViewer({ path }: { path: string }) {
       const hit = locate(e);
       if (!hit) return;
 
+      if (api.tool === "select") {
+        if (!editOrig || !editMode) return;
+        e.preventDefault();
+        const preview =
+          editMode === "move"
+            ? translateShape(editOrig, hit.x - dragX, hit.y - dragY)
+            : scaleShape(editOrig, editBounds, resizeBounds(editBounds, editCorner ?? "se", hit.x, hit.y));
+        editPreview = preview;
+        redrawPage(curPage, null, preview);
+        return;
+      }
       if (api.tool === "eraser") {
         if (api.eraseAt(hit.page, hit.x, hit.y, eraserRadius())) redrawPage(hit.page);
         return;
@@ -358,8 +511,18 @@ export function PdfViewer({ path }: { path: string }) {
       if (activeId !== e.pointerId) return;
       curOverlay?.releasePointerCapture?.(e.pointerId);
       activeId = null;
+      const api = drawRef.current;
+      if (api.tool === "select") {
+        if (editOrig && editPreview) api.updateShape(curPage, editOrig.id, editPreview);
+        editMode = null;
+        editOrig = null;
+        editPreview = null;
+        editCorner = null;
+        curOverlay = null;
+        return;
+      }
       if (curShape) {
-        drawRef.current.commitShape(curPage, curShape);
+        api.commitShape(curPage, curShape);
         curShape = null;
       }
       curOverlay = null;

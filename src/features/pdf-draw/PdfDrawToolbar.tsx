@@ -14,6 +14,7 @@ const MAX_WIDTH = 30;
 
 const TOOL_ICON: Record<ToolKind, string> = {
   move: "✋",
+  select: "⬚",
   pen: "✎",
   highlighter: "🖍",
   eraser: "▱",
@@ -27,6 +28,7 @@ export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
   const t = useT();
   const tools: ToolKind[] = [
     "move",
+    "select",
     "pen",
     "highlighter",
     "eraser",
@@ -35,8 +37,8 @@ export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
     "rect",
     "ellipse",
   ];
-  // 색/굵기/불투명도는 그리는 도구일 때만 의미가 있다(이동/지우개 제외).
-  const showStyle = draw.tool !== "move" && draw.tool !== "eraser";
+  // 색/굵기/불투명도는 그리는 도구일 때만 의미가 있다(이동/선택/지우개 제외).
+  const showStyle = draw.tool !== "move" && draw.tool !== "select" && draw.tool !== "eraser";
   // 채우기는 닫힌 도형(사각형/타원)에만 적용한다.
   const showFill = draw.tool === "rect" || draw.tool === "ellipse";
 
@@ -173,6 +175,38 @@ export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
             />
           </div>
         </>
+      )}
+
+      {draw.selection && (
+        <div className="pdf-draw-group">
+          <button
+            type="button"
+            className="pdf-draw-tool"
+            title={t("pdfDraw.bringFront")}
+            aria-label={t("pdfDraw.bringFront")}
+            onClick={() => draw.bringSelectedToFront()}
+          >
+            ⬆
+          </button>
+          <button
+            type="button"
+            className="pdf-draw-tool"
+            title={t("pdfDraw.sendBack")}
+            aria-label={t("pdfDraw.sendBack")}
+            onClick={() => draw.sendSelectedToBack()}
+          >
+            ⬇
+          </button>
+          <button
+            type="button"
+            className="pdf-draw-tool"
+            title={t("pdfDraw.deleteShape")}
+            aria-label={t("pdfDraw.deleteShape")}
+            onClick={() => draw.removeSelected()}
+          >
+            🗑
+          </button>
+        </div>
       )}
 
       <div className="pdf-draw-group">

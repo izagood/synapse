@@ -1,11 +1,17 @@
 import {
   effectiveOpacity,
+  shapeBounds,
   smoothPath,
   type LineShape,
   type PathShape,
   type RectLikeShape,
   type Shape,
 } from "./drawDoc";
+
+/** 선택 표시(테두리·핸들) 색. */
+const SELECT_COLOR = "#2563eb";
+/** 코너 핸들 한 변의 절반(화면 CSS px). */
+const HANDLE_HALF_PX = 5;
 
 /**
  * 자유곡선 한 개를 캔버스에 그린다. 컨텍스트는 이미 scale 1 좌표계로 변환돼
@@ -104,9 +110,37 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape): void {
 }
 
 /**
+ * 선택된 도형의 bbox 점선 + 코너 핸들을 그린다. 핸들은 화면 CSS px 고정 크기라
+ * scale 로 역산한다(줌과 무관하게 일정). 이 표시는 저장/베이크 대상이 아니다.
+ */
+function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape, scale: number): void {
+  const [x, y, w, h] = shapeBounds(shape);
+  const px = 1 / (scale || 1); // 화면 1 CSS px → ctx 단위
+  const half = HANDLE_HALF_PX * px;
+  ctx.save();
+  ctx.strokeStyle = SELECT_COLOR;
+  ctx.lineWidth = px;
+  ctx.setLineDash([4 * px, 3 * px]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#fff";
+  for (const [cx, cy] of [
+    [x, y],
+    [x + w, y],
+    [x, y + h],
+    [x + w, y + h],
+  ]) {
+    ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
+    ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
+  }
+  ctx.restore();
+}
+
+/**
  * 오버레이 캔버스를 비우고 그 페이지의 모든 도형을 다시 그린다.
  * scale 은 effective 배율(fit*zoom), dpr 은 백킹스토어 배율.
  * extra 는 진행 중인(아직 커밋 안 된) 도형 — 있으면 마지막에 덧그린다.
+ * selected 가 있으면 그 위에 선택 표시(핸들)를 얹는다.
  */
 export function redrawOverlay(
   canvas: HTMLCanvasElement,
@@ -114,6 +148,7 @@ export function redrawOverlay(
   scale: number,
   dpr: number,
   extra?: Shape | null,
+  selected?: Shape | null,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -123,4 +158,5 @@ export function redrawOverlay(
   ctx.setTransform(s, 0, 0, s, 0, 0);
   for (const shape of shapes) drawShape(ctx, shape);
   if (extra) drawShape(ctx, extra);
+  if (selected) drawSelection(ctx, selected, scale);
 }
