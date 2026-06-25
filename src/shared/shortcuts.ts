@@ -156,6 +156,14 @@ export const SHORTCUTS: ShortcutDef[] = [
     descriptionKey: "shortcuts.desc.graph",
     handledBy: "app",
   },
+  {
+    // VS Code 패널 토글 관례(⌘J/Ctrl+J). mac ⌘`는 OS 창전환과 충돌해 피한다.
+    id: "view.toggleTerminal",
+    category: "view",
+    keys: ["Mod", "J"],
+    descriptionKey: "shortcuts.desc.toggleTerminal",
+    handledBy: "app",
+  },
   // --- 편집 (에디터 포커스 시 동작 · 표시 전용) ---
   {
     id: "editor.find",

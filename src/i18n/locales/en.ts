@@ -42,7 +42,7 @@ export const en: LocaleShape<KoMessages> = {
     toggleSidebar: "Toggle Sidebar",
     quickOpen: "Quick Open ({shortcut})",
     search: "Search ({shortcut})",
-    terminal: "Toggle Terminal",
+    terminal: "Toggle Terminal ({shortcut})",
     graph: "Graph View ({shortcut})",
     newWindow: "New Window ({shortcut}) - open another folder",
     openAnotherFolder: "Open Another Folder",
@@ -51,6 +51,8 @@ export const en: LocaleShape<KoMessages> = {
   },
   terminal: {
     title: "Terminal",
+    tabName: "Terminal {n}",
+    new: "New Terminal",
   },
   workspace: {
     newNote: "New Note",
@@ -330,6 +332,7 @@ export const en: LocaleShape<KoMessages> = {
       closeTab: "Close current tab (closes window if last)",
       toggleSidebar: "Toggle sidebar",
       graph: "Toggle graph view",
+      toggleTerminal: "Toggle terminal",
       find: "Find in document",
       bold: "Bold",
       italic: "Italic",
