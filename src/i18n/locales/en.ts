@@ -21,14 +21,12 @@ export const en: LocaleShape<KoMessages> = {
     recentFolders: "Recent Folders",
     remote: {
       title: "Open Remote Folder (SSH)",
-      host: "Host",
-      port: "Port",
-      user: "User",
-      path: "Path (empty = home directory)",
-      keyPath: "SSH key path (optional)",
-      browse: "Browse…",
-      password: "Password (optional)",
+      commandPlaceholder: "ssh user@host -p 22 -i ~/.ssh/key",
+      commandHint: "Paste an ssh command. ~/.ssh/config host aliases work too.",
+      password: "Password",
       passphrase: "Key passphrase (optional)",
+      passwordNeeded:
+        "Could not authenticate with your SSH agent/key. Enter a password to retry.",
       connect: "Connect",
       connecting: "Connecting…",
       cancel: "Cancel",
@@ -36,6 +34,11 @@ export const en: LocaleShape<KoMessages> = {
       trustAndConnect: "Trust and Connect",
       hostKeyMismatch:
         "Warning: the host key differs from the record (fingerprint: {fingerprint}). Connection refused — possible man-in-the-middle.",
+      browseTitle: "Choose a folder to open",
+      parentDir: "Parent directory",
+      openThisFolder: "Open this folder",
+      emptyDir: "No subfolders here",
+      loadingDir: "Loading…",
     },
   },
   activity: {
