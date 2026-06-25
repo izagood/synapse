@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ancestorDirsOf, clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
+import {
+  ancestorDirsOf,
+  clampMenuPosition,
+  createTargetDir,
+  findNode,
+  isDeleteShortcut,
+} from "./fileTreeUtils";
 import type { FileNode } from "../../ipc/types";
 
 describe("clampMenuPosition", () => {
@@ -77,6 +83,24 @@ describe("ancestorDirsOf", () => {
 
   it("루트에 trailing slash가 있어도 동일하게 동작한다", () => {
     expect(ancestorDirsOf("/ws/", "/ws/AI/n.md")).toEqual(["/ws/AI"]);
+  });
+});
+
+describe("createTargetDir", () => {
+  it("열린 파일이 있으면 그 파일이 속한 폴더에 만든다", () => {
+    expect(createTargetDir("/ws/docs/a.md", "/ws")).toBe("/ws/docs");
+  });
+
+  it("루트 직속 파일이면 루트에 만든다", () => {
+    expect(createTargetDir("/ws/b.md", "/ws")).toBe("/ws");
+  });
+
+  it("열린 파일이 없으면(null) 루트에 만든다", () => {
+    expect(createTargetDir(null, "/ws")).toBe("/ws");
+  });
+
+  it("부모를 구할 수 없는 경로면 루트로 폴백한다", () => {
+    expect(createTargetDir("a.md", "/ws")).toBe("/ws");
   });
 });
 

@@ -49,6 +49,7 @@ export const ko = {
   },
   workspace: {
     newNote: "새 노트",
+    newItem: "새로 만들기 (노트·폴더·드로잉·다이어그램)",
     importHtml: "클립보드 HTML을 노트로 가져오기",
     refreshTree: "파일 트리 새로고침",
     empty: "왼쪽에서 파일을 선택하거나 새 노트를 만드세요",
@@ -315,6 +316,9 @@ export const ko = {
       cheatsheet: "키보드 단축키 보기",
       quickOpen: "빠른 열기 (파일 이름)",
       search: "전체 검색 (노트 내용)",
+      newNote: "새 노트 만들기",
+      newDrawing: "새 드로잉 만들기",
+      newDiagram: "새 다이어그램 만들기",
       save: "현재 노트 저장",
       deleteFile: "선택한 파일 삭제",
       closeTab: "현재 탭 닫기 (마지막 탭이면 창 닫기)",

@@ -6,6 +6,8 @@ import { ContentPane } from "./ContentPane";
 import { QuickOpenModal } from "./QuickOpenModal";
 import { SearchModal } from "./SearchModal";
 import { ActivityBar } from "./ActivityBar";
+import { CreateMenu } from "./CreateMenu";
+import { createTargetDir } from "./fileTreeUtils";
 import { SyncBar } from "../sync/SyncBar";
 import { TerminalPanel } from "../terminal/TerminalPanel";
 import { GraphView } from "../graph/GraphView";
@@ -32,6 +34,9 @@ export function WorkspaceView() {
   const error = useWorkspace((s) => s.error);
   const refreshTree = useWorkspace((s) => s.refreshTree);
   const createNote = useWorkspace((s) => s.createNote);
+  const createFolder = useWorkspace((s) => s.createFolder);
+  const createDrawing = useWorkspace((s) => s.createDrawing);
+  const createDrawioFile = useWorkspace((s) => s.createDrawioFile);
   const importHtmlAsNote = useWorkspace((s) => s.importHtmlAsNote);
   const saveActive = useWorkspace((s) => s.saveActive);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -45,7 +50,26 @@ export function WorkspaceView() {
   const historyPath = useHistoryUi((s) => s.path);
   const closeHistory = useHistoryUi((s) => s.close);
   const dragging = useRef(false);
+  // + 버튼에서 여는 "새로 만들기" 메뉴의 기준 좌표 (null이면 닫힘)
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null);
   const t = useT();
+
+  // 새 항목을 만들 대상 폴더: 현재 열린 파일이 든 폴더, 없으면 루트.
+  // store에서 직접 읽어 키다운/클릭 시점의 최신 선택을 반영한다.
+  const targetDir = useCallback(() => {
+    const { activePath, root: r } = useWorkspace.getState();
+    return createTargetDir(activePath, r ?? "");
+  }, []);
+
+  // + 버튼 클릭 → 버튼 바로 아래에 메뉴를 띄운다(다시 누르면 토글로 닫힘)
+  const toggleCreateMenu = useCallback(() => {
+    setCreateMenu((cur) => {
+      if (cur) return null;
+      const r = plusBtnRef.current?.getBoundingClientRect();
+      return r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 };
+    });
+  }, []);
 
   const toggleTerminal = useCallback(() => {
     setTerminalVisible((v) => {
@@ -69,6 +93,15 @@ export function WorkspaceView() {
       } else if (isShortcut(e, "nav.search")) {
         e.preventDefault();
         setSearch((v) => !v);
+      } else if (isShortcut(e, "file.newNote")) {
+        e.preventDefault();
+        void createNote(targetDir());
+      } else if (isShortcut(e, "file.newDrawing")) {
+        e.preventDefault();
+        void createDrawing(targetDir());
+      } else if (isShortcut(e, "file.newDiagram")) {
+        e.preventDefault();
+        void createDrawioFile(targetDir());
       } else if (isShortcut(e, "file.save")) {
         e.preventDefault();
         void saveActive();
@@ -90,7 +123,7 @@ export function WorkspaceView() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive]);
+  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir]);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -152,7 +185,11 @@ export function WorkspaceView() {
                   {folderName}
                 </span>
                 <span className="sidebar-actions">
-                  <button onClick={() => void createNote()} title={t("workspace.newNote")}>
+                  <button
+                    ref={plusBtnRef}
+                    onClick={toggleCreateMenu}
+                    title={t("workspace.newItem")}
+                  >
                     <PlusIcon size={15} />
                   </button>
                   <button
@@ -192,6 +229,16 @@ export function WorkspaceView() {
       {graph && <GraphView onClose={() => setGraph(false)} />}
       {historyPath && (
         <FileHistoryModal key={historyPath} path={historyPath} onClose={closeHistory} />
+      )}
+      {createMenu && (
+        <CreateMenu
+          anchor={createMenu}
+          onNote={() => void createNote(targetDir())}
+          onFolder={() => void createFolder(targetDir())}
+          onDrawing={() => void createDrawing(targetDir())}
+          onDiagram={() => void createDrawioFile(targetDir())}
+          onClose={() => setCreateMenu(null)}
+        />
       )}
     </div>
   );

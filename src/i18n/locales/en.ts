@@ -54,6 +54,7 @@ export const en: LocaleShape<KoMessages> = {
   },
   workspace: {
     newNote: "New Note",
+    newItem: "New… (note, folder, drawing, diagram)",
     importHtml: "Import clipboard HTML as a note",
     refreshTree: "Refresh File Tree",
     empty: "Select a file on the left or create a new note",
@@ -321,6 +322,9 @@ export const en: LocaleShape<KoMessages> = {
       cheatsheet: "Show keyboard shortcuts",
       quickOpen: "Quick open (file name)",
       search: "Full-text search (note content)",
+      newNote: "Create new note",
+      newDrawing: "Create new drawing",
+      newDiagram: "Create new diagram",
       save: "Save current note",
       deleteFile: "Delete selected file",
       closeTab: "Close current tab (closes window if last)",
