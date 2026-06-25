@@ -16,10 +16,41 @@ export interface GraphTheme {
   edge: string;
   edgeActive: string;
   node: string;
+  /** 활성(hover/selected/검색 일치) 상태 노드 채우기 색 */
+  nodeActive: string;
   nodeIso: string;
   current: string;
   label: string;
   halo: string;
+}
+
+/**
+ * CSS 커스텀 프로퍼티에서 GraphTheme 를 읽어 반환한다.
+ *
+ * - `el` 의 `getComputedStyle` 로 `--accent`, `--fg`, `--fg-faint`, `--bg-panel` 등을 읽는다.
+ * - jsdom 등 CSS 변수를 지원하지 않는 환경에서는 인라인 style 로 설정한 값을 읽는다.
+ * - 값이 비어 있으면 다크 테마 기본값으로 대체한다.
+ */
+export function themeFromCss(el: HTMLElement): GraphTheme {
+  const cs = getComputedStyle(el);
+  const v = (name: string, fallback: string) =>
+    cs.getPropertyValue(name).trim() || fallback;
+
+  const accent = v("--accent", "#7c6cf0");
+  const fg = v("--fg", "#d8d8dc");
+  const fgFaint = v("--fg-faint", "#6b6b74");
+
+  return {
+    bg: "transparent", // CSS 배경(비네트·도트)을 살리려고 캔버스는 투명
+    edge: fgFaint,
+    edgeActive: accent,
+    node: accent,
+    nodeActive: accent,
+    nodeIso: fgFaint,
+    current: accent,
+    label: fg,
+    halo: accent,
+  };
 }
 
 // ── 렌더 입력 ──────────────────────────────────────────────────────
@@ -216,7 +247,7 @@ export function draw(ctx: CanvasRenderingContext2D, input: RenderInput): void {
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         let fill: string;
-        if (op.kind === "active") fill = theme.edgeActive;
+        if (op.kind === "active") fill = theme.nodeActive;
         else if (op.kind === "current") fill = theme.current;
         else if (op.kind === "iso") fill = theme.nodeIso;
         else fill = theme.node; // "linked"

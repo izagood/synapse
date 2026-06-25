@@ -28,7 +28,7 @@ import {
   zoomAround,
 } from "./camera";
 import { nodeAtScreen, type HitNode } from "./hitTest";
-import { draw, radiusOf, type GraphTheme } from "./renderer";
+import { draw, radiusOf, themeFromCss } from "./renderer";
 
 const WIDTH = 900;
 const HEIGHT = 600;
@@ -41,24 +41,6 @@ const PAN_THRESHOLD = 4;
 
 const displayName = (name: string) => name.replace(/\.(md|markdown)$/i, "");
 
-// 현재 CSS 변수에서 GraphTheme 를 끌어온다. Task 12 에서 themeFromCss 로 정교화.
-// 여기서는 --accent/--fg 등 기존 토큰을 읽어 적당한 기본 테마를 만든다.
-function themeFromCssVars(el: HTMLElement | null): GraphTheme {
-  const cs = el ? getComputedStyle(el) : null;
-  const v = (name: string, fallback: string) =>
-    (cs?.getPropertyValue(name).trim() || fallback);
-  const accent = v("--accent", "#7c6cf0");
-  return {
-    bg: "transparent", // CSS 배경(비네트·도트)을 살리려고 캔버스는 투명하게 그린다.
-    edge: v("--fg-faint", "#6b6b74"),
-    edgeActive: accent,
-    node: accent,
-    nodeIso: v("--fg-faint", "#6b6b74"),
-    current: accent,
-    label: v("--fg", "#d8d8dc"),
-    halo: accent,
-  };
-}
 
 // 노트 링크 그래프 시각화 모달 (FR-6.2).
 // 백링크 인덱스를 그래프(노드=노트, 엣지=링크)로 재사용한다.
@@ -307,7 +289,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     draw(ctx, {
       sim: state,
       cam,
-      theme: themeFromCssVars(canvas),
+      theme: themeFromCss(canvas),
       width: dims.width,
       height: dims.height,
       dpr: dims.dpr,
