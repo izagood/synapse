@@ -1,6 +1,7 @@
 pub mod bridge;
 pub mod collab;
 pub mod config_sync;
+pub mod graph_query;
 pub mod fs_io;
 pub mod git;
 pub mod github;
@@ -28,6 +29,7 @@ pub use fs_io::{
     ensure_writable_within, is_safe_file_name,
 };
 pub use git::{ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, SyncState, SyncStatus};
+pub use graph_query::{neighbors, Direction, NeighborNote};
 pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, LinkGraph};
 pub use location::{
     path_to_uri, urify_tree, Location, LocationError, SshLocation, DEFAULT_SSH_PORT,
