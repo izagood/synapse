@@ -165,6 +165,144 @@ export function layoutGraph(graph: LinkGraph, opts: LayoutOptions = {}): GraphLa
   return { nodes, edges, width, height };
 }
 
+// ── 점진 tick 시뮬레이션 ─────────────────────────────────────────
+// 캔버스 뷰에서 실시간 애니메이션 레이아웃과 노드 드래그를 지원한다.
+// initSim 은 layoutGraph(iterations:0) 으로 결정적 초기 배치를 얻고,
+// tickSim 은 매 프레임 1스텝씩 force 를 적용해 새 상태를 반환(불변).
+
+export interface SimNode {
+  path: string;
+  name: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  degree: number;
+  fixed: boolean;
+}
+
+export interface SimState {
+  nodes: SimNode[];
+  edges: { source: string; target: string }[];
+  width: number;
+  height: number;
+  alpha: number;
+}
+
+const SIM_PAD = 24;
+const SIM_DAMPING = 0.85;
+const SIM_ALPHA_DECAY = 0.98;
+const SIM_ALPHA_MIN = 0.02;
+
+/**
+ * 결정적 초기 배치로 시뮬레이션 상태를 만든다.
+ * layoutGraph(iterations:0) 을 호출해 초기 원형 배치와 degree 를 재사용한다.
+ * 속도는 모두 0 이고 alpha=1 로 시작한다.
+ */
+export function initSim(graph: LinkGraph, opts: LayoutOptions = {}): SimState {
+  const base = layoutGraph(graph, { ...opts, iterations: 0 });
+  const nodes: SimNode[] = base.nodes.map((n) => ({
+    path: n.path,
+    name: n.name,
+    x: n.x,
+    y: n.y,
+    vx: 0,
+    vy: 0,
+    degree: n.degree,
+    fixed: false,
+  }));
+  return { nodes, edges: base.edges, width: base.width, height: base.height, alpha: 1 };
+}
+
+/**
+ * 시뮬레이션을 1스텝 전진시킨다. 새 SimState 객체를 반환(불변).
+ * force 상수는 layoutGraph 와 동일하게 유지한다(k², 0.02/k*0.8, gravity 0.01).
+ */
+export function tickSim(s: SimState): SimState {
+  const n = s.nodes.length;
+  if (n === 0) return s;
+  const k = Math.sqrt((s.width * s.height) / Math.max(1, n));
+  const repulsion = k * k;
+  const fx = new Float64Array(n);
+  const fy = new Float64Array(n);
+  const idx = new Map(s.nodes.map((nd, i) => [nd.path, i] as const));
+
+  // 노드 간 반발 (O(n²))
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      let dx = s.nodes[i].x - s.nodes[j].x;
+      let dy = s.nodes[i].y - s.nodes[j].y;
+      let d2 = dx * dx + dy * dy || 0.01;
+      const d = Math.sqrt(d2);
+      const f = (repulsion / d2) * s.alpha;
+      const ux = dx / d;
+      const uy = dy / d;
+      fx[i] += ux * f;
+      fy[i] += uy * f;
+      fx[j] -= ux * f;
+      fy[j] -= uy * f;
+    }
+  }
+
+  // 엣지 스프링 당김
+  for (const e of s.edges) {
+    const a = idx.get(e.source);
+    const b = idx.get(e.target);
+    if (a == null || b == null) continue;
+    const dx = s.nodes[b].x - s.nodes[a].x;
+    const dy = s.nodes[b].y - s.nodes[a].y;
+    const d = Math.hypot(dx, dy) || 0.01;
+    const f = 0.02 * (d - k * 0.8) * s.alpha;
+    const ux = dx / d;
+    const uy = dy / d;
+    fx[a] += ux * f;
+    fy[a] += uy * f;
+    fx[b] -= ux * f;
+    fy[b] -= uy * f;
+  }
+
+  // 중심 끌림 + 속도 적분 + 경계 클램프
+  const cx = s.width / 2;
+  const cy = s.height / 2;
+  const nodes = s.nodes.map((nd, i) => {
+    if (nd.fixed) return nd;
+    const vx = (nd.vx + fx[i] + (cx - nd.x) * 0.01 * s.alpha) * SIM_DAMPING;
+    const vy = (nd.vy + fy[i] + (cy - nd.y) * 0.01 * s.alpha) * SIM_DAMPING;
+    const x = Math.max(SIM_PAD, Math.min(s.width - SIM_PAD, nd.x + vx));
+    const y = Math.max(SIM_PAD, Math.min(s.height - SIM_PAD, nd.y + vy));
+    return { ...nd, x, y, vx, vy };
+  });
+
+  const alpha = Math.max(SIM_ALPHA_MIN, s.alpha * SIM_ALPHA_DECAY);
+  return { ...s, nodes, alpha };
+}
+
+/** alpha 를 재설정해 시뮬레이션을 다시 활성화한다(드래그 후 안정화 등). */
+export function reheat(s: SimState, alpha = 0.6): SimState {
+  return { ...s, alpha: Math.max(s.alpha, alpha) };
+}
+
+/**
+ * 특정 노드를 주어진 좌표에 고정하거나 해제한다(드래그용).
+ * fixed=true 이면 tickSim 에서 해당 노드를 이동시키지 않는다.
+ * alpha 를 소폭 올려 주변 노드가 재배치되게 한다.
+ */
+export function setFixed(
+  s: SimState,
+  path: string,
+  x: number,
+  y: number,
+  fixed: boolean,
+): SimState {
+  return {
+    ...s,
+    nodes: s.nodes.map((n) =>
+      n.path === path ? { ...n, x, y, vx: 0, vy: 0, fixed } : n,
+    ),
+    alpha: Math.max(s.alpha, 0.3),
+  };
+}
+
 /** 한 노드에 인접한 노드 경로 집합 (호버 강조용). 방향 무시(in+out). */
 export function adjacencyOf(graph: LinkGraph, path: string): Set<string> {
   const adj = new Set<string>();
