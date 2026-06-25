@@ -107,8 +107,19 @@ export function WorkspaceView() {
         e.preventDefault();
         toggleTerminal();
       } else if (isShortcut(e, "tab.close")) {
-        // 탭이 열려 있으면 현재 탭만 닫는다. 탭이 없으면 가로채지 않고
-        // OS 기본 동작(창/앱 닫기)에 맡겨, 마지막 노트까지 닫혔을 때만 앱이 닫힌다.
+        // 포커스가 터미널 도크 안이면 노트가 아니라 활성 터미널을 닫는다(VS Code 동작).
+        const term = useTerminal.getState();
+        if (
+          term.visible &&
+          term.activeId &&
+          document.activeElement?.closest(".terminal-dock")
+        ) {
+          e.preventDefault();
+          term.closeTerminal(term.activeId);
+          return;
+        }
+        // 그 외에는 현재 노트 탭을 닫는다. 탭이 없으면 가로채지 않고 OS 기본
+        // 동작(창/앱 닫기)에 맡겨, 마지막 노트까지 닫혔을 때만 앱이 닫힌다.
         const { activePath, closeTab } = useWorkspace.getState();
         if (activePath) {
           e.preventDefault();
