@@ -100,6 +100,22 @@ jobs:
 
       - run: npm ci
 
+      # Synapse MCP 사이드카를 타깃 트리플로 빌드해 externalBin 자리(src-tauri/binaries)에 둔다.
+      # tauri-action 빌드가 이 바이너리를 앱 옆에 번들한다 (없으면 빌드 실패).
+      - name: Synapse MCP 사이드카 빌드 (externalBin)
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="${{ matrix.rust_targets }}"
+          if [ -z "$triple" ]; then triple="$(rustc -Vv | sed -n 's/^host: //p')"; fi
+          echo "사이드카 타깃: $triple"
+          cargo build --manifest-path crates/synapse-mcp/Cargo.toml --release --target "$triple"
+          mkdir -p src-tauri/binaries
+          ext=""; case "$triple" in *windows*) ext=".exe";; esac
+          cp "crates/synapse-mcp/target/$triple/release/synapse-mcp$ext" \
+             "src-tauri/binaries/synapse-mcp-$triple$ext"
+          ls -l src-tauri/binaries
+
       # macOS 코드 서명 — 셀프사인 인증서 (파일 상단 "코드 서명" 주석 참고).
       # 주의: tauri의 APPLE_CERTIFICATE 자동 import는 Apple 발급 인증서
       # 이름("Developer ID Application:" 등)만 인식해 셀프사인 인증서로는
