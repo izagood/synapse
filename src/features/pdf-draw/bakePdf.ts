@@ -1,9 +1,11 @@
 import { resolveAssetUrl } from "../../ipc/ipc";
 import {
   HIGHLIGHTER_OPACITY,
+  shapesOnPage,
   strokeToSvgPath,
-  strokesOnPage,
   type DrawDoc,
+  type PathShape,
+  type Shape,
 } from "./drawDoc";
 
 // pdf-lib 는 무거우므로(수백 KB) 굽기를 실행할 때만 동적으로 불러온다.
@@ -41,35 +43,49 @@ export async function fetchPdfBytes(path: string): Promise<Uint8Array> {
  * 원본 PDF 바이트에 드로잉을 합성해 새 PDF 바이트를 만든다.
  * 좌표는 scale 1 pdf.js 뷰포트 기준(top-left, y-down)이고, pdf-lib drawSvgPath 에
  * y=pageHeight 기준점을 주면 페이지 좌표(bottom-left, y-up)로 올바르게 매핑된다.
- * (회전된 페이지(rotation≠0)는 v1에서 보정하지 않는다 — 사이드카 미리보기는 정확.)
+ * (회전된 페이지(rotation≠0)는 보정하지 않는다 — 사이드카 미리보기는 정확.)
+ *
+ * 도형 종류별 베이크는 bakeShape 디스패처가 맡는다(단계별로 case 가 늘어난다).
  */
 export async function buildBakedPdf(
   originalBytes: Uint8Array,
   doc: DrawDoc,
 ): Promise<Uint8Array> {
-  const { PDFDocument, rgb, LineCapStyle } = await import("pdf-lib");
+  const lib = await import("pdf-lib");
+  const { PDFDocument, rgb, LineCapStyle } = lib;
   const pdf = await PDFDocument.load(originalBytes);
   const pages = pdf.getPages();
 
+  // pdf-lib 의 rgb/LineCapStyle 을 클로저로 캡처해 도형별 베이커에 넘긴다.
+  const bakePath = (page: (typeof pages)[number], height: number, path: PathShape) => {
+    const d = strokeToSvgPath(path.points);
+    if (!d) return;
+    const { r, g, b } = hexToRgb01(path.color);
+    page.drawSvgPath(d, {
+      x: 0,
+      y: height,
+      scale: 1,
+      borderColor: rgb(r, g, b),
+      borderWidth: path.width,
+      borderOpacity: path.tool === "highlighter" ? HIGHLIGHTER_OPACITY : 1,
+      borderLineCap: LineCapStyle.Round,
+    });
+  };
+
+  const bakeShape = (page: (typeof pages)[number], height: number, shape: Shape) => {
+    switch (shape.type) {
+      case "path":
+        bakePath(page, height, shape);
+        break;
+    }
+  };
+
   for (let i = 0; i < pages.length; i++) {
-    const strokes = strokesOnPage(doc, i + 1);
-    if (strokes.length === 0) continue;
+    const shapes = shapesOnPage(doc, i + 1);
+    if (shapes.length === 0) continue;
     const page = pages[i];
     const { height } = page.getSize();
-    for (const stroke of strokes) {
-      const d = strokeToSvgPath(stroke.points);
-      if (!d) continue;
-      const { r, g, b } = hexToRgb01(stroke.color);
-      page.drawSvgPath(d, {
-        x: 0,
-        y: height,
-        scale: 1,
-        borderColor: rgb(r, g, b),
-        borderWidth: stroke.width,
-        borderOpacity: stroke.tool === "highlighter" ? HIGHLIGHTER_OPACITY : 1,
-        borderLineCap: LineCapStyle.Round,
-      });
-    }
+    for (const shape of shapes) bakeShape(page, height, shape);
   }
   return pdf.save();
 }
