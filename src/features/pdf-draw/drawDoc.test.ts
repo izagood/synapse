@@ -11,6 +11,8 @@ import {
   shapeHitsPoint,
   eraseShapesAt,
   strokeToSvgPath,
+  smoothPath,
+  effectiveOpacity,
   DRAW_DOC_VERSION,
   type DrawDoc,
   type PathShape,
@@ -184,17 +186,72 @@ describe("지우개/선택 기하", () => {
   });
 });
 
-describe("베이크 SVG path", () => {
-  it("좌표열을 M/L 명령으로 변환한다", () => {
-    expect(strokeToSvgPath([1, 2, 3, 4, 5, 6])).toBe("M 1 2 L 3 4 L 5 6");
+describe("곡선 스무딩 / SVG path", () => {
+  it("3점 이상은 2차 베지어(Q)로 변환한다(중점 기법)", () => {
+    // 내부 점은 제어점, 인접 중점이 끝점. 마지막은 끝점으로 마무리.
+    expect(strokeToSvgPath([1, 2, 3, 4, 5, 6])).toBe("M 1 2 Q 3 4 4 5 Q 5 6 5 6");
   });
 
-  it("단일 점은 미세 선분을 만들어 점이 찍히게 한다", () => {
-    const d = strokeToSvgPath([10, 20]);
-    expect(d.startsWith("M 10 20 L")).toBe(true);
+  it("두 점은 직선(제어점=시작점)", () => {
+    expect(strokeToSvgPath([1, 2, 3, 4])).toBe("M 1 2 Q 1 2 3 4");
+  });
+
+  it("단일 점은 미세 구간을 만들어 점이 찍히게 한다", () => {
+    expect(strokeToSvgPath([10, 20]).startsWith("M 10 20 Q")).toBe(true);
   });
 
   it("좌표가 없으면 빈 문자열", () => {
     expect(strokeToSvgPath([])).toBe("");
+  });
+
+  it("smoothPath: 점이 없으면 null", () => {
+    expect(smoothPath([])).toBeNull();
+  });
+
+  it("smoothPath: 화면(canvas)·베이크가 같은 시작점/구간을 공유한다", () => {
+    const sp = smoothPath([0, 0, 10, 0, 20, 0]);
+    expect(sp).not.toBeNull();
+    expect(sp?.startX).toBe(0);
+    expect(sp?.startY).toBe(0);
+    expect((sp?.segs.length ?? 0) >= 2).toBe(true);
+  });
+});
+
+describe("불투명도", () => {
+  it("opacity 가 없으면 도구 기본값(펜 1, 형광펜 0.4)", () => {
+    expect(effectiveOpacity(pen([0, 0, 1, 1]))).toBe(1);
+    expect(effectiveOpacity(pen([0, 0, 1, 1], { tool: "highlighter" }))).toBe(0.4);
+  });
+
+  it("opacity 가 있으면 그 값을 쓴다(도구 무관)", () => {
+    expect(effectiveOpacity(pen([0, 0, 1, 1], { opacity: 0.5 }))).toBe(0.5);
+    expect(
+      effectiveOpacity(pen([0, 0, 1, 1], { tool: "highlighter", opacity: 0.9 })),
+    ).toBe(0.9);
+  });
+
+  it("opacity 0(완전 투명)도 유효한 값으로 본다", () => {
+    expect(effectiveOpacity(pen([0, 0, 1, 1], { opacity: 0 }))).toBe(0);
+  });
+
+  it("opacity 를 직렬화·복원한다", () => {
+    const doc: DrawDoc = { version: 2, pages: { 1: [pen([0, 0, 1, 1], { opacity: 0.5 })] } };
+    const r = parseDrawDoc(serializeDrawDoc(doc));
+    expect(r.pages[1][0].opacity).toBe(0.5);
+  });
+
+  it("opacity 가 없으면 직렬화 결과에 포함하지 않는다", () => {
+    const json = serializeDrawDoc({ version: 2, pages: { 1: [pen([0, 0, 1, 1])] } });
+    expect(json).not.toContain("opacity");
+  });
+
+  it("범위 밖 opacity 는 0..1 로 클램프한다", () => {
+    const json = JSON.stringify({
+      version: 2,
+      pages: {
+        1: [{ type: "path", tool: "pen", color: "#000", width: 2, opacity: 5, points: [0, 0, 1, 1] }],
+      },
+    });
+    expect(parseDrawDoc(json).pages[1][0].opacity).toBe(1);
   });
 });

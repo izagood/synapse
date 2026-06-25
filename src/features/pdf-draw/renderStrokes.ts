@@ -1,4 +1,4 @@
-import { HIGHLIGHTER_OPACITY, type PathShape, type Shape } from "./drawDoc";
+import { effectiveOpacity, smoothPath, type PathShape, type Shape } from "./drawDoc";
 
 /**
  * 자유곡선 한 개를 캔버스에 그린다. 컨텍스트는 이미 scale 1 좌표계로 변환돼
@@ -6,24 +6,20 @@ import { HIGHLIGHTER_OPACITY, type PathShape, type Shape } from "./drawDoc";
  * 모두 그대로 scale 1 단위로 넘기면 된다.
  */
 function drawPath(ctx: CanvasRenderingContext2D, path: PathShape): void {
-  const pts = path.points;
-  if (pts.length < 2) return;
+  const sp = smoothPath(path.points);
+  if (!sp) return;
 
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.strokeStyle = path.color;
   ctx.lineWidth = path.width;
-  ctx.globalAlpha = path.tool === "highlighter" ? HIGHLIGHTER_OPACITY : 1;
+  ctx.globalAlpha = effectiveOpacity(path);
 
+  // 베이크(strokeToSvgPath)와 같은 2차 베지어 곡선으로 그린다.
   ctx.beginPath();
-  ctx.moveTo(pts[0], pts[1]);
-  if (pts.length === 2) {
-    // 단일 점: 둥근 캡이 점처럼 찍히도록 같은 자리로 미세 이동.
-    ctx.lineTo(pts[0] + 0.01, pts[1] + 0.01);
-  } else {
-    for (let i = 2; i + 1 < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
-  }
+  ctx.moveTo(sp.startX, sp.startY);
+  for (const s of sp.segs) ctx.quadraticCurveTo(s.cx, s.cy, s.x, s.y);
   ctx.stroke();
   ctx.restore();
 }

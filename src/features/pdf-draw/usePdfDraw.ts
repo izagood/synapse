@@ -5,6 +5,7 @@ import {
   countShapes,
   emptyDrawDoc,
   eraseShapesAt,
+  HIGHLIGHTER_OPACITY,
   parseDrawDoc,
   serializeDrawDoc,
   shapesOnPage,
@@ -17,6 +18,7 @@ const AUTOSAVE_MS = 800;
 const UNDO_LIMIT = 60;
 const DEFAULT_COLOR = "#e02424";
 const DEFAULT_WIDTH = 3; // scale 1(pt) 기준
+const RECENT_COLOR_LIMIT = 8;
 
 export interface PdfDrawApi {
   tool: ToolKind;
@@ -25,6 +27,11 @@ export interface PdfDrawApi {
   setColor: (c: string) => void;
   width: number;
   setWidth: (w: number) => void;
+  /** 0..1 현재 불투명도(다음에 그릴 획에 적용). */
+  opacity: number;
+  setOpacity: (o: number) => void;
+  /** 최근 사용한 색(중복 제거, 최신순). */
+  recentColors: string[];
 
   /** 도구별 굵기(형광펜은 더 굵게)를 적용한 현재 획 굵기 */
   effectiveWidth: () => number;
@@ -43,6 +50,10 @@ export interface PdfDrawApi {
   eraseAt: (page: number, x: number, y: number, radius: number) => boolean;
   /** 직전 변경 취소 */
   undo: () => void;
+  /** 직전 취소를 다시 실행 */
+  redo: () => void;
+  /** redo 스택에 되돌릴 변경이 있는지 */
+  canRedo: boolean;
   /** 한 페이지의 모든 도형 삭제 */
   clearPage: (page: number) => void;
   /** 전 페이지 모든 도형 삭제 */
@@ -66,14 +77,31 @@ export function usePdfDraw(path: string): PdfDrawApi {
 
   const docRef = useRef<DrawDoc>(emptyDrawDoc());
   const undoRef = useRef<UndoEntry[]>([]);
+  const redoRef = useRef<UndoEntry[]>([]);
   const dirtyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [tool, setTool] = useState<ToolKind>("move");
-  const [color, setColor] = useState(DEFAULT_COLOR);
+  const [tool, setToolState] = useState<ToolKind>("move");
+  const [color, setColorState] = useState(DEFAULT_COLOR);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [opacity, setOpacity] = useState(1);
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [shapeCount, setShapeCount] = useState(0);
+  const [canRedo, setCanRedo] = useState(false);
   const [dirty, setDirty] = useState(false);
+
+  // 도구를 고르면 그 도구의 기본 불투명도로 맞춘다(이후 슬라이더로 미세조정).
+  const setTool = useCallback((t: ToolKind) => {
+    setToolState(t);
+    if (t === "pen") setOpacity(1);
+    else if (t === "highlighter") setOpacity(HIGHLIGHTER_OPACITY);
+  }, []);
+
+  // 색을 고르면 최근 색 목록 맨 앞에 둔다(중복 제거).
+  const setColor = useCallback((c: string) => {
+    setColorState(c);
+    setRecentColors((prev) => [c, ...prev.filter((x) => x !== c)].slice(0, RECENT_COLOR_LIMIT));
+  }, []);
 
   // ---- 영속화 ----
   const flushSave = useCallback(async () => {
@@ -108,6 +136,8 @@ export function usePdfDraw(path: string): PdfDrawApi {
     void flushSave();
     docRef.current = emptyDrawDoc();
     undoRef.current = [];
+    redoRef.current = [];
+    setCanRedo(false);
     setShapeCount(0);
     if (!root) return;
     ipc
@@ -141,9 +171,14 @@ export function usePdfDraw(path: string): PdfDrawApi {
   }, [root, path]);
 
   // ---- 변경 연산 ----
+  // 새 사용자 변경 직전에 호출 → undo 스택에 스냅샷을 쌓고 redo 스택은 무효화한다.
   const pushUndo = useCallback((page: number) => {
     undoRef.current.push({ page, shapes: [...shapesOnPage(docRef.current, page)] });
     if (undoRef.current.length > UNDO_LIMIT) undoRef.current.shift();
+    if (redoRef.current.length > 0) {
+      redoRef.current = [];
+      setCanRedo(false);
+    }
   }, []);
 
   const commitShape = useCallback(
@@ -175,8 +210,23 @@ export function usePdfDraw(path: string): PdfDrawApi {
   const undo = useCallback(() => {
     const entry = undoRef.current.pop();
     if (!entry) return;
+    // 현재 그 페이지 상태를 redo 스택에 보관한 뒤 되돌린다.
+    redoRef.current.push({ page: entry.page, shapes: [...shapesOnPage(docRef.current, entry.page)] });
+    setCanRedo(true);
     docRef.current.pages[entry.page] = entry.shapes;
     setShapeCount(countShapes(docRef.current));
+    scheduleSave();
+  }, [scheduleSave]);
+
+  const redo = useCallback(() => {
+    const entry = redoRef.current.pop();
+    if (!entry) return;
+    // 현재 그 페이지 상태를 undo 스택에 보관한 뒤 다시 적용한다.
+    undoRef.current.push({ page: entry.page, shapes: [...shapesOnPage(docRef.current, entry.page)] });
+    if (undoRef.current.length > UNDO_LIMIT) undoRef.current.shift();
+    docRef.current.pages[entry.page] = entry.shapes;
+    setShapeCount(countShapes(docRef.current));
+    setCanRedo(redoRef.current.length > 0);
     scheduleSave();
   }, [scheduleSave]);
 
@@ -215,6 +265,9 @@ export function usePdfDraw(path: string): PdfDrawApi {
     setColor,
     width,
     setWidth,
+    opacity,
+    setOpacity,
+    recentColors,
     effectiveWidth,
     docRef,
     isDrawing: tool === "pen" || tool === "highlighter" || tool === "eraser",
@@ -223,6 +276,8 @@ export function usePdfDraw(path: string): PdfDrawApi {
     commitShape,
     eraseAt,
     undo,
+    redo,
+    canRedo,
     clearPage,
     clearAll,
     getDoc,
