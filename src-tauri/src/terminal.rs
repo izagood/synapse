@@ -26,11 +26,30 @@ struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
+    /// 어느 윈도우(webview)가 연 세션인지 — 윈도우 종료 시 일괄 정리에 쓴다.
+    window_label: String,
 }
 
 /// Tauri 관리 상태: 터미널 id → 세션.
 #[derive(Default)]
 pub struct PtyState(Mutex<HashMap<String, PtySession>>);
+
+impl PtyState {
+    /// 윈도우가 닫힐 때 그 윈도우가 연 모든 PTY를 종료·정리한다(좀비 방지).
+    pub fn drop_window(&self, label: &str) {
+        let Ok(mut map) = self.0.lock() else { return };
+        let ids: Vec<String> = map
+            .iter()
+            .filter(|(_, s)| s.window_label == label)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if let Some(mut s) = map.remove(&id) {
+                let _ = s.child.kill();
+            }
+        }
+    }
+}
 
 static PTY_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -118,12 +137,23 @@ pub fn pty_open(
         .map_err(|e| e.to_string())?;
 
     let mut cmd = CommandBuilder::new(shell.unwrap_or_else(default_shell));
+    // 로그인+인터랙티브 셸로 띄운다 — GUI(Dock) 실행 앱은 PATH가 최소라, 셸이
+    // .zprofile/.zshrc(homebrew shellenv, mise/pyenv shim 등)를 직접 읽어 사용자
+    // 환경을 복원해야 node/brew/claude 등이 잡힌다(VS Code 기본 동작과 동일).
+    // cmd.exe/powershell엔 해당 인자가 없으므로 unix 계열에만 적용한다.
+    if !cfg!(windows) {
+        cmd.arg("-l");
+        cmd.arg("-i");
+    }
     if let Some(root) = root.as_deref() {
         // 원격(ssh://) 루트는 로컬 cwd로 쓸 수 없으므로 무시(홈에서 시작).
         if !root.starts_with("ssh://") {
             cmd.cwd(root);
         }
     }
+    // 색상·이펙트가 제대로 렌더되도록 터미널 타입을 지정한다.
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
     // 브리지 접속 정보 주입 — 토큰이 곧 윈도우 선택자다(별도 라벨 불필요).
     let port = bridge.0.port();
     let token = bridge.0.ensure_token(&window_label);
@@ -192,6 +222,7 @@ pub fn pty_open(
             master: pair.master,
             writer,
             child,
+            window_label,
         },
     );
     Ok(id)
