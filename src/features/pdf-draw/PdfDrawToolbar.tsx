@@ -22,6 +22,7 @@ const TOOL_ICON: Record<ToolKind, string> = {
   arrow: "↗",
   rect: "▭",
   ellipse: "◯",
+  text: "T",
 };
 
 export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
@@ -36,6 +37,7 @@ export function PdfDrawToolbar({ draw }: { draw: PdfDrawApi }) {
     "arrow",
     "rect",
     "ellipse",
+    "text",
   ];
   // 색/굵기/불투명도는 그리는 도구일 때만 의미가 있다(이동/선택/지우개 제외).
   const showStyle = draw.tool !== "move" && draw.tool !== "select" && draw.tool !== "eraser";
