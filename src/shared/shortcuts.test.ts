@@ -80,6 +80,27 @@ describe("isShortcut + shortcutById", () => {
   });
 });
 
+describe("생성 단축키", () => {
+  it("⌘N / Ctrl+N = 새 노트 (Shift 가 섞이면 새 창이지 새 노트가 아니다)", () => {
+    expect(isShortcut(ev({ key: "n", metaKey: true }), "file.newNote")).toBe(true);
+    expect(isShortcut(ev({ key: "n", ctrlKey: true }), "file.newNote")).toBe(true);
+    expect(isShortcut(ev({ key: "n", metaKey: true, shiftKey: true }), "file.newNote")).toBe(false);
+  });
+
+  it("⌘⇧D = 새 드로잉 (Shift 없으면 매칭 안 됨)", () => {
+    expect(
+      isShortcut(ev({ key: "d", metaKey: true, shiftKey: true }), "file.newDrawing"),
+    ).toBe(true);
+    expect(isShortcut(ev({ key: "d", metaKey: true }), "file.newDrawing")).toBe(false);
+  });
+
+  it("⌘⇧M = 새 다이어그램", () => {
+    expect(
+      isShortcut(ev({ key: "m", metaKey: true, shiftKey: true }), "file.newDiagram"),
+    ).toBe(true);
+  });
+});
+
 describe("SHORTCUTS registry integrity", () => {
   it("has unique ids", () => {
     const ids = SHORTCUTS.map((s) => s.id);
