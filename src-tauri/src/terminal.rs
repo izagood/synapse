@@ -52,6 +52,48 @@ fn default_shell() -> String {
     }
 }
 
+/// 번들된 Synapse MCP 사이드카 바이너리 경로를 찾는다.
+///
+/// 1) `SYNAPSE_MCP_BIN` 환경변수(개발/테스트 오버라이드)
+/// 2) 앱 실행파일과 같은 디렉터리(Tauri externalBin이 여기에 둔다)
+///
+/// 못 찾으면 `None` — 호출 측은 프로비저닝을 건너뛴다(깨진 .mcp.json을 쓰지 않음).
+fn resolve_sidecar_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("SYNAPSE_MCP_BIN") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.exists() {
+            return Some(pb);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let name = if cfg!(windows) {
+        "synapse-mcp.exe"
+    } else {
+        "synapse-mcp"
+    };
+    let cand = dir.join(name);
+    cand.exists().then_some(cand)
+}
+
+/// 워크스페이스 루트에 claude용 `.mcp.json`을 병합 작성하고, 동기화 오염을 막기 위해
+/// `.gitignore`에 `.mcp.json`을 추가한다. 모두 베스트 에포트(실패해도 터미널은 정상).
+fn provision_mcp(root: &str, sidecar: &str) {
+    let root_path = std::path::Path::new(root);
+
+    let mcp_path = root_path.join(".mcp.json");
+    let existing = std::fs::read_to_string(&mcp_path).ok();
+    if let Some(content) = synapse_core::merge_mcp_config(existing.as_deref(), sidecar) {
+        let _ = std::fs::write(&mcp_path, content);
+    }
+
+    let gi_path = root_path.join(".gitignore");
+    let gi_existing = std::fs::read_to_string(&gi_path).ok();
+    if let Some(content) = synapse_core::ensure_gitignore_line(gi_existing.as_deref(), ".mcp.json") {
+        let _ = std::fs::write(&gi_path, content);
+    }
+}
+
 /// 새 PTY를 연다. 자식 env에 브리지 접속 정보를 주입하고, cwd를 워크스페이스
 /// 루트로 맞춘다. 반환값은 이후 write/resize/kill에 쓰는 터미널 id.
 #[tauri::command]
@@ -89,9 +131,22 @@ pub fn pty_open(
         cmd.env(k, v);
     }
     // 내장 터미널에서 claude를 중첩 실행할 수 있게, 상위 Claude Code 마커는 지운다
-    // (agent.rs와 동일한 이유).
+    // (과거 agent.rs와 동일한 이유).
     cmd.env_remove("CLAUDECODE");
     cmd.env_remove("CLAUDE_CODE_ENTRYPOINT");
+
+    // MCP 사이드카 자동 등록: 사이드카가 있으면 경로를 env로 노출하고, 로컬
+    // 워크스페이스라면 .mcp.json을 병합 작성한다(claude 표준 프로젝트 설정).
+    // 머신별 절대경로가 git 동기화로 퍼지지 않도록 .gitignore로 격리한다.
+    if let Some(sidecar) = resolve_sidecar_path() {
+        let sidecar_str = sidecar.to_string_lossy().to_string();
+        cmd.env("SYNAPSE_MCP_PATH", &sidecar_str);
+        if let Some(root) = root.as_deref() {
+            if !root.starts_with("ssh://") {
+                provision_mcp(root, &sidecar_str);
+            }
+        }
+    }
 
     let child = pair
         .slave
