@@ -9,13 +9,21 @@
 // 지점(렌더/입력/베이크)은 shape.type 으로 분기하는 디스패처 구조를 따른다.
 
 /** 화면에서 고를 수 있는 도구. move는 그리지 않고 스크롤/줌만 한다. */
-export type ToolKind = "move" | "pen" | "highlighter" | "eraser";
+export type ToolKind =
+  | "move"
+  | "pen"
+  | "highlighter"
+  | "eraser"
+  | "line"
+  | "arrow"
+  | "rect"
+  | "ellipse";
 
 /** 자유곡선을 만드는 펜 계열 도구. */
 export type StrokeTool = "pen" | "highlighter";
 
 /** 저장되는 도형의 종류(판별자). 단계별로 멤버가 늘어난다. */
-export type ShapeType = "path";
+export type ShapeType = "path" | "line" | "arrow" | "rect" | "ellipse";
 
 /** 모든 도형이 공유하는 메타. id는 선택/이동/삭제의 대상 식별자다. */
 export interface ShapeBase {
@@ -37,8 +45,40 @@ export interface PathShape extends ShapeBase {
   points: number[];
 }
 
+/** 직선/화살표. a→b 두 점으로 정의한다(화살표는 b 끝에 화살촉). */
+export interface LineShape extends ShapeBase {
+  type: "line" | "arrow";
+  /** "#rrggbb" 형식 선 색 */
+  color: string;
+  /** scale 1 좌표 단위(pt) 선 굵기 */
+  width: number;
+  /** 0..1 불투명도(생략 시 1) */
+  opacity?: number;
+  /** 시작점 [x,y] (scale 1) */
+  a: [number, number];
+  /** 끝점 [x,y] (scale 1) */
+  b: [number, number];
+}
+
+/** 사각형/타원. 정규화된 bbox [x,y,w,h] (w,h≥0). */
+export interface RectLikeShape extends ShapeBase {
+  type: "rect" | "ellipse";
+  /** 테두리 색(생략 시 테두리 없음) */
+  stroke?: string;
+  /** 채우기 색(생략 시 투명) */
+  fill?: string;
+  /** 테두리 굵기(pt) */
+  width: number;
+  /** 0..1 불투명도(생략 시 1) */
+  opacity?: number;
+  /** rect 모서리 둥글기(pt, rect 전용) */
+  radius?: number;
+  /** 정규화된 bbox [x,y,w,h] (scale 1) */
+  rect: [number, number, number, number];
+}
+
 /** 디스크에 저장되는 도형. 단계별로 유니온이 넓어진다. */
-export type Shape = PathShape;
+export type Shape = PathShape | LineShape | RectLikeShape;
 
 export interface DrawDoc {
   version: 2;
@@ -50,10 +90,11 @@ export const DRAW_DOC_VERSION = 2 as const;
 /** 형광펜 기본 불투명도(펜은 1.0). 사용자가 opacity 를 지정하면 그 값이 우선. */
 export const HIGHLIGHTER_OPACITY = 0.4;
 
-/** path 의 실제 불투명도. opacity 가 있으면 그 값, 없으면 도구 기본값. */
-export function effectiveOpacity(shape: PathShape): number {
+/** 도형의 실제 불투명도. opacity 가 있으면 그 값, 없으면 형광펜만 0.4·나머지 1. */
+export function effectiveOpacity(shape: Shape): number {
   if (typeof shape.opacity === "number") return shape.opacity;
-  return shape.tool === "highlighter" ? HIGHLIGHTER_OPACITY : 1;
+  if (shape.type === "path" && shape.tool === "highlighter") return HIGHLIGHTER_OPACITY;
+  return 1;
 }
 
 /** 짧은 도형 식별자. 페이지당 도형 수가 적어 충돌 확률은 무시 가능. */
@@ -79,12 +120,36 @@ export function shapesOnPage(doc: DrawDoc, page: number): Shape[] {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
-/** 도형이 화면/저장에 의미가 있는 최소 데이터를 갖췄는지(빈 path 제거용). */
-function isNonEmptyShape(s: Shape): boolean {
+function asPoint(v: unknown): [number, number] | null {
+  return Array.isArray(v) && v.length === 2 && isNum(v[0]) && isNum(v[1])
+    ? [v[0], v[1]]
+    : null;
+}
+
+function asRect(v: unknown): [number, number, number, number] | null {
+  return Array.isArray(v) && v.length === 4 && v.every(isNum)
+    ? [v[0], v[1], v[2], v[3]]
+    : null;
+}
+
+function coerceOpacity(v: unknown): number | undefined {
+  return isNum(v) ? clamp01(v) : undefined;
+}
+
+/** 도형이 화면/저장에 의미가 있는 최소 데이터를 갖췄는지(빈 도형 제거용). */
+export function isNonEmptyShape(s: Shape): boolean {
   switch (s.type) {
     case "path":
       return s.points.length >= 2;
+    case "line":
+    case "arrow":
+      return s.a[0] !== s.b[0] || s.a[1] !== s.b[1];
+    case "rect":
+    case "ellipse":
+      return s.rect[2] > 0 || s.rect[3] > 0;
   }
 }
 
@@ -97,39 +162,69 @@ function coerceShape(raw: unknown): Shape | null {
   const o = raw as Record<string, unknown>;
   // v1 호환: type 이 없으면 자유곡선(path)으로 본다.
   const type = o.type === undefined ? "path" : o.type;
+  const id = typeof o.id === "string" && o.id.length > 0 ? o.id : newShapeId();
+  const opacity = coerceOpacity(o.opacity);
+  const withOpacity = opacity !== undefined ? { opacity } : {};
 
   if (type === "path") {
     if (!(o.tool === "pen" || o.tool === "highlighter")) return null;
     if (typeof o.color !== "string") return null;
-    if (typeof o.width !== "number" || !Number.isFinite(o.width)) return null;
+    if (!isNum(o.width)) return null;
     if (
       !Array.isArray(o.points) ||
       o.points.length < 2 ||
       o.points.length % 2 !== 0 ||
-      !o.points.every((p) => typeof p === "number" && Number.isFinite(p))
+      !o.points.every(isNum)
     ) {
       return null;
     }
-    const opacity =
-      typeof o.opacity === "number" && Number.isFinite(o.opacity)
-        ? Math.max(0, Math.min(1, o.opacity))
-        : undefined;
     return {
-      id: typeof o.id === "string" && o.id.length > 0 ? o.id : newShapeId(),
+      id,
       type: "path",
       tool: o.tool,
       color: o.color,
       width: o.width,
-      ...(opacity !== undefined ? { opacity } : {}),
+      ...withOpacity,
       points: o.points as number[],
     };
   }
+
+  if (type === "line" || type === "arrow") {
+    const a = asPoint(o.a);
+    const b = asPoint(o.b);
+    if (!a || !b) return null;
+    if (typeof o.color !== "string") return null;
+    if (!isNum(o.width)) return null;
+    return { id, type, color: o.color, width: o.width, ...withOpacity, a, b };
+  }
+
+  if (type === "rect" || type === "ellipse") {
+    const rect = asRect(o.rect);
+    if (!rect) return null;
+    if (!isNum(o.width)) return null;
+    const stroke = typeof o.stroke === "string" ? o.stroke : undefined;
+    const fill = typeof o.fill === "string" ? o.fill : undefined;
+    if (!stroke && !fill) return null; // 테두리도 채움도 없으면 보이지 않음
+    const radius = type === "rect" && isNum(o.radius) ? Math.max(0, o.radius) : undefined;
+    return {
+      id,
+      type,
+      ...(stroke ? { stroke } : {}),
+      ...(fill ? { fill } : {}),
+      width: o.width,
+      ...withOpacity,
+      ...(radius !== undefined ? { radius } : {}),
+      rect,
+    };
+  }
+
   // 미지 타입(상위 버전이 저장한 것)은 조용히 버린다.
   return null;
 }
 
 /** 한 도형을 저장용 평이 객체로(좌표는 소수 2자리 반올림). */
 function serializeShape(s: Shape): Record<string, unknown> {
+  const withOpacity = s.opacity !== undefined ? { opacity: round2(s.opacity) } : {};
   switch (s.type) {
     case "path":
       return {
@@ -138,8 +233,31 @@ function serializeShape(s: Shape): Record<string, unknown> {
         tool: s.tool,
         color: s.color,
         width: round2(s.width),
-        ...(s.opacity !== undefined ? { opacity: round2(s.opacity) } : {}),
+        ...withOpacity,
         points: s.points.map(round2),
+      };
+    case "line":
+    case "arrow":
+      return {
+        id: s.id,
+        type: s.type,
+        color: s.color,
+        width: round2(s.width),
+        ...withOpacity,
+        a: [round2(s.a[0]), round2(s.a[1])],
+        b: [round2(s.b[0]), round2(s.b[1])],
+      };
+    case "rect":
+    case "ellipse":
+      return {
+        id: s.id,
+        type: s.type,
+        ...(s.stroke ? { stroke: s.stroke } : {}),
+        ...(s.fill ? { fill: s.fill } : {}),
+        width: round2(s.width),
+        ...withOpacity,
+        ...(s.radius !== undefined ? { radius: round2(s.radius) } : {}),
+        rect: s.rect.map(round2),
       };
   }
 }
@@ -231,6 +349,38 @@ export function shapeHitsPoint(shape: Shape, x: number, y: number, radius: numbe
   switch (shape.type) {
     case "path":
       return pathHitsPoint(shape, x, y, radius);
+    case "line":
+    case "arrow":
+      return (
+        distanceToSegment(x, y, shape.a[0], shape.a[1], shape.b[0], shape.b[1]) <=
+        radius + shape.width / 2
+      );
+    case "rect": {
+      const [rx, ry, rw, rh] = shape.rect;
+      const tol = radius + shape.width / 2;
+      const inOuter = x >= rx - tol && x <= rx + rw + tol && y >= ry - tol && y <= ry + rh + tol;
+      if (!inOuter) return false;
+      if (shape.fill) return true; // 채워진 사각형은 내부도 히트
+      // 테두리만: 안쪽 빈 영역은 제외
+      const inInner = x > rx + tol && x < rx + rw - tol && y > ry + tol && y < ry + rh - tol;
+      return !inInner;
+    }
+    case "ellipse": {
+      const [rx, ry, rw, rh] = shape.rect;
+      const cx = rx + rw / 2;
+      const cy = ry + rh / 2;
+      const ax = rw / 2;
+      const ay = rh / 2;
+      if (ax <= 0 || ay <= 0) return false;
+      const tol = radius + shape.width / 2;
+      const outer = ((x - cx) / (ax + tol)) ** 2 + ((y - cy) / (ay + tol)) ** 2;
+      if (outer > 1) return false;
+      if (shape.fill) return true;
+      const inner =
+        ((x - cx) / Math.max(0.0001, ax - tol)) ** 2 +
+        ((y - cy) / Math.max(0.0001, ay - tol)) ** 2;
+      return inner >= 1; // 테두리만: 안쪽 구멍 제외
+    }
   }
 }
 

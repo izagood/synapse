@@ -6,6 +6,7 @@ import {
   emptyDrawDoc,
   eraseShapesAt,
   HIGHLIGHTER_OPACITY,
+  isNonEmptyShape,
   parseDrawDoc,
   serializeDrawDoc,
   shapesOnPage,
@@ -30,6 +31,9 @@ export interface PdfDrawApi {
   /** 0..1 현재 불투명도(다음에 그릴 획에 적용). */
   opacity: number;
   setOpacity: (o: number) => void;
+  /** 도형(rect/ellipse) 채우기 색. null 이면 투명(테두리만). */
+  fill: string | null;
+  setFill: (c: string | null) => void;
   /** 최근 사용한 색(중복 제거, 최신순). */
   recentColors: string[];
 
@@ -85,6 +89,7 @@ export function usePdfDraw(path: string): PdfDrawApi {
   const [color, setColorState] = useState(DEFAULT_COLOR);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [opacity, setOpacity] = useState(1);
+  const [fill, setFill] = useState<string | null>(null);
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [shapeCount, setShapeCount] = useState(0);
   const [canRedo, setCanRedo] = useState(false);
@@ -183,7 +188,7 @@ export function usePdfDraw(path: string): PdfDrawApi {
 
   const commitShape = useCallback(
     (page: number, shape: Shape) => {
-      if (shape.type === "path" && shape.points.length < 2) return;
+      if (!isNonEmptyShape(shape)) return; // 빈 도형(점·길이 0)은 버린다
       pushUndo(page);
       const prev = docRef.current.pages[page] ?? [];
       docRef.current.pages[page] = [...prev, shape];
@@ -267,10 +272,12 @@ export function usePdfDraw(path: string): PdfDrawApi {
     setWidth,
     opacity,
     setOpacity,
+    fill,
+    setFill,
     recentColors,
     effectiveWidth,
     docRef,
-    isDrawing: tool === "pen" || tool === "highlighter" || tool === "eraser",
+    isDrawing: tool !== "move",
     shapeCount,
     dirty,
     commitShape,

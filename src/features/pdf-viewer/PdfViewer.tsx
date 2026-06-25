@@ -9,7 +9,7 @@ import { ZoomControls } from "../viewer-zoom/ZoomControls";
 import { anchoredScroll, clampScale, MAX_SCALE, previewSize } from "../viewer-zoom/zoomMath";
 import { usePdfDraw } from "../pdf-draw/usePdfDraw";
 import { redrawOverlay } from "../pdf-draw/renderStrokes";
-import { newShapeId, shapesOnPage, type PathShape, type Shape } from "../pdf-draw/drawDoc";
+import { newShapeId, shapesOnPage, type Shape } from "../pdf-draw/drawDoc";
 import { PdfDrawToolbar } from "../pdf-draw/PdfDrawToolbar";
 import { PdfDrawMenu } from "../pdf-draw/PdfDrawMenu";
 
@@ -246,7 +246,8 @@ export function PdfViewer({ path }: { path: string }) {
     const host = pagesRef.current;
     if (!host) return;
 
-    let curShape: PathShape | null = null;
+    let curShape: Shape | null = null;
+    let shapeStart: [number, number] = [0, 0]; // rect/ellipse 드래그 시작점
     let curPage = 0;
     let curOverlay: HTMLCanvasElement | null = null;
     let activeId: number | null = null;
@@ -286,15 +287,39 @@ export function PdfViewer({ path }: { path: string }) {
         if (api.eraseAt(hit.page, hit.x, hit.y, eraserRadius())) redrawPage(hit.page);
         return;
       }
-      curShape = {
-        id: newShapeId(),
-        type: "path",
-        tool: api.tool === "highlighter" ? "highlighter" : "pen",
-        color: api.color,
-        width: api.effectiveWidth(),
-        opacity: api.opacity,
-        points: [hit.x, hit.y],
-      };
+
+      shapeStart = [hit.x, hit.y];
+      if (api.tool === "line" || api.tool === "arrow") {
+        curShape = {
+          id: newShapeId(),
+          type: api.tool,
+          color: api.color,
+          width: api.width,
+          opacity: api.opacity,
+          a: [hit.x, hit.y],
+          b: [hit.x, hit.y],
+        };
+      } else if (api.tool === "rect" || api.tool === "ellipse") {
+        curShape = {
+          id: newShapeId(),
+          type: api.tool,
+          stroke: api.color,
+          ...(api.fill ? { fill: api.fill } : {}),
+          width: api.width,
+          opacity: api.opacity,
+          rect: [hit.x, hit.y, 0, 0],
+        };
+      } else {
+        curShape = {
+          id: newShapeId(),
+          type: "path",
+          tool: api.tool === "highlighter" ? "highlighter" : "pen",
+          color: api.color,
+          width: api.effectiveWidth(),
+          opacity: api.opacity,
+          points: [hit.x, hit.y],
+        };
+      }
       redrawPage(hit.page, curShape);
     };
 
@@ -310,11 +335,22 @@ export function PdfViewer({ path }: { path: string }) {
       }
       if (!curShape) return;
       e.preventDefault();
-      const pts = curShape.points;
-      const minD = MIN_POINT_SCREEN_PX / (fitScaleRef.current * zoomRef.current || 1);
-      if (Math.hypot(hit.x - pts[pts.length - 2], hit.y - pts[pts.length - 1]) >= minD) {
-        pts.push(hit.x, hit.y);
-        redrawPage(curPage, curShape);
+      const cur = curShape; // 지역 const 로 캡처해 type narrowing 유지
+      if (cur.type === "line" || cur.type === "arrow") {
+        cur.b = [hit.x, hit.y];
+        redrawPage(curPage, cur);
+      } else if (cur.type === "rect" || cur.type === "ellipse") {
+        const nx = Math.min(shapeStart[0], hit.x);
+        const ny = Math.min(shapeStart[1], hit.y);
+        cur.rect = [nx, ny, Math.abs(hit.x - shapeStart[0]), Math.abs(hit.y - shapeStart[1])];
+        redrawPage(curPage, cur);
+      } else if (cur.type === "path") {
+        const pts = cur.points;
+        const minD = MIN_POINT_SCREEN_PX / (fitScaleRef.current * zoomRef.current || 1);
+        if (Math.hypot(hit.x - pts[pts.length - 2], hit.y - pts[pts.length - 1]) >= minD) {
+          pts.push(hit.x, hit.y);
+          redrawPage(curPage, cur);
+        }
       }
     };
 

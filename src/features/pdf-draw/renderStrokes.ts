@@ -1,4 +1,11 @@
-import { effectiveOpacity, smoothPath, type PathShape, type Shape } from "./drawDoc";
+import {
+  effectiveOpacity,
+  smoothPath,
+  type LineShape,
+  type PathShape,
+  type RectLikeShape,
+  type Shape,
+} from "./drawDoc";
 
 /**
  * 자유곡선 한 개를 캔버스에 그린다. 컨텍스트는 이미 scale 1 좌표계로 변환돼
@@ -24,11 +31,74 @@ function drawPath(ctx: CanvasRenderingContext2D, path: PathShape): void {
   ctx.restore();
 }
 
+/** 화살표 머리: 끝점 b 에서 뒤로 두 갈래 선을 그린다. */
+function drawArrowHead(ctx: CanvasRenderingContext2D, line: LineShape): void {
+  const [ax, ay] = line.a;
+  const [bx, by] = line.b;
+  const angle = Math.atan2(by - ay, bx - ax);
+  const len = Math.max(8, line.width * 3); // 머리 길이
+  const spread = Math.PI / 7;
+  ctx.beginPath();
+  ctx.moveTo(bx, by);
+  ctx.lineTo(bx - len * Math.cos(angle - spread), by - len * Math.sin(angle - spread));
+  ctx.moveTo(bx, by);
+  ctx.lineTo(bx - len * Math.cos(angle + spread), by - len * Math.sin(angle + spread));
+  ctx.stroke();
+}
+
+function drawLine(ctx: CanvasRenderingContext2D, line: LineShape): void {
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = line.color;
+  ctx.lineWidth = line.width;
+  ctx.globalAlpha = effectiveOpacity(line);
+  ctx.beginPath();
+  ctx.moveTo(line.a[0], line.a[1]);
+  ctx.lineTo(line.b[0], line.b[1]);
+  ctx.stroke();
+  if (line.type === "arrow") drawArrowHead(ctx, line);
+  ctx.restore();
+}
+
+function drawRectLike(ctx: CanvasRenderingContext2D, shape: RectLikeShape): void {
+  const [x, y, w, h] = shape.rect;
+  ctx.save();
+  ctx.globalAlpha = effectiveOpacity(shape);
+  ctx.beginPath();
+  if (shape.type === "ellipse") {
+    ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+  } else {
+    const r = Math.min(shape.radius ?? 0, w / 2, h / 2);
+    if (r > 0) ctx.roundRect(x, y, w, h, r);
+    else ctx.rect(x, y, w, h);
+  }
+  if (shape.fill) {
+    ctx.fillStyle = shape.fill;
+    ctx.fill();
+  }
+  if (shape.stroke) {
+    ctx.strokeStyle = shape.stroke;
+    ctx.lineWidth = shape.width;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** 한 도형을 type 별로 분기해 그린다. 단계별로 case 가 늘어난다. */
 export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape): void {
   switch (shape.type) {
     case "path":
       drawPath(ctx, shape);
+      break;
+    case "line":
+    case "arrow":
+      drawLine(ctx, shape);
+      break;
+    case "rect":
+    case "ellipse":
+      drawRectLike(ctx, shape);
       break;
   }
 }
