@@ -8,7 +8,11 @@ import {
   type PathShape,
   type RectLikeShape,
   type Shape,
+  type TextShape,
 } from "./drawDoc";
+
+const TEXT_LINE_H = 1.3; // 줄 높이 배수(renderStrokes·drawDoc 와 일치)
+const TEXT_ASCENT = 0.8; // 글자 위(top) → baseline 보정 비율(근사)
 
 // pdf-lib 는 무거우므로(수백 KB) 굽기를 실행할 때만 동적으로 불러온다.
 
@@ -57,6 +61,22 @@ export async function buildBakedPdf(
   const { PDFDocument, rgb, LineCapStyle } = lib;
   const pdf = await PDFDocument.load(originalBytes);
   const pages = pdf.getPages();
+
+  // 텍스트 도형이 있으면 한글 폰트(NanumGothic)를 subset 으로 임베드한다.
+  // (subset → 실제 사용한 글자만 포함하므로 출력 PDF 증가는 작다.)
+  const hasText = pages.some((_, i) =>
+    shapesOnPage(doc, i + 1).some((s) => s.type === "text"),
+  );
+  let font: Awaited<ReturnType<typeof pdf.embedFont>> | null = null;
+  if (hasText) {
+    const fontkit = (await import("@pdf-lib/fontkit")).default;
+    pdf.registerFontkit(fontkit);
+    const res = await fetch("/fonts/NanumGothic-Regular.ttf");
+    if (res.ok) {
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      font = await pdf.embedFont(bytes, { subset: true });
+    }
+  }
 
   // pdf-lib 의 rgb/LineCapStyle 을 클로저로 캡처해 도형별 베이커에 넘긴다.
   type Page = (typeof pages)[number];
@@ -138,6 +158,26 @@ export async function buildBakedPdf(
     }
   };
 
+  const bakeText = (page: Page, height: number, t: TextShape) => {
+    const f = font;
+    if (!f) return; // 폰트 임베드 실패 시 텍스트는 건너뛴다
+    const col = toRgb(t.color);
+    const op = effectiveOpacity(t);
+    const lh = t.fontSize * TEXT_LINE_H;
+    // canvas 는 top 기준, pdf drawText 는 baseline(y-up) 기준 → ascent 보정.
+    t.text.split("\n").forEach((line, i) => {
+      if (!line) return;
+      page.drawText(line, {
+        x: t.pos[0],
+        y: height - t.pos[1] - t.fontSize * TEXT_ASCENT - i * lh,
+        size: t.fontSize,
+        font: f,
+        color: col,
+        opacity: op,
+      });
+    });
+  };
+
   const bakeShape = (page: Page, height: number, shape: Shape) => {
     switch (shape.type) {
       case "path":
@@ -150,6 +190,9 @@ export async function buildBakedPdf(
       case "rect":
       case "ellipse":
         bakeRectLike(page, height, shape);
+        break;
+      case "text":
+        bakeText(page, height, shape);
         break;
     }
   };

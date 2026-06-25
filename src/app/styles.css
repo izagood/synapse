@@ -1776,6 +1776,21 @@ body.resizing-sidebar {
   accent-color: var(--fg);
 }
 
+/* PDF 위 텍스트 입력 오버레이(클릭 위치에 화면 고정). */
+.pdf-text-input {
+  position: fixed;
+  z-index: 50;
+  min-width: 5em;
+  min-height: 1.6em;
+  padding: 1px 3px;
+  border: 1px solid #2563eb;
+  background: var(--bg-panel);
+  font-family: sans-serif;
+  line-height: 1.3;
+  resize: both;
+  outline: none;
+}
+
 /* 채우기 없음 스와치: 색 대신 ⊘ 표시. */
 .pdf-draw-swatch-none {
   display: inline-flex;

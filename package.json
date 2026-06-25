@@ -26,6 +26,7 @@
   "dependencies": {
     "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@excalidraw/excalidraw": "^0.18.1",
+    "@pdf-lib/fontkit": "^1.1.1",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-opener": "^2.5.4",
