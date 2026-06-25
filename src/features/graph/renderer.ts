@@ -37,7 +37,11 @@ export interface RenderInput {
   selected: string | null;
   /** 현재 열린 노트 path */
   current: string | null;
-  /** hover/selected 노드의 인접 집합 */
+  /**
+   * hover/selected 노드의 인접 집합. isActive 는 이 한 집합을 hover·selected
+   * 양쪽에 함께 쓰므로, hover 와 selected 가 동시에 비null 이면 호출자(GraphView)가
+   * 두 노드 인접의 합집합(union)을 넘겨야 한다. 한쪽만 있으면 그 노드의 인접만.
+   */
   neighbors: Set<string> | null;
   /** 검색 일치 노드 집합 */
   matches: Set<string> | null;
