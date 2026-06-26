@@ -3262,11 +3262,14 @@ body.resizing-sidebar {
   display: flex;
   flex: 1;
   min-height: 0;
+  /* 캔버스가 측정 가능한 높이를 갖도록(SVG viewBox 비율을 대체). */
+  aspect-ratio: 3 / 2;
 }
 
 .graph-canvas {
   width: 100%;
-  height: auto;
+  height: 100%;
+  display: block;
   border: 1px solid var(--border);
   border-radius: 12px;
   cursor: grab;
@@ -3323,99 +3326,139 @@ body.resizing-sidebar {
   }
 }
 
-.graph-edge {
-  stroke: var(--fg-faint);
-  stroke-width: 1.1;
-  stroke-opacity: 0.45;
-  transition: stroke-opacity 0.15s ease;
+/* 노드·엣지·라벨은 이제 <canvas> 에 draw() 로 그린다(renderer.ts).
+   기존 SVG 전용 .graph-edge* / .graph-node* 규칙은 제거됨. */
+
+/* 필터 바 (좌상단 떠 있는 패널) */
+.graph-filters {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-size: 0.8rem;
+  color: var(--fg-dim);
 }
 
-.graph-edge-active {
-  stroke: var(--accent);
-  stroke-width: 2;
-  stroke-opacity: 0.95;
-}
-
-.graph-edge-dimmed {
-  stroke-opacity: 0.08;
-}
-
-.graph-node {
+.graph-filter-toggle,
+.graph-filter-slider {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-/* 노드 뒤 부드러운 발광 헤일로 (연결된 노드·현재 노트) */
-.graph-node-halo {
-  fill: var(--accent);
-  opacity: 0.1;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
+.graph-filter-slider input[type="range"] {
+  width: 96px;
+  accent-color: var(--accent);
 }
 
-.graph-node-dot {
-  stroke: var(--bg);
-  stroke-width: 1.5;
-  transition:
-    fill 0.12s ease,
-    opacity 0.15s ease;
+.graph-filter-value {
+  min-width: 1ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
 }
 
-/* 고립 노드: 작고 차분하게 */
-.graph-node-iso .graph-node-dot {
-  fill: var(--fg-faint);
-  opacity: 0.7;
+.graph-filter-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
 }
 
-/* 연결 노드: 강조색 */
-.graph-node-linked .graph-node-dot {
-  fill: var(--accent);
+.graph-filter-toggle input:disabled + * {
+  opacity: 0.5;
 }
 
-.graph-node:hover .graph-node-dot,
-.graph-node-active .graph-node-dot {
-  fill: var(--accent);
-  opacity: 1;
+/* 미니패널 (우상단): 선택/호버 노드의 백링크·이웃 */
+.graph-panel {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 220px;
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
 }
 
-.graph-node:hover .graph-node-halo,
-.graph-node-active .graph-node-halo {
-  opacity: 0.28;
-}
-
-/* 현재 열린 노트: 밝은 테두리 링 */
-.graph-node-current .graph-node-dot {
-  fill: var(--accent);
-  stroke: var(--fg);
-  stroke-width: 2.5;
-}
-
-.graph-node-current .graph-node-halo {
-  opacity: 0.3;
-}
-
-.graph-node-dimmed {
-  opacity: 0.22;
-}
-
-.graph-node-label {
-  fill: var(--fg);
-  font-size: 11px;
-  font-weight: 500;
-  pointer-events: none;
-  paint-order: stroke;
-  stroke: var(--bg);
-  stroke-width: 3.5px;
-  stroke-linejoin: round;
-}
-
-/* 포커스(호버·검색 일치)·현재 노트 라벨은 또렷하게 강조 */
-.graph-node-active .graph-node-label {
+.graph-panel-title {
+  font-size: 0.92rem;
   font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.graph-node-current .graph-node-label {
-  fill: var(--accent);
+.graph-panel-meta {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-panel-section {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-faint);
+}
+
+.graph-panel-neighbors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.graph-panel-neighbors button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+.graph-panel-neighbors button:hover {
+  background: var(--bg-hover);
+}
+
+.graph-panel-open {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.82rem;
   font-weight: 600;
+  transition: filter 0.12s ease;
+}
+
+.graph-panel-open:hover {
+  filter: brightness(1.08);
 }
 
 /* 떠 있는 줌 컨트롤 (우하단) */

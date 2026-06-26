@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   adjacencyOf,
   estimateLabelWidth,
+  initSim,
   layoutGraph,
   placeLabels,
+  reheat,
+  tickSim,
   type LabelCandidate,
 } from "./layout";
 import { computeGraph } from "../editor/backlinks";
@@ -167,6 +170,46 @@ describe("placeLabels", () => {
     const a = at("a", 0, 0, { priority: 3 });
     const b = at("b", 1, 1, { priority: 3 });
     expect(placeLabels([a, b])).toEqual(placeLabels([b, a]));
+  });
+});
+
+const simGraph = {
+  nodes: [{ path: "a", name: "a" }, { path: "b", name: "b" }, { path: "c", name: "c" }],
+  edges: [{ source: "a", target: "b" }],
+};
+
+describe("force sim", () => {
+  it("initSim 은 결정적(같은 입력 → 같은 좌표)", () => {
+    const s1 = initSim(simGraph, { width: 400, height: 300 });
+    const s2 = initSim(simGraph, { width: 400, height: 300 });
+    expect(s1.nodes.map((n) => [n.x, n.y])).toEqual(s2.nodes.map((n) => [n.x, n.y]));
+    expect(s1.alpha).toBe(1);
+  });
+  it("tickSim 은 alpha 를 감소시키고 경계 안에 머문다", () => {
+    let s = initSim(simGraph, { width: 400, height: 300 });
+    const a0 = s.alpha;
+    for (let i = 0; i < 50; i++) s = tickSim(s);
+    expect(s.alpha).toBeLessThan(a0);
+    for (const n of s.nodes) {
+      expect(n.x).toBeGreaterThanOrEqual(0);
+      expect(n.x).toBeLessThanOrEqual(400);
+      expect(n.y).toBeGreaterThanOrEqual(0);
+      expect(n.y).toBeLessThanOrEqual(300);
+    }
+  });
+  it("연결된 노드(a,b)가 비연결(c)보다 가까워진다", () => {
+    let s = initSim(simGraph, { width: 400, height: 300 });
+    for (let i = 0; i < 200; i++) s = tickSim(s);
+    const get = (p: string) => s.nodes.find((n) => n.path === p)!;
+    const dist = (p: string, q: string) => Math.hypot(get(p).x - get(q).x, get(p).y - get(q).y);
+    expect(dist("a", "b")).toBeLessThan(dist("a", "c"));
+  });
+  it("reheat 은 alpha 를 올린다", () => {
+    let s = initSim(simGraph);
+    for (let i = 0; i < 100; i++) s = tickSim(s);
+    const low = s.alpha;
+    s = reheat(s);
+    expect(s.alpha).toBeGreaterThan(low);
   });
 });
 

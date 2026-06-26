@@ -16,7 +16,10 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 
 use serde_json::{json, Value};
-use synapse_core::{search_workspace, Backend, LiveState, LocalBackend, SearchOptions};
+use synapse_core::{
+    graph_overview, graph_search, neighbors, path_between, search_workspace, Backend, Direction,
+    GraphOverview, LiveState, LocalBackend, NeighborNote, PathStep, RelatedNote, SearchOptions,
+};
 
 /// 브리지 접속 컨텍스트(환경변수에서 1회 읽음).
 struct Ctx {
@@ -211,6 +214,35 @@ fn tool_defs() -> Value {
                 "required": ["path", "content"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "note_links",
+            "description": "특정 노트에 연결된 노트(아웃링크/백링크/양방향)를 홉 거리와 함께 조회한다.",
+            "inputSchema": { "type": "object", "properties": {
+                "path": { "type": "string", "description": "워크스페이스 기준 노트 경로" },
+                "direction": { "type": "string", "enum": ["out", "in", "both"], "description": "기본 both" },
+                "depth": { "type": "number", "description": "탐색 홉 수, 기본 1" }
+            }, "required": ["path"] }
+        },
+        {
+            "name": "find_related",
+            "description": "키워드로 노트를 찾고 링크로 이어진 관련 노트까지 점수순으로 반환한다.",
+            "inputSchema": { "type": "object", "properties": {
+                "query": { "type": "string" },
+                "hops": { "type": "number", "description": "링크 확장 홉 수, 기본 1" }
+            }, "required": ["query"] }
+        },
+        {
+            "name": "note_path",
+            "description": "두 노트 사이의 최단 연결 경로(노드 시퀀스)를 찾는다.",
+            "inputSchema": { "type": "object", "properties": {
+                "from": { "type": "string" }, "to": { "type": "string" }
+            }, "required": ["from", "to"] }
+        },
+        {
+            "name": "graph_overview",
+            "description": "워크스페이스 링크 그래프 구조 요약(허브/고립 노트/컴포넌트/통계).",
+            "inputSchema": { "type": "object", "properties": {} }
         }
     ])
 }
@@ -256,6 +288,51 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
                 })
             }
         }
+        "note_links" => ctx.fetch_live().and_then(|live| {
+            let root = local_root(&live)?;
+            let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+            if path.is_empty() {
+                return Err("path 인자가 필요합니다".into());
+            }
+            let dir = match args.get("direction").and_then(Value::as_str) {
+                Some("out") => Direction::Out,
+                Some("in") => Direction::In,
+                _ => Direction::Both,
+            };
+            let depth = args.get("depth").and_then(Value::as_u64).unwrap_or(1) as usize;
+            let target = resolve_arg_path(&root, path);
+            let ns = neighbors(&root, &target, dir, depth.max(1))
+                .map_err(|e| format!("그래프 조회 실패: {e}"))?;
+            Ok(format_neighbors(path, &ns))
+        }),
+        "find_related" => ctx.fetch_live().and_then(|live| {
+            let root = local_root(&live)?;
+            let query = args.get("query").and_then(Value::as_str).unwrap_or("");
+            let hops = args.get("hops").and_then(Value::as_u64).unwrap_or(1) as usize;
+            let rs =
+                graph_search(&root, query, hops).map_err(|e| format!("그래프 검색 실패: {e}"))?;
+            Ok(format_related(query, &rs))
+        }),
+        "note_path" => ctx.fetch_live().and_then(|live| {
+            let root = local_root(&live)?;
+            let from = args.get("from").and_then(Value::as_str).unwrap_or("");
+            let to = args.get("to").and_then(Value::as_str).unwrap_or("");
+            if from.is_empty() || to.is_empty() {
+                return Err("from/to 인자가 필요합니다".into());
+            }
+            let p = path_between(
+                &root,
+                &resolve_arg_path(&root, from),
+                &resolve_arg_path(&root, to),
+            )
+            .map_err(|e| format!("경로 탐색 실패: {e}"))?;
+            Ok(format_path(from, to, p.as_deref()))
+        }),
+        "graph_overview" => ctx.fetch_live().and_then(|live| {
+            let root = local_root(&live)?;
+            let ov = graph_overview(&root).map_err(|e| format!("그래프 요약 실패: {e}"))?;
+            Ok(format_overview(&ov))
+        }),
         other => Err(format!("알 수 없는 도구: {other}")),
     };
 
@@ -263,6 +340,32 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
         Ok(text) => ok_response(Some(id), tool_text(&text, false)),
         // 도구 실행 오류는 JSON-RPC 오류가 아니라 result content(isError=true)로 전달한다(MCP 규약).
         Err(e) => ok_response(Some(id), tool_text(&e, true)),
+    }
+}
+
+// ----- 공통 헬퍼 -----
+
+/// 로컬(non-ssh) 워크스페이스 루트를 PathBuf로 반환한다.
+/// 워크스페이스가 없거나 ssh:// 인 경우 Err 를 돌려준다.
+fn local_root(live: &LiveState) -> Result<std::path::PathBuf, String> {
+    let root = live
+        .root
+        .as_deref()
+        .ok_or_else(|| "워크스페이스가 열려 있지 않습니다".to_string())?;
+    if root.starts_with("ssh://") {
+        return Err("원격(ssh) 워크스페이스에서는 그래프 도구를 쓸 수 없습니다".to_string());
+    }
+    Ok(std::path::PathBuf::from(root))
+}
+
+/// 경로 인자를 절대경로로 해석한다.
+/// 이미 절대경로면 그대로, 상대경로면 root 기준으로 join.
+fn resolve_arg_path(root: &Path, p: &str) -> std::path::PathBuf {
+    let pb = Path::new(p);
+    if pb.is_absolute() {
+        pb.to_path_buf()
+    } else {
+        root.join(pb)
     }
 }
 
@@ -316,14 +419,9 @@ fn search_notes(live: &LiveState, query: &str) -> Result<String, String> {
     if query.trim().is_empty() {
         return Err("query 인자가 필요합니다".to_string());
     }
-    let root = live
-        .root
-        .as_deref()
-        .ok_or_else(|| "열린 워크스페이스가 없습니다.".to_string())?;
-    if root.starts_with("ssh://") {
-        return Err("원격(SSH) 워크스페이스는 아직 MCP에서 지원하지 않습니다.".to_string());
-    }
-    let hits = search_workspace(Path::new(root), query, &SearchOptions::default());
+    let root = local_root(live)
+        .map_err(|_| "원격(SSH) 워크스페이스는 아직 MCP에서 지원하지 않습니다.".to_string())?;
+    let hits = search_workspace(&root, query, &SearchOptions::default());
     if hits.is_empty() {
         return Ok(format!("'{query}'에 대한 검색 결과가 없습니다."));
     }
@@ -335,6 +433,69 @@ fn search_notes(live: &LiveState, query: &str) -> Result<String, String> {
         }
     }
     Ok(out)
+}
+
+fn format_neighbors(path: &str, ns: &[NeighborNote]) -> String {
+    if ns.is_empty() {
+        return format!("'{path}'에 연결된 노트가 없습니다.");
+    }
+    let mut s = format!("# '{path}'의 연결 노트 ({}개)\n", ns.len());
+    for n in ns {
+        s.push_str(&format!(
+            "- {} ({}홉)\n  경로: {}\n",
+            n.name, n.distance, n.path
+        ));
+    }
+    s
+}
+
+fn format_related(query: &str, rs: &[RelatedNote]) -> String {
+    if rs.is_empty() {
+        return format!("'{query}' 관련 노트를 찾지 못했습니다.");
+    }
+    let mut s = format!("# '{query}' 관련 노트 ({}개)\n", rs.len());
+    for r in rs {
+        s.push_str(&format!(
+            "## {} [{}] score={}\n경로: {}\n",
+            r.name, r.reason, r.score, r.path
+        ));
+        if !r.snippet.is_empty() {
+            s.push_str(&format!("  {}\n", r.snippet));
+        }
+    }
+    s
+}
+
+fn format_path(from: &str, to: &str, p: Option<&[PathStep]>) -> String {
+    match p {
+        None => format!("'{from}'에서 '{to}'로 가는 연결 경로가 없습니다."),
+        Some(steps) => {
+            let chain = steps
+                .iter()
+                .map(|s| s.name.clone())
+                .collect::<Vec<_>>()
+                .join(" → ");
+            format!("# 연결 경로 ({}단계)\n{}", steps.len(), chain)
+        }
+    }
+}
+
+fn format_overview(ov: &GraphOverview) -> String {
+    let mut s = format!(
+        "# 그래프 요약\n노드 {} · 엣지 {} · 컴포넌트 {}\n\n## 허브\n",
+        ov.node_count, ov.edge_count, ov.component_count
+    );
+    for h in &ov.hubs {
+        s.push_str(&format!(
+            "- {} (degree {})\n  {}\n",
+            h.name, h.degree, h.path
+        ));
+    }
+    s.push_str(&format!("\n## 고립 노트 ({}개)\n", ov.isolated.len()));
+    for p in ov.isolated.iter().take(20) {
+        s.push_str(&format!("- {p}\n"));
+    }
+    s
 }
 
 // ----- JSON-RPC / MCP 프레이밍 헬퍼 -----
@@ -390,7 +551,7 @@ mod tests {
     fn tool_defs_list_tools_with_object_schemas() {
         let defs = tool_defs();
         let arr = defs.as_array().unwrap();
-        assert_eq!(arr.len(), 5);
+        assert_eq!(arr.len(), 9);
         let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_current_note"));
         assert!(names.contains(&"read_note"));
@@ -491,5 +652,42 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("브리지"));
+    }
+
+    #[test]
+    fn tool_defs_includes_graph_tools() {
+        let defs = tool_defs();
+        let names: Vec<&str> = defs
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|d| d["name"].as_str())
+            .collect();
+        for n in ["note_links", "find_related", "note_path", "graph_overview"] {
+            assert!(names.contains(&n), "missing tool: {n}");
+        }
+        // 모든 도구는 object 타입 inputSchema 를 가진다
+        for d in defs.as_array().unwrap() {
+            assert_eq!(d["inputSchema"]["type"], "object");
+        }
+    }
+
+    #[test]
+    fn graph_overview_format_lists_hubs() {
+        use synapse_core::{GraphOverview, HubNote};
+        let ov = GraphOverview {
+            node_count: 3,
+            edge_count: 2,
+            hubs: vec![HubNote {
+                path: "/ws/hub.md".into(),
+                name: "hub.md".into(),
+                degree: 2,
+            }],
+            isolated: vec!["/ws/lone.md".into()],
+            component_count: 2,
+        };
+        let text = format_overview(&ov);
+        assert!(text.contains("hub.md"));
+        assert!(text.contains("노드 3"));
     }
 }

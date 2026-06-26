@@ -298,6 +298,65 @@ fn sidecar_edit_note_writes_through_bridge() {
 }
 
 #[test]
+fn graph_overview_tool_roundtrips_over_bridge() {
+    // 임시 워크스페이스: a.md → b.md 링크, 노드 2개 포함.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_string_lossy().to_string();
+    let a = format!("{root}/a.md");
+    let b = format!("{root}/b.md");
+    std::fs::write(&a, "[b](b.md)").unwrap();
+    std::fs::write(&b, "leaf").unwrap();
+
+    // graph_overview는 활성 노트가 없어도 root만 있으면 동작한다.
+    let live = json!({
+        "root": root,
+        "activePath": null,
+        "activeContent": null,
+        "openTabs": []
+    });
+    let port = start_stub_bridge(live.to_string());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_synapse-mcp"))
+        .env("SYNAPSE_BRIDGE_PORT", port.to_string())
+        .env("SYNAPSE_BRIDGE_TOKEN", TOKEN)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("synapse-mcp 바이너리 실행");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+
+    // initialize
+    rpc(
+        &mut stdin,
+        &mut reader,
+        1,
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "0" } }),
+    );
+    notify(&mut stdin, "notifications/initialized");
+
+    // graph_overview — 인자 없음
+    let res = rpc(
+        &mut stdin,
+        &mut reader,
+        2,
+        "tools/call",
+        json!({ "name": "graph_overview", "arguments": {} }),
+    );
+    assert!(res.get("error").is_none(), "JSON-RPC 오류: {res}");
+    assert_ne!(res["result"]["isError"], json!(true), "도구 오류: {res}");
+    let text = tool_text(&res);
+    assert!(text.contains("그래프 요약"), "요약 헤더 없음: {text}");
+    assert!(text.contains("노드 2"), "노드 수 불일치: {text}");
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
 fn sidecar_without_bridge_env_reports_error_not_crash() {
     // 브리지 env 없이 실행하면 도구 호출이 isError 결과로 안내해야 한다(크래시 X).
     let mut child = Command::new(env!("CARGO_BIN_EXE_synapse-mcp"))
