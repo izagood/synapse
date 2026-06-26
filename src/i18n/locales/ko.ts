@@ -298,7 +298,15 @@ export const ko = {
     zoomIn: "확대",
     zoomOut: "축소",
     resetView: "보기 초기화",
-    hint: "드래그로 이동 · 스크롤로 확대/축소 · 클릭으로 노트 열기",
+    hint: "드래그로 이동 · 스크롤로 확대/축소 · 클릭으로 선택, 다시 클릭하면 열기",
+    backlinks: "백링크 {count}개",
+    neighbors: "연결",
+    openNote: "노트 열기",
+    filters: {
+      isolated: "고립 노드 표시",
+      minDegree: "최소 연결 수",
+      local: "로컬 그래프",
+    },
   },
   shortcuts: {
     title: "키보드 단축키",

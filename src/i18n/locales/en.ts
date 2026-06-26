@@ -304,7 +304,15 @@ export const en: LocaleShape<KoMessages> = {
     zoomIn: "Zoom in",
     zoomOut: "Zoom out",
     resetView: "Reset view",
-    hint: "Drag to pan · scroll to zoom · click to open a note",
+    hint: "Drag to pan · scroll to zoom · click to select, click again to open",
+    backlinks: "{count} backlinks",
+    neighbors: "Connections",
+    openNote: "Open note",
+    filters: {
+      isolated: "Show isolated",
+      minDegree: "Min connections",
+      local: "Local graph",
+    },
   },
   shortcuts: {
     title: "Keyboard Shortcuts",
