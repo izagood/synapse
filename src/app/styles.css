@@ -692,6 +692,12 @@ body.resizing-sidebar {
   height: 6px;
   cursor: row-resize;
   z-index: 5;
+  /* 핸들을 잡고 드래그할 때 (탭바와 6px 겹침) 텍스트가 선택되지 않게 한다.
+     WebKit(Tauri)에서는 mousedown 시점에 선택이 시작되므로 동적 body 클래스만으론
+     늦다 — 핸들 자체에 정적으로 선택 금지를 둔다. touch-action도 사이드바와 맞춘다. */
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 .terminal-tabbar {
@@ -701,6 +707,7 @@ body.resizing-sidebar {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .terminal-tabs {
