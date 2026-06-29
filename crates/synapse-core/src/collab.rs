@@ -959,6 +959,94 @@ mod tests {
         assert_eq!(ai.doc_text(&id).unwrap(), base);
     }
 
+    // 실제 회귀 재현 (2026-06-29 meeting.md): 편집 중 주기적 sync가 끼어들면
+    // 문서 상단 섹션이 통째로 사라지고 한 글자(`/`)만 남는 현상.
+    // 손상 전(6ec138e) / `/` 입력 직후(de30fb2) / 붕괴본(9c920d5)의 실제 내용.
+    const MEETING_V0: &str = "---\nsynapse_id: a1c582dd-71a3-49b1-b3af-16154eec4d9b\n---\n\n# | DevOps Union |\n\n- DevOps Union\n  - <https://app.notion.com/p/rebellions/DevOps-Union-FDE-x-FSW-2026-358494d2a63d806bbe63ca35bd79bb39>\n- 디자인 컴포넌트\n  - <https://ui.shadcn.com/>\n\n# | RCNS 인프라 리소스 |\n\n- 인프라 리소스\n  - atom-max\n    - 기준 16장\n  - rebel\n    - 최소 3대\n    - 최대 4대\n- PEX\n\n# | Cloud Infra |\n\n- [Cloud SDK Notion](https://www.notion.so/rebellions/Cloud-SDK-26b494d2a63d8076b8e0d991c16bc972)\n\n# | Cloud 데일리 |\n\n- [Cloud Jira](https://rbln.atlassian.net/jira/software/projects/CLD/boards/485)\n";
+
+    // V0에 PEX 하위로 `이번에 들어가나/` (끝에 `/`) 한 줄을 추가한 상태
+    const MEETING_V1: &str = "---\nsynapse_id: a1c582dd-71a3-49b1-b3af-16154eec4d9b\n---\n\n# | DevOps Union |\n\n- DevOps Union\n  - <https://app.notion.com/p/rebellions/DevOps-Union-FDE-x-FSW-2026-358494d2a63d806bbe63ca35bd79bb39>\n- 디자인 컴포넌트\n  - <https://ui.shadcn.com/>\n\n# | RCNS 인프라 리소스 |\n\n- 인프라 리소스\n  - atom-max\n    - 기준 16장\n  - rebel\n    - 최소 3대\n    - 최대 4대\n- PEX\n  - 이번에 들어가나/\n\n# | Cloud Infra |\n\n- [Cloud SDK Notion](https://www.notion.so/rebellions/Cloud-SDK-26b494d2a63d8076b8e0d991c16bc972)\n\n# | Cloud 데일리 |\n\n- [Cloud Jira](https://rbln.atlassian.net/jira/software/projects/CLD/boards/485)\n";
+
+    fn assert_keeps_all_sections(merged: &str, label: &str) {
+        for section in ["DevOps Union", "RCNS 인프라 리소스", "Cloud Infra", "Cloud 데일리"] {
+            assert!(
+                merged.contains(section),
+                "[{label}] 섹션 '{section}'이(가) 사라졌다:\n{merged}",
+            );
+        }
+    }
+
+    // 시나리오 A: 편집 도중 stale base 재저장. save#1로 CRDT가 V1로 전진한 뒤,
+    // 같은 편집(V0→V1)이 옛 base(V0) 기준으로 한 번 더 저장된다
+    // (autosave + reloadAfterSync가 연달아 발화한 16:38:46→48 상황).
+    #[test]
+    fn meeting_note_stale_base_resave_keeps_sections() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = store(tmp.path(), "actor-a");
+        let id = "a1c582dd-71a3-49b1-b3af-16154eec4d9b";
+
+        let est = s.save_text(id, "", MEETING_V0).unwrap();
+        assert_eq!(est, MEETING_V0);
+
+        let m1 = s.save_text(id, MEETING_V0, MEETING_V1).unwrap();
+        assert_keeps_all_sections(&m1, "save#1");
+
+        // 두 번째 저장: base는 여전히 V0(savedContent가 뒤처짐), 내용은 V1, CRDT cur=V1
+        let m2 = s.save_text(id, MEETING_V0, MEETING_V1).unwrap();
+        assert_keeps_all_sections(&m2, "save#2 (stale base)");
+    }
+
+    // 시나리오 B: 실제 IPC 경로(save_doc_file)로 디스크 외부 편집 흡수가 끼어든다.
+    // sync가 .md를 만진 뒤(=disk가 base와 달라짐) 편집 저장이 일어나면
+    // absorb_external → save_text 순서로 3-way가 돌아간다.
+    #[test]
+    fn meeting_note_save_doc_file_during_sync_keeps_sections() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = store(tmp.path(), "actor-a");
+        let file = tmp.path().join("2026-06-29-meeting.md");
+
+        let v0 = s.save_doc_file(&file, MEETING_V0, "").unwrap();
+        assert_keeps_all_sections(&v0, "init");
+
+        // 편집: `/` 줄 추가 → V1 저장 (base=V0)
+        let v1 = s.save_doc_file(&file, MEETING_V1, MEETING_V0).unwrap();
+        assert_keeps_all_sections(&v1, "edit V1");
+
+        // sync가 끼어들어 디스크를 다시 만지고(같은 V1이라도) base가 뒤처진 채 재저장
+        std::fs::write(&file, MEETING_V1).unwrap();
+        let v2 = s.save_doc_file(&file, MEETING_V1, MEETING_V0).unwrap();
+        assert_keeps_all_sections(&v2, "resave during sync");
+    }
+
+    // 시나리오 C: 다른 actor(또는 AI/원격)가 같은 base에서 따로 편집한 뒤 로그가
+    // 합쳐지면 CRDT cur가 발산한다. 그 상태에서 내 편집이 stale base로 저장된다.
+    #[test]
+    fn meeting_note_divergent_actor_merge_keeps_sections() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (ws_a, ws_b) = (tmp.path().join("a"), tmp.path().join("b"));
+        fs::create_dir_all(&ws_a).unwrap();
+        fs::create_dir_all(&ws_b).unwrap();
+        let a = store(&ws_a, "actor-a");
+        let b = store(&ws_b, "actor-b");
+        let id = "a1c582dd-71a3-49b1-b3af-16154eec4d9b";
+
+        a.save_text(id, "", MEETING_V0).unwrap();
+        merge_dirs(&ws_a, &ws_b);
+
+        // B가 Cloud Infra 섹션 끝에 한 줄 추가 (원격/다른 창 편집)
+        let v0_plus = MEETING_V0.replace(
+            "Cloud-SDK-26b494d2a63d8076b8e0d991c16bc972)\n",
+            "Cloud-SDK-26b494d2a63d8076b8e0d991c16bc972)\n- 원격 추가 줄\n",
+        );
+        b.save_text(id, MEETING_V0, &v0_plus).unwrap();
+        merge_dirs(&ws_a, &ws_b); // 로그 합쳐짐 → A의 CRDT cur가 발산
+
+        // A는 옛 base(V0) 기준으로 `/` 줄을 추가 저장
+        let merged = a.save_text(id, MEETING_V0, MEETING_V1).unwrap();
+        assert_keeps_all_sections(&merged, "divergent merge");
+        assert!(merged.contains("원격 추가 줄"), "원격 편집이 사라짐:\n{merged}");
+    }
+
     #[test]
     fn three_way_absorb_merges_divergent_side() {
         let tmp = tempfile::tempdir().unwrap();
