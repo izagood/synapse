@@ -56,6 +56,37 @@
   color-scheme: light;
 }
 
+/*
+ * Pink 테마 — 동화풍 파스텔 핑크 팔레트 (밝은 계열).
+ * 옅은 핑크 배경(#ffabd2~#ffc5e0)과 로즈 강조색(#e39cbe 계열)을 기반으로 한다.
+ */
+:root[data-theme="pink"] {
+  --bg: #fff5f8;
+  --bg-panel: #ffe9f0;
+  --bg-rail: #ffdde9;
+  --bg-hover: #ffd2e2;
+  --bg-active: #ffc2d6;
+  --fg: #4d1f33;
+  --fg-dim: #8a5a6e;
+  --fg-faint: #b58aa0;
+  --accent: #d14a8f;
+  --accent-soft: rgba(209, 74, 143, 0.18);
+  --border: #f2c2d5;
+  --error: #d6453d;
+  --ok: #1d9d6c;
+  --warn: #b07d22;
+  /* 코드 블록 문법 하이라이트 토큰 색 (핑크) */
+  --code-keyword: #c2185b;
+  --code-string: #2e9e6b;
+  --code-comment: #b58aa0;
+  --code-number: #b5610a;
+  --code-function: #c026a3;
+  --code-type: #b06a00;
+  --code-variable: #d6336c;
+  --code-builtin: #0a8fb0;
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -147,7 +178,8 @@ select {
 }
 
 .recent h2,
-.clone-form h2 {
+.clone-form h2,
+.open-path h2 {
   font-size: 0.8rem;
   color: var(--fg-dim);
   text-transform: uppercase;
@@ -185,18 +217,22 @@ select {
   white-space: nowrap;
 }
 
-.clone-form {
+.clone-form,
+.open-path {
   margin-top: 28px;
   text-align: left;
 }
 
-.clone-row {
+.clone-row,
+.open-path-row {
   display: flex;
   gap: 8px;
 }
 
-.clone-row input {
+.clone-row input,
+.open-path-row input {
   flex: 1;
+  min-width: 0;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -204,14 +240,16 @@ select {
   padding: 8px 10px;
 }
 
-.clone-row button {
+.clone-row button,
+.open-path-row button {
   padding: 8px 16px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
 }
 
-.clone-row button:hover:not(:disabled) {
+.clone-row button:hover:not(:disabled),
+.open-path-row button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
@@ -255,47 +293,75 @@ select {
   padding: 8px 10px;
 }
 
-.remote-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.remote-command {
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
-.remote-row input {
-  flex: 1;
-  min-width: 0;
-}
-
-.remote-row .remote-port {
-  flex: 0 0 72px;
-}
-
-.remote-row span {
+.remote-command-hint {
+  margin: 0;
+  font-size: 0.78rem;
   color: var(--fg-dim);
 }
 
-.remote-key-row {
-  display: flex;
-  gap: 8px;
-}
-
-.remote-key-row input {
-  flex: 1;
-  min-width: 0;
-}
-
-.remote-key-row button {
-  flex: 0 0 auto;
-  padding: 8px 14px;
-  border-radius: 6px;
+/* ---- 원격 디렉터리 브라우저 ---- */
+.remote-browser-path {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  padding: 6px 8px;
   border: 1px solid var(--border);
+  border-radius: 6px;
   background: var(--bg-panel);
-  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.remote-key-row button:hover:not(:disabled) {
+.remote-browser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  background: var(--bg-panel);
+}
+
+.remote-browser-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.9rem;
+}
+
+button.remote-browser-entry:hover:not(:disabled) {
   background: var(--bg-hover);
+  cursor: pointer;
+}
+
+.remote-browser-up {
+  color: var(--fg-dim);
+}
+
+.remote-browser-file {
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+.remote-browser-info {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 0.84rem;
+  color: var(--fg-dim);
 }
 
 .remote-actions {
@@ -575,6 +641,19 @@ body.resizing-sidebar {
   padding: 0 14px;
 }
 
+/* 드래그앤드롭: 드롭 대상 행/트리 강조 */
+.tree-row.drop-target {
+  background: var(--accent-soft);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.file-tree.drop-root {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: 6px;
+}
+
 /* ===================== 탭 바 ===================== */
 .content {
   flex: 1;
@@ -587,6 +666,131 @@ body.resizing-sidebar {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* 내장 터미널 도크 — .content(메인) 하단에 붙는 다중·영속 터미널 (VS Code식) */
+.terminal-dock {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border-top: 1px solid var(--border);
+  background: #1e1e1e;
+  min-height: 0;
+}
+
+/* 숨김은 언마운트가 아니라 display:none — 토글해도 xterm·PTY 세션이 살아 있다 */
+.terminal-dock.hidden {
+  display: none;
+}
+
+/* 상단 높이 조절 핸들 (사이드바 리사이즈와 동일 패턴, 세로) */
+.terminal-resize-handle {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 5;
+  /* 핸들을 잡고 드래그할 때 (탭바와 6px 겹침) 텍스트가 선택되지 않게 한다.
+     WebKit(Tauri)에서는 mousedown 시점에 선택이 시작되므로 동적 body 클래스만으론
+     늦다 — 핸들 자체에 정적으로 선택 금지를 둔다. touch-action도 사이드바와 맞춘다. */
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.terminal-tabbar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.terminal-tabs {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  border-right: 1px solid var(--border);
+  color: var(--fg-dim);
+  white-space: nowrap;
+  font-size: 0.8rem;
+  cursor: pointer;
+  position: relative;
+}
+
+.terminal-tab.active {
+  background: #1e1e1e;
+  color: var(--fg);
+}
+
+.terminal-tab.active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+}
+
+.terminal-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--fg-dim);
+  opacity: 0.6;
+}
+.terminal-tab-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+  opacity: 1;
+}
+
+.terminal-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: var(--fg-dim);
+}
+.terminal-new:hover {
+  color: var(--fg);
+}
+
+.terminal-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+/* 각 터미널 인스턴스 컨테이너와 그 안의 xterm host가 본문을 꽉 채운다 */
+.terminal-instance,
+.terminal-host {
+  height: 100%;
+  width: 100%;
+}
+
+.terminal-host .xterm,
+.terminal-host .xterm-viewport {
+  height: 100%;
 }
 
 .tab-bar {
@@ -1416,40 +1620,14 @@ body.resizing-sidebar {
   background: #fff;
 }
 
-/* drawio: 뷰어/에디터 컨테이너와 모드 전환 버튼 */
-.drawio-pane {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-/* drawio 는 앱 테마와 무관하게 항상 흰 캔버스로 렌더링한다(다크 모드 미적용 —
-   drawio 다크는 도형 색을 안 바꿔 검정-위-검정으로 안 보인다). iframe 내용이
-   칠해지기 전 깜빡임이 없도록 컨테이너도 흰색으로 맞춘다. */
-.drawio-editor,
-.drawio-viewer {
+/* drawio: 에디터 iframe 컨테이너. 앱 테마와 무관하게 항상 흰 캔버스로 렌더링한다
+   (다크 모드 미적용 — drawio 다크는 도형 색을 안 바꿔 검정-위-검정으로 안 보인다).
+   iframe 내용이 칠해지기 전 깜빡임이 없도록 배경도 흰색으로 맞춘다. */
+.drawio-editor {
   width: 100%;
   height: 100%;
   border: none;
   background: #fff;
-}
-.drawio-mode-toggle {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  z-index: 5;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 13px;
-  color: #fff;
-  background: var(--accent);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  opacity: 0.9;
-}
-.drawio-mode-toggle:hover {
-  opacity: 1;
 }
 
 /* PDF: pdf.js 캔버스 렌더링. 컨테이너는 줌 컨트롤 오버레이의 기준(position) 역할. */
@@ -1482,6 +1660,159 @@ body.resizing-sidebar {
   display: block;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
   background: #fff;
+}
+
+/* 페이지 = pdf 캔버스 + 그 위 투명 드로잉 오버레이 */
+.pdf-page-wrap {
+  position: relative;
+  display: block;
+}
+
+.pdf-draw {
+  position: absolute;
+  inset: 0;
+  /* 기본(이동 모드): 오버레이를 통과시켜 네이티브 스크롤이 동작하게 한다 */
+  pointer-events: none;
+}
+
+/* 그리기 도구 선택 시에만 오버레이가 포인터를 받고 스크롤을 막는다 */
+.pdf-viewer.drawing .pdf-draw {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* 드로잉 툴바 — 뷰어 상단 중앙 플로팅 */
+.pdf-draw-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.pdf-draw-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdf-draw-group + .pdf-draw-group {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.pdf-draw-tool,
+.pdf-draw-width {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.pdf-draw-tool:hover:not(:disabled),
+.pdf-draw-width:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.pdf-draw-tool.active,
+.pdf-draw-width.active {
+  background: var(--accent-soft);
+  outline: 2px solid var(--accent);
+}
+
+.pdf-draw-tool:disabled {
+  opacity: 0.4;
+}
+
+.pdf-draw-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+
+.pdf-draw-swatch.active {
+  border-color: var(--fg);
+  outline: 1px solid var(--bg-panel);
+}
+
+.pdf-draw-width-dot {
+  display: inline-block;
+  background: var(--fg);
+  border-radius: 50%;
+}
+
+/* 커스텀 색 선택: 무지개 스와치 위에 투명한 color input 을 겹친다. */
+.pdf-draw-swatch-custom {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  background: conic-gradient(red, #ff0, lime, cyan, blue, magenta, red);
+}
+
+.pdf-draw-swatch-custom input[type="color"] {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pdf-draw-range {
+  width: 84px;
+  cursor: pointer;
+  accent-color: var(--fg);
+}
+
+/* PDF 위 텍스트 입력 오버레이(클릭 위치에 화면 고정). */
+.pdf-text-input {
+  position: fixed;
+  z-index: 50;
+  min-width: 5em;
+  min-height: 1.6em;
+  padding: 1px 3px;
+  border: 1px solid #2563eb;
+  background: var(--bg-panel);
+  font-family: sans-serif;
+  line-height: 1.3;
+  resize: both;
+  outline: none;
+}
+
+/* 채우기 없음 스와치: 색 대신 ⊘ 표시. */
+.pdf-draw-swatch-none {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-panel);
+  color: var(--fg-dim);
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.context-menu-note {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--fg-dim);
 }
 
 /* 이미지: transform 기반 핀치 줌/팬 표면. 콘텐츠 박스가 뷰포트를 채우고
@@ -1734,12 +2065,11 @@ body.resizing-sidebar {
   font-size: 0.85rem;
 }
 
-/* 새 업데이트 알림 토스트 (하단 중앙) */
+/* 새 업데이트 알림 토스트 (왼쪽 하단) */
 .update-toast {
   position: fixed;
   bottom: 44px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 16px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2120,6 +2450,68 @@ body.resizing-sidebar {
   margin: 4px 0 0;
 }
 
+/* 커스텀 색상 편집기 */
+.custom-colors-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0 2px;
+}
+
+.custom-colors-reset {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.custom-colors-reset:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  margin-top: 6px;
+}
+
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding: 3px 0;
+}
+
+.color-row input[type="color"] {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.color-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.color-row input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.color-row.overridden span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* ===================== 빠른 열기 ===================== */
 .quick-open-backdrop {
   align-items: flex-start;
@@ -2182,6 +2574,83 @@ body.resizing-sidebar {
 .qo-empty {
   color: var(--fg-dim);
   padding: 10px 16px;
+}
+
+/* ---- 단축키 치트시트 ---- */
+
+.cheatsheet {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: min(560px, 92vw);
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.cheatsheet input {
+  width: 100%;
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  color: var(--fg);
+  padding: 12px 16px;
+  font-size: 1rem;
+}
+
+.cheatsheet-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px 0 10px;
+}
+
+.cheatsheet-body section {
+  padding: 4px 0;
+}
+
+.cheatsheet-body h3 {
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 8px 0 2px;
+  padding: 0 16px;
+}
+
+.cheatsheet-body ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cheatsheet-body li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 16px;
+}
+
+.cheatsheet-desc {
+  color: var(--fg);
+  font-size: 0.9rem;
+}
+
+.cheatsheet-keys {
+  font-family: var(--mono-font);
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.cheatsheet-empty {
+  color: var(--fg-dim);
+  padding: 14px 16px;
+  margin: 0;
 }
 
 /* ---- 전체 검색 모달 (FR-1.5) ---- */

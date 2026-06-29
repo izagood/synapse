@@ -180,6 +180,26 @@ pub trait Backend: Send + Sync {
         Err(io::Error::other("too many untitled notes"))
     }
 
+    /// `dir` 안에서 겹치지 않는 새 폴더를 만들고 경로를 돌려준다.
+    /// "새 폴더", "새 폴더 2", … 순서로 시도한다.
+    fn create_unique_folder(&self, dir: &Path) -> io::Result<PathBuf> {
+        for i in 1..1000 {
+            let name = if i == 1 {
+                "새 폴더".to_string()
+            } else {
+                format!("새 폴더 {i}")
+            };
+            let path = dir.join(name);
+            // create_dir_all은 이미 존재해도 에러를 안 내므로(idempotent),
+            // 충돌을 피하려면 exists로 먼저 검사한다. (create_new는 파일 전용)
+            if !self.exists(&path) {
+                self.create_dir_all(&path)?;
+                return Ok(path);
+            }
+        }
+        Err(io::Error::other("too many untitled folders"))
+    }
+
     /// `dir` 안에 `desired_name`으로 바이너리를 쓴다. 같은 이름이 이미 있으면
     /// "이름{sep}2.ext", "이름{sep}3.ext"… 로 비켜 쓰고, 최종 파일명을 돌려준다.
     fn write_unique(
@@ -220,6 +240,36 @@ pub trait Backend: Send + Sync {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!("이미 존재합니다: {new_name}"),
+            ));
+        }
+        self.rename(path, &target)?;
+        Ok(target)
+    }
+
+    /// 파일/폴더를 다른 디렉토리(`dest_dir`)로 옮기고 옮긴 새 경로를 돌려준다.
+    /// - 이미 그 폴더 안에 있으면(부모가 곧 대상) 무동작으로 원본 경로를 돌려준다.
+    /// - 폴더를 자기 자신이나 자기 하위로 옮기는 것은 거부한다.
+    /// - 대상 폴더에 같은 이름이 이미 있으면 덮어쓰지 않고 실패한다.
+    fn move_entry(&self, path: &Path, dest_dir: &Path) -> io::Result<PathBuf> {
+        let name = path
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
+        // 폴더를 자기 자신/하위로 옮기면 트리가 끊긴다 — fs::rename도 거부하지만
+        // 친절한 메시지를 위해 먼저 막는다.
+        if dest_dir == path || dest_dir.starts_with(path) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "폴더를 자기 자신의 하위로 옮길 수 없습니다",
+            ));
+        }
+        let target = dest_dir.join(name);
+        if target == path {
+            return Ok(target); // 이미 그 폴더에 있음
+        }
+        if self.exists(&target) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("이미 존재합니다: {}", name.to_string_lossy()),
             ));
         }
         self.rename(path, &target)?;
@@ -600,6 +650,67 @@ mod tests {
         LocalBackend.append(&p, b"abc").unwrap();
         LocalBackend.append(&p, b"def").unwrap();
         assert_eq!(LocalBackend.read(&p).unwrap(), b"abcdef");
+    }
+
+    #[test]
+    fn move_entry_relocates_into_other_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src_dir = tmp.path().join("a");
+        let dst_dir = tmp.path().join("b");
+        LocalBackend.create_dir_all(&src_dir).unwrap();
+        LocalBackend.create_dir_all(&dst_dir).unwrap();
+        let file = src_dir.join("note.md");
+        LocalBackend.write(&file, b"hi").unwrap();
+
+        let moved = LocalBackend.move_entry(&file, &dst_dir).unwrap();
+        assert_eq!(moved, dst_dir.join("note.md"));
+        assert!(!LocalBackend.exists(&file));
+        assert_eq!(LocalBackend.read(&moved).unwrap(), b"hi");
+    }
+
+    #[test]
+    fn move_entry_into_same_dir_is_noop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("a");
+        LocalBackend.create_dir_all(&dir).unwrap();
+        let file = dir.join("note.md");
+        LocalBackend.write(&file, b"hi").unwrap();
+
+        let same = LocalBackend.move_entry(&file, &dir).unwrap();
+        assert_eq!(same, file);
+        assert_eq!(LocalBackend.read(&file).unwrap(), b"hi");
+    }
+
+    #[test]
+    fn move_entry_rejects_name_collision() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src_dir = tmp.path().join("a");
+        let dst_dir = tmp.path().join("b");
+        LocalBackend.create_dir_all(&src_dir).unwrap();
+        LocalBackend.create_dir_all(&dst_dir).unwrap();
+        let file = src_dir.join("note.md");
+        LocalBackend.write(&file, b"new").unwrap();
+        LocalBackend
+            .write(&dst_dir.join("note.md"), b"old")
+            .unwrap();
+
+        let err = LocalBackend.move_entry(&file, &dst_dir).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        // 원본도 대상도 그대로 유지된다 (덮어쓰기 없음)
+        assert_eq!(LocalBackend.read(&file).unwrap(), b"new");
+        assert_eq!(LocalBackend.read(&dst_dir.join("note.md")).unwrap(), b"old");
+    }
+
+    #[test]
+    fn move_entry_rejects_into_own_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("parent");
+        let sub = dir.join("child");
+        LocalBackend.create_dir_all(&sub).unwrap();
+
+        let err = LocalBackend.move_entry(&dir, &sub).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(LocalBackend.exists(&sub)); // 트리 보존
     }
 
     #[test]

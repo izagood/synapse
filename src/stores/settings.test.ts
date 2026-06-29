@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useSettings } from "./settings";
+import { useSettings, effectiveCanvasTheme } from "./settings";
 import { ipc } from "../ipc/ipc";
-import { DEFAULT_SETTINGS } from "../ipc/types";
+import { DEFAULT_SETTINGS, type Settings } from "../ipc/types";
 
 describe("settings store (mock ipc)", () => {
   beforeEach(async () => {
@@ -22,7 +22,7 @@ describe("settings store (mock ipc)", () => {
 
   it("partial update merges sections and persists", async () => {
     await useSettings.getState().update({
-      appearance: { theme: "dark", language: "ko" },
+      appearance: { theme: "dark", language: "ko", customColors: {}, canvasTheme: "light" },
     });
     // 다른 섹션은 그대로
     expect(useSettings.getState().settings.editor.fontSize).toBe(16);
@@ -31,6 +31,21 @@ describe("settings store (mock ipc)", () => {
     const persisted = await ipc.getSettings();
     expect(persisted.appearance.theme).toBe("dark");
     expect(persisted.sync.auto).toBe(true);
+  });
+
+  it("pink 테마와 커스텀 색상이 저장·복원된다", async () => {
+    await useSettings.getState().update({
+      appearance: {
+        theme: "pink",
+        language: "ko",
+        customColors: { accent: "#ff66aa" },
+        canvasTheme: "light",
+      },
+    });
+
+    const persisted = await ipc.getSettings();
+    expect(persisted.appearance.theme).toBe("pink");
+    expect(persisted.appearance.customColors.accent).toBe("#ff66aa");
   });
 
   it("files.confirmDelete 갱신이 다른 섹션을 건드리지 않고 저장된다", async () => {
@@ -58,7 +73,12 @@ describe("settings store (mock ipc)", () => {
     useSettings.setState({
       settings: {
         ...structuredClone(DEFAULT_SETTINGS),
-        appearance: { theme: "system", language: "fr" as "ko" },
+        appearance: {
+          theme: "system",
+          language: "fr" as "ko",
+          customColors: {},
+          canvasTheme: "light",
+        },
       },
     });
 
@@ -67,31 +87,46 @@ describe("settings store (mock ipc)", () => {
     expect(useSettings.getState().settings.appearance.language).toBe("ko");
   });
 
-  it("defaults agent auth mode to subscription", async () => {
-    await useSettings.getState().init();
-    const agent = useSettings.getState().settings.agent;
-    expect(agent.authMode).toBe("subscription");
-    expect(agent.model).toBe("");
-    expect(agent.permissionMode).toBe("");
-  });
-
-  it("agent 섹션 갱신이 다른 섹션을 건드리지 않고 저장된다", async () => {
-    await useSettings.getState().update({
-      agent: {
-        ...useSettings.getState().settings.agent,
-        authMode: "apiKey",
-        model: "claude-sonnet-4-5",
+  it("과거 설정의 누락된 canvasTheme를 light로 보정한다", async () => {
+    // canvasTheme 필드가 없던 시절의 설정을 흉내낸다 (필드 누락 → 캐스팅).
+    useSettings.setState({
+      settings: {
+        ...structuredClone(DEFAULT_SETTINGS),
+        appearance: {
+          theme: "dark",
+          language: "ko",
+          customColors: {},
+        } as Settings["appearance"],
       },
     });
 
-    const s = useSettings.getState().settings;
-    expect(s.agent.authMode).toBe("apiKey");
-    expect(s.agent.model).toBe("claude-sonnet-4-5");
-    expect(s.agent.permissionMode).toBe(""); // 지정 안 한 필드는 기존값 유지
-    expect(s.editor.fontSize).toBe(16); // 다른 섹션 불변
+    // normalizeSettings를 타는 아무 update나 호출하면 보정된다.
+    await useSettings.getState().update({ sync: { auto: false, intervalMinutes: 5 } });
 
-    const persisted = await ipc.getSettings();
-    expect(persisted.agent.authMode).toBe("apiKey");
-    expect(persisted.agent.model).toBe("claude-sonnet-4-5");
+    expect(useSettings.getState().settings.appearance.canvasTheme).toBe("light");
+  });
+
+});
+
+describe("effectiveCanvasTheme", () => {
+  const base = (over: Partial<Settings["appearance"]>): Settings["appearance"] => ({
+    theme: "system",
+    language: "ko",
+    customColors: {},
+    canvasTheme: "light",
+    ...over,
+  });
+
+  it("light/dark 고정은 앱 테마와 무관하게 그대로 쓴다", () => {
+    // 앱은 다크인데 캔버스는 라이트 — 이 기능의 핵심 동작.
+    expect(effectiveCanvasTheme(base({ theme: "dark", canvasTheme: "light" }))).toBe("light");
+    expect(effectiveCanvasTheme(base({ theme: "light", canvasTheme: "dark" }))).toBe("dark");
+  });
+
+  it("auto는 앱 테마를 따른다", () => {
+    expect(effectiveCanvasTheme(base({ theme: "dark", canvasTheme: "auto" }))).toBe("dark");
+    expect(effectiveCanvasTheme(base({ theme: "light", canvasTheme: "auto" }))).toBe("light");
+    // pink는 밝은 계열 → light (effectiveTheme 위임)
+    expect(effectiveCanvasTheme(base({ theme: "pink", canvasTheme: "auto" }))).toBe("light");
   });
 });

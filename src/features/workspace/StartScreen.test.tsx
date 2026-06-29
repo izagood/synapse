@@ -44,18 +44,20 @@ describe("StartScreen i18n", () => {
   it("renders Korean and English shell copy", () => {
     render();
     expect(host.textContent).toContain("폴더 열기");
+    expect(host.textContent).toContain("경로로 열기");
     expect(host.textContent).toContain("최근 폴더");
 
     act(() => {
       useSettings.setState({
         settings: {
           ...useSettings.getState().settings,
-          appearance: { theme: "system", language: "en" },
+          appearance: { theme: "system", language: "en", customColors: {}, canvasTheme: "light" },
         },
       });
     });
 
     expect(host.textContent).toContain("Open Folder");
+    expect(host.textContent).toContain("Open by Path");
     expect(host.textContent).toContain("Recent Folders");
   });
 });

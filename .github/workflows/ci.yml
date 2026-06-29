@@ -51,13 +51,23 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/synapse-core
+          workspaces: |
+            crates/synapse-core
+            crates/synapse-mcp
       - run: cargo fmt --check
         working-directory: crates/synapse-core
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: crates/synapse-core
       - run: cargo test
         working-directory: crates/synapse-core
+
+      # synapse-mcp 사이드카(GUI 비의존 — 외부 에이전트용 MCP stdio 서버)도 같은 러너에서 검증
+      - run: cargo fmt --check
+        working-directory: crates/synapse-mcp
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: crates/synapse-mcp
+      - run: cargo test
+        working-directory: crates/synapse-mcp
 
   test-windows:
     runs-on: windows-latest
@@ -112,6 +122,21 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      # Synapse MCP 사이드카를 타깃 트리플로 빌드해 externalBin 자리(src-tauri/binaries)에 둔다.
+      # tauri build가 이 바이너리를 앱 옆에 번들한다 (없으면 빌드 실패).
+      - name: Synapse MCP 사이드카 빌드 (externalBin)
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple="${{ matrix.rust_targets }}"
+          if [ -z "$triple" ]; then triple="$(rustc -Vv | sed -n 's/^host: //p')"; fi
+          echo "사이드카 타깃: $triple"
+          cargo build --manifest-path crates/synapse-mcp/Cargo.toml --release --target "$triple"
+          mkdir -p src-tauri/binaries
+          ext=""; case "$triple" in *windows*) ext=".exe";; esac
+          cp "crates/synapse-mcp/target/$triple/release/synapse-mcp$ext" \
+             "src-tauri/binaries/synapse-mcp-$triple$ext"
+          ls -l src-tauri/binaries
       # createUpdaterArtifacts: true 라서 서명 키가 필요하다.
       # 시크릿이 없는 환경(포크에서 온 PR)에서는 업데이터 아티팩트 생성을 끄고 빌드한다.
       # macOS 코드 서명도 릴리스와 동일하게 드라이런한다
@@ -167,9 +192,23 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         shell: bash
         run: |
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            npx tauri build ${{ matrix.args }} \
-              --config '{"bundle":{"createUpdaterArtifacts":false}}'
-          else
-            npx tauri build ${{ matrix.args }}
-          fi
+          build() {
+            if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+              npx tauri build ${{ matrix.args }} \
+                --config '{"bundle":{"createUpdaterArtifacts":false}}'
+            else
+              npx tauri build ${{ matrix.args }}
+            fi
+          }
+          # macOS DMG 번들링(bundle_dmg.sh)은 러너에서 hdiutil/AppleScript 타이밍
+          # 때문에 간헐적으로 실패한다. 실제 릴리스 빌드(release-desktop.yml)는
+          # tauri-action의 retryAttempts로 이 flake를 흡수하지만, 이 드라이런은
+          # raw 빌드라 재시도가 없어 flake에 그대로 깨졌다 — 동일하게 1회 재시도한다.
+          for attempt in 1 2; do
+            if build; then
+              exit 0
+            fi
+            echo "::warning::Tauri 번들 빌드 실패 (시도 $attempt/2) — 재시도"
+          done
+          echo "::error::Tauri 번들 빌드가 2회 모두 실패"
+          exit 1

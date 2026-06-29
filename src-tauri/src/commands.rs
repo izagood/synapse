@@ -84,6 +84,78 @@ pub async fn write_file(
     .await
 }
 
+/// PDF 주석(드로잉) 사이드카 읽기. 사이드카는 사용자에게 보이는 PDF 옆이 아니라
+/// 숨김 디렉토리 `.synapse/draw/<상대경로>.draw.json`에 보관한다. 신규 경로가 없으면
+/// 기존(레거시) PDF옆 `<pdf>.draw.json`을 폴백으로 읽는다(점진 이전). 둘 다 없으면
+/// `Err`를 돌려주고, 프론트는 이를 "주석 없음"으로 처리한다.
+#[tauri::command]
+pub async fn read_pdf_draw(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    pdf_path: String,
+) -> Result<String, String> {
+    let root_loc = parse_loc(&root)?;
+    let pdf_loc = parse_loc(&pdf_path)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let pdf = fs_path(&pdf_loc);
+    crate::sync::run_blocking(move || {
+        // 1순위: .synapse/draw 안의 새 위치.
+        let sidecar = synapse_core::pdf_draw_sidecar_path(&*backend, &root_path, &pdf)
+            .map_err(|e| e.to_string())?;
+        if let Ok(resolved) = backend.ensure_within(&root_path, &sidecar) {
+            if let Ok(s) = backend.read_to_string(&resolved) {
+                return Ok(s);
+            }
+        }
+        // 폴백: 기존 PDF옆 <pdf>.draw.json (아직 이전 안 된 주석).
+        let legacy = synapse_core::legacy_pdf_draw_sidecar(&pdf);
+        let resolved = backend
+            .ensure_within(&root_path, &legacy)
+            .map_err(|e| e.to_string())?;
+        backend.read_to_string(&resolved).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// PDF 주석(드로잉) 사이드카 쓰기. 항상 `.synapse/draw/<상대경로>.draw.json`에 저장하고
+/// (부모 디렉토리는 자동 생성), 저장에 성공하면 기존 PDF옆 `<pdf>.draw.json`이 남아
+/// 있을 경우 best-effort 삭제해 점진적으로 새 위치로 이전한다.
+#[tauri::command]
+pub async fn write_pdf_draw(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    pdf_path: String,
+    content: String,
+) -> Result<(), String> {
+    let root_loc = parse_loc(&root)?;
+    let pdf_loc = parse_loc(&pdf_path)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let pdf = fs_path(&pdf_loc);
+    crate::sync::run_blocking(move || {
+        let sidecar = synapse_core::pdf_draw_sidecar_path(&*backend, &root_path, &pdf)
+            .map_err(|e| e.to_string())?;
+        // ensure_writable_within이 부모를 canonicalize하므로 디렉토리를 먼저 만든다.
+        if let Some(parent) = sidecar.parent() {
+            backend.create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let resolved = backend
+            .ensure_writable_within(&root_path, &sidecar)
+            .map_err(|e| e.to_string())?;
+        backend
+            .write_atomic(&resolved, content.as_bytes())
+            .map_err(|e| e.to_string())?;
+        // 점진 이전: 새 위치 저장 성공 후 레거시 사이드카는 best-effort 삭제.
+        let legacy = synapse_core::legacy_pdf_draw_sidecar(&pdf);
+        if let Ok(resolved_legacy) = backend.ensure_within(&root_path, &legacy) {
+            let _ = backend.remove_file(&resolved_legacy);
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// 마크다운 문서 저장 (FR-6): frontmatter의 `synapse_id`를 보장하고 base→content
 /// 변경을 CRDT에 기록한 뒤, 합쳐진 최종 텍스트를 .md에 쓰고 돌려준다.
 /// 그 사이 원격 머지나 외부 편집이 있었다면 돌려준 텍스트에 합쳐져 있다.
@@ -115,42 +187,6 @@ pub async fn save_doc(
         let store = synapse_core::CollabStore::new(backend, root_path, actor);
         store
             .save_doc_file(&resolved, &content, &base)
-            .map_err(|e| e.to_string())
-    })
-    .await
-}
-
-/// AI 안전 편집 (2-B): 승인된 AI 편집을 사용자 로그와 분리된 `ai-assistant`
-/// actor로 라우팅한다. 파일을 직접 덮어쓰지 않고 CollabStore를 경유시켜
-/// `log-ai-assistant.y`에 기록 → CRDT가 사용자 편집과 자동 병합한다.
-/// base_content는 AI가 본 기준 텍스트, new_content는 적용 후 전체 텍스트다.
-#[tauri::command]
-pub async fn agent_edit_file(
-    state: tauri::State<'_, RemoteState>,
-    root: String,
-    path: String,
-    new_content: String,
-    base_content: String,
-) -> Result<String, String> {
-    let root_loc = parse_loc(&root)?;
-    let path_loc = parse_loc(&path)?;
-    let backend = backend_for(&state, &root_loc)?;
-    let root_path = fs_path(&root_loc);
-    let cand = fs_path(&path_loc);
-    crate::sync::run_blocking(move || {
-        use synapse_core::collab;
-
-        // 새 파일(Write)도 만들 수 있어야 하므로 writable 가드를 쓴다 (루트 내부만)
-        let resolved = backend
-            .ensure_writable_within(&root_path, &cand)
-            .map_err(|e| e.to_string())?;
-        let _guard = collab::workspace_lock()
-            .lock()
-            .map_err(|_| "workspace lock poisoned".to_string())?;
-        // 고정 actor "ai-assistant" — 사용자 actor와 별도 로그로 분리된다
-        let store = synapse_core::CollabStore::new(backend, root_path, "ai-assistant".to_string());
-        store
-            .save_doc_file(&resolved, &new_content, &base_content)
             .map_err(|e| e.to_string())
     })
     .await
@@ -195,6 +231,29 @@ pub async fn create_note(
             .map_err(|e| e.to_string())?;
         let path = backend
             .create_unique_note(&resolved)
+            .map_err(|e| e.to_string())?;
+        Ok(path_to_uri(&root_loc, &path.to_string_lossy()))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_folder(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    dir: String,
+) -> Result<String, String> {
+    let root_loc = parse_loc(&root)?;
+    let dir_loc = parse_loc(&dir)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let dir_path = fs_path(&dir_loc);
+    crate::sync::run_blocking(move || {
+        let resolved = backend
+            .ensure_within(&root_path, &dir_path)
+            .map_err(|e| e.to_string())?;
+        let path = backend
+            .create_unique_folder(&resolved)
             .map_err(|e| e.to_string())?;
         Ok(path_to_uri(&root_loc, &path.to_string_lossy()))
     })
@@ -289,6 +348,36 @@ pub async fn save_image(
         // md 링크 목적지에 공백이 못 들어가므로 충돌 회피 suffix도 "-"로
         backend
             .write_unique(&dir, &desired_name, &bytes, "-")
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// 바이너리(base64) 바이트를 dir 에 새 파일로 쓴다. 같은 이름이 있으면 "이름 2.ext"로
+/// 비켜 쓰고 최종 파일명을 돌려준다. PDF 굽기(주석 합성 사본 저장) 등에 쓴다.
+#[tauri::command]
+pub async fn write_binary_unique(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    dir: String,
+    desired_name: String,
+    data_base64: String,
+) -> Result<String, String> {
+    if !synapse_core::is_safe_file_name(&desired_name) {
+        return Err("invalid file name".to_string());
+    }
+    let root_loc = parse_loc(&root)?;
+    let dir_loc = parse_loc(&dir)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let dir_path = fs_path(&dir_loc);
+    let bytes = synapse_core::fs_io::base64_decode(&data_base64)?;
+    crate::sync::run_blocking(move || {
+        let dir = backend
+            .ensure_within(&root_path, &dir_path)
+            .map_err(|e| e.to_string())?;
+        backend
+            .write_unique(&dir, &desired_name, &bytes, " ")
             .map_err(|e| e.to_string())
     })
     .await
@@ -406,6 +495,59 @@ pub async fn duplicate_path(
         backend.duplicate_file(&resolved).map_err(|e| e.to_string())
     })
     .await
+}
+
+/// 파일/폴더를 워크스페이스 내부의 다른 폴더로 이동한다 (트리 드래그앤드롭, FR-1.3).
+/// src·dest_dir 모두 루트 내부여야 하고, dest_dir는 디렉토리여야 한다. 옮긴 새 경로를
+/// (원격이면 URI로) 돌려준다.
+#[tauri::command]
+pub async fn move_path(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+    path: String,
+    dest_dir: String,
+) -> Result<String, String> {
+    let root_loc = parse_loc(&root)?;
+    let path_loc = parse_loc(&path)?;
+    let dest_loc = parse_loc(&dest_dir)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    let src = fs_path(&path_loc);
+    let dest = fs_path(&dest_loc);
+    crate::sync::run_blocking(move || {
+        let src = backend
+            .ensure_within(&root_path, &src)
+            .map_err(|e| e.to_string())?;
+        if src == root_path {
+            return Err("워크스페이스 루트는 이동할 수 없습니다".to_string());
+        }
+        let dest = backend
+            .ensure_within(&root_path, &dest)
+            .map_err(|e| e.to_string())?;
+        let meta = backend.metadata(&dest).map_err(|e| e.to_string())?;
+        if !meta.is_dir {
+            return Err("대상이 폴더가 아닙니다".to_string());
+        }
+        let moved = backend.move_entry(&src, &dest).map_err(|e| e.to_string())?;
+        Ok(path_to_uri(&root_loc, &moved.to_string_lossy()))
+    })
+    .await
+}
+
+/// 트리 항목을 OS(Finder/탐색기)로 끌어 내보낼 때 커서에 붙는 미리보기 아이콘의
+/// 절대 경로를 돌려준다 (tauri-plugin-drag의 startDrag는 icon이 필수). 앱 아이콘을
+/// 바이너리에 임베드해 캐시에 한 번 써두고 그 경로를 재사용한다 — dev/번들 양쪽에서
+/// 동작하고 번들 리소스 설정에 의존하지 않는다.
+#[tauri::command]
+pub fn drag_icon_path() -> Result<String, String> {
+    let dir = config_dir()?.join("cache");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("drag-icon.png");
+    if !path.exists() {
+        const ICON: &[u8] = include_bytes!("../icons/32x32.png");
+        std::fs::write(&path, ICON).map_err(|e| e.to_string())?;
+    }
+    Ok(path.display().to_string())
 }
 
 #[tauri::command]

@@ -54,6 +54,25 @@ describe("workspace store (mock ipc)", () => {
     expect(isDirty(s.docs[s.activePath!])).toBe(false);
   });
 
+  it("사이드바 선택 열기(focusEditor:false)는 에디터 자동 포커스를 끄고, 기본 열기·탭 전환은 켠다", async () => {
+    const ws = useWorkspace.getState();
+    const readme = findNode("README.md");
+
+    // 사이드바에서 "선택"으로 열면 포커스를 트리 행에 두기 위해 자동 포커스 꺼짐
+    await ws.openFile(readme, { focusEditor: false });
+    expect(useWorkspace.getState().autoFocusEditor).toBe(false);
+
+    // 기본(opts 없음) 열기 — 퀵오픈·내부 링크 등 — 은 다시 켜짐
+    await ws.openFile(readme);
+    expect(useWorkspace.getState().autoFocusEditor).toBe(true);
+
+    // 다시 끈 뒤 탭 전환(setActiveTab)도 "이 문서를 편집" 의도라 켜짐
+    await ws.openFile(readme, { focusEditor: false });
+    expect(useWorkspace.getState().autoFocusEditor).toBe(false);
+    useWorkspace.getState().setActiveTab(useWorkspace.getState().activePath!);
+    expect(useWorkspace.getState().autoFocusEditor).toBe(true);
+  });
+
   it("PDF는 텍스트로 읽지 않고 곧장 준비 완료 상태가 된다", async () => {
     // 바이너리라 read_to_string이 UTF-8 디코드에서 실패하므로 readFile을 건너뛴다.
     const spy = vi.spyOn(ipc, "readFile");
@@ -196,12 +215,31 @@ describe("workspace store (mock ipc)", () => {
     expect(await ipc.readFile(MOCK_ROOT, closing)).toContain("닫기 전 수정");
   });
 
+  it("closeTab on the last open tab empties the workspace (⌘W then closes the window)", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const only = useWorkspace.getState().activePath!;
+
+    await useWorkspace.getState().closeTab(only);
+    const s = useWorkspace.getState();
+    expect(s.tabs).toEqual([]);
+    expect(s.activePath).toBeNull();
+  });
+
   it("createNote creates, refreshes the tree, and opens a markdown tab", async () => {
     await useWorkspace.getState().createNote();
     const s = useWorkspace.getState();
     expect(s.activePath).toMatch(/새 노트.*\.md$/);
     expect(s.tabs.at(-1)?.fileType).toBe("markdown");
     expect(findNode(s.tabs.at(-1)!.name)).toBeTruthy();
+  });
+
+  it("createFolder creates a folder, refreshes the tree, and returns its path", async () => {
+    const path = await useWorkspace.getState().createFolder();
+    expect(path).toMatch(/\/새 폴더$/);
+    const node = findNode("새 폴더");
+    expect(node.kind).toBe("dir");
+    // 노트와 달리 에디터로 열지 않는다 (탭/activePath 변화 없음)
+    expect(useWorkspace.getState().tabs.some((t) => t.name === "새 폴더")).toBe(false);
   });
 
   it("closeOtherTabs keeps only the given tab, saving dirty ones", async () => {

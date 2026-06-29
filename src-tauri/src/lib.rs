@@ -1,36 +1,63 @@
-mod agent;
 mod auth;
+mod bridge;
 mod commands;
 mod config_sync;
 mod dock;
 mod remote;
 mod sync;
+mod terminal;
+mod watcher;
 
 pub fn run() {
+    // 라이브 상태 브리지: 관리 상태와 서버 스레드가 같은 inner를 공유한다.
+    let bridge_state = bridge::BridgeState::default();
+    let bridge_inner = bridge_state.0.clone();
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             #[cfg(target_os = "macos")]
             dock::install(app.handle().clone());
+            // loopback HTTP 브리지 기동(실패해도 앱 본체는 정상 동작).
+            bridge::start(bridge_inner.clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 윈도우가 닫히면 그 윈도우의 브리지 세션·PTY를 정리해 누수/좀비를 막는다.
+            if let tauri::WindowEvent::Destroyed = event {
+                use tauri::Manager;
+                if let Some(state) = window.try_state::<bridge::BridgeState>() {
+                    state.0.drop_window(window.label());
+                }
+                if let Some(pty) = window.try_state::<terminal::PtyState>() {
+                    pty.drop_window(window.label());
+                }
+            }
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // 트리 항목을 OS(Finder/탐색기)로 끌어 내보내기 (네이티브 드래그아웃)
+        .plugin(tauri_plugin_drag::init())
         .manage(auth::AuthState::default())
-        .manage(agent::AgentState::default())
         .manage(remote::RemoteState::default())
+        .manage(watcher::WatcherState::default())
+        .manage(bridge_state)
+        .manage(terminal::PtyState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             remote::connect_remote,
             remote::disconnect_remote,
+            remote::parse_ssh_command,
+            remote::list_remote_dir,
             commands::read_file,
             commands::write_file,
+            commands::read_pdf_draw,
+            commands::write_pdf_draw,
             commands::save_doc,
-            commands::agent_edit_file,
             commands::backlinks,
             commands::link_graph,
             commands::create_note,
+            commands::create_folder,
             commands::search_workspace,
             commands::retrieve_notes,
             commands::recent_workspaces,
@@ -44,16 +71,21 @@ pub fn run() {
             commands::viewer_cache_write,
             commands::new_window,
             commands::save_image,
+            commands::write_binary_unique,
             commands::rename_path,
             commands::delete_path,
             commands::duplicate_path,
+            commands::move_path,
+            commands::drag_icon_path,
+            bridge::bridge_push_state,
+            terminal::pty_open,
+            terminal::pty_write,
+            terminal::pty_resize,
+            terminal::pty_kill,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,
             auth::github_logout,
-            auth::set_agent_api_key,
-            auth::clear_agent_api_key,
-            auth::has_agent_api_key,
             sync::sync_status,
             sync::sync_now,
             sync::resolve_conflict,
@@ -67,10 +99,8 @@ pub fn run() {
             config_sync::config_sync_now,
             sync::file_history,
             sync::file_at_revision,
-            agent::agent_status,
-            agent::agent_send,
-            agent::agent_respond_permission,
-            agent::agent_stop,
+            watcher::start_watching,
+            watcher::stop_watching,
         ])
         .run(tauri::generate_context!())
         .expect("error while running synapse");

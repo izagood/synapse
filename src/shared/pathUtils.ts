@@ -34,6 +34,12 @@ export function basename(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+/** 경로의 부모 디렉터리 경로를 돌려준다(구분자 없으면 빈 문자열). `/`·`\` 모두 인식. */
+export function dirname(path: string): string {
+  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return i >= 0 ? path.slice(0, i) : "";
+}
+
 /** 파일명에서 마지막 확장자를 떼어낸다. 확장자가 없으면 그대로 둔다. */
 export function stripExt(name: string): string {
   const dot = name.lastIndexOf(".");

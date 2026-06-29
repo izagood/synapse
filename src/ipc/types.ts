@@ -111,11 +111,38 @@ export type PollResult =
 // Rust synapse-core::settings::Settings 와 1:1 대응 (FR-5)
 export type Language = "ko" | "en";
 
-/** 에이전트 인증 방식 (2-D). API 키 자체는 OS 키체인에 저장되고 여기 없다. */
-export type AgentAuthMode = "subscription" | "apiKey";
+/** 테마 선택지: system(OS 따름) + 프리셋 테마들 */
+export type ThemeSetting = "system" | "light" | "dark" | "pink";
+
+/**
+ * 캔버스 도구(excalidraw 등) 전용 테마. 앱 테마와 독립적으로 둔다 —
+ * 다이어그램/드로잉은 보통 밝은 배경에서 그리므로 기본은 light 고정이고,
+ * "auto"면 앱 테마를 따른다. (drawio는 이 설정과 무관하게 항상 라이트.)
+ */
+export type CanvasTheme = "auto" | "light" | "dark";
+
+/** 사용자가 직접 바꿀 수 있는 색상 토큰 (활성 테마 위에 덮어쓴다) */
+export const CUSTOM_COLOR_KEYS = [
+  "accent",
+  "bg",
+  "bgPanel",
+  "bgRail",
+  "fg",
+  "fgDim",
+  "border",
+] as const;
+export type CustomColorKey = (typeof CUSTOM_COLOR_KEYS)[number];
+/** 키→hex 색. 비어 있으면 선택한 테마의 기본값을 그대로 쓴다. */
+export type CustomColors = Partial<Record<CustomColorKey, string>>;
 
 export interface Settings {
-  appearance: { theme: "system" | "light" | "dark"; language: Language };
+  appearance: {
+    theme: ThemeSetting;
+    language: Language;
+    customColors: CustomColors;
+    /** 캔버스 도구(excalidraw) 전용 테마. 앱 테마와 별개. */
+    canvasTheme: CanvasTheme;
+  };
   editor: {
     fontFamily: string;
     fontSize: number;
@@ -125,11 +152,10 @@ export interface Settings {
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
   files: { confirmDelete: boolean };
-  agent: { authMode: AgentAuthMode; model: string; permissionMode: string };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  appearance: { theme: "system", language: "ko" },
+  appearance: { theme: "system", language: "ko", customColors: {}, canvasTheme: "light" },
   editor: {
     fontFamily: "system-ui",
     fontSize: 16,
@@ -139,57 +165,41 @@ export const DEFAULT_SETTINGS: Settings = {
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },
   files: { confirmDelete: true },
-  agent: { authMode: "subscription", model: "", permissionMode: "" },
 };
-
-// Rust synapse-core::agent::EditPreview 와 1:1 대응 (2-B 안전 편집)
-export interface EditPreview {
-  /** 대상 파일 경로 (claude가 준 그대로 — 절대/상대 모두 가능) */
-  filePath: string;
-  /** Edit이면 찾을 문자열, Write이면 빈 문자열 */
-  oldString: string;
-  /** Edit이면 바꿀 문자열, Write이면 새 파일 전체 내용 */
-  newString: string;
-  /** Write(전체 교체)인지 Edit(부분 치환)인지 */
-  wholeFile: boolean;
-}
-
-// Rust synapse-core::agent::AgentEvent 와 1:1 대응 (PLAN-v0.4 / 2-B)
-export type AgentEvent =
-  | { kind: "started"; sessionId: string; model: string }
-  | { kind: "text"; text: string }
-  | { kind: "toolUse"; name: string; detail: string }
-  | {
-      kind: "permissionRequest";
-      requestId: string;
-      tool: string;
-      detail: string;
-      edit: EditPreview | null;
-    }
-  | {
-      kind: "completed";
-      ok: boolean;
-      result: string;
-      sessionId: string;
-      costUsd: number;
-      numTurns: number;
-    }
-  | { kind: "failed"; message: string }
-  | { kind: "aborted" };
-
-export interface AgentEventPayload {
-  runId: string;
-  event: AgentEvent;
-}
-
-export interface AgentStatus {
-  installed: boolean;
-  path: string | null;
-}
 
 export interface WorkspaceSession {
   openTabs: { path: string; name: string; fileType: FileType }[];
   activePath: string | null;
+}
+
+/** workspace:files-changed 이벤트 페이로드 (외부 파일 변경 감지) */
+export interface FilesChangedPayload {
+  /** 변경된 파일들의 워크스페이스 루트 기준 상대경로 */
+  paths: string[];
+}
+
+/**
+ * Rust synapse-core::bridge::LiveState 와 1:1 대응.
+ * "지금 보고 있는" 라이브 상태(저장 전 편집 버퍼 포함)를 MCP 브리지로 올리는 페이로드.
+ * 외부 에이전트(claude/codex)가 Synapse MCP 사이드카를 통해 받아간다.
+ */
+export interface LiveStatePayload {
+  /** 워크스페이스 루트(로컬 경로 또는 ssh:// URI). 시작 화면이면 null */
+  root: string | null;
+  /** 현재 활성 노트 경로. 열린 노트가 없으면 null */
+  activePath: string | null;
+  /** 현재 활성 노트의 라이브 버퍼(저장 전 편집 포함). 텍스트 노트일 때만 채워짐 */
+  activeContent: string | null;
+  /** 현재 열린 모든 탭 */
+  openTabs: { path: string; name: string; fileType: FileType }[];
+}
+
+/** pty:data 이벤트 페이로드 — PTY 출력 청크(임의 바이트라 base64로 감쌈) */
+export interface PtyDataPayload {
+  /** 터미널 id (pty_open 반환값) */
+  id: string;
+  /** base64로 인코딩된 PTY 출력 바이트 */
+  data: string;
 }
 
 // Rust synapse-core::links::Backlink 와 1:1 대응 (FR-2.8 → FR-6.1)
@@ -238,6 +248,20 @@ export type RemoteConnectError =
   | { kind: "hostKeyMismatch"; fingerprint: string }
   | { kind: "generic"; message: string };
 
+// Rust remote::ParsedRemoteTarget 과 1:1 대응 (ssh 명령어 → 접속 대상)
+export interface ParsedRemoteTarget {
+  /** ssh://user@host[:port] (경로는 비어 있음 — 연결 후 홈으로 해소) */
+  uri: string;
+  /** -i/IdentityFile 로 지정된 키 경로 (없으면 null) */
+  keyPath: string | null;
+}
+
+// Rust remote::RemoteDirEntry 과 1:1 대응 (디렉토리 브라우저 한 항목)
+export interface RemoteDirEntry {
+  name: string;
+  isDir: boolean;
+}
+
 export interface SynapseIpc {
   /** OS 폴더 선택 다이얼로그. 취소 시 null */
   pickFolder(): Promise<string | null>;
@@ -257,6 +281,13 @@ export interface SynapseIpc {
   ): Promise<RemoteConnection>;
   /** 원격 세션을 끊는다(같은 호스트의 공유 연결 종료) */
   disconnectRemote(uri: string): Promise<void>;
+  /**
+   * `ssh ...` 명령어 한 줄을 접속 대상으로 해소한다(~/.ssh/config 별칭 병합).
+   * 연결은 하지 않는다 — 결과 uri/keyPath를 connectRemote에 넘긴다.
+   */
+  parseSshCommand(command: string): Promise<ParsedRemoteTarget>;
+  /** 연결된 원격 세션에서 uri가 가리키는 디렉토리의 바로 아래 항목을 나열한다. */
+  listRemoteDir(uri: string): Promise<RemoteDirEntry[]>;
   /** 폴더를 재귀 스캔해 파일 트리 반환 */
   listWorkspace(path: string): Promise<FileNode>;
   /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */
@@ -272,6 +303,17 @@ export interface SynapseIpc {
   /** 루트 내부 경로에만 원자적 쓰기 허용 (새 파일 생성 포함) */
   writeFile(root: string, path: string, content: string): Promise<void>;
   /**
+   * PDF 주석(드로잉) 사이드카 읽기. 숨김 디렉토리 `.synapse/draw/<상대경로>.draw.json`을
+   * 우선 읽고, 없으면 기존 PDF옆 `<pdf>.draw.json`을 폴백으로 읽는다(점진 이전).
+   * 둘 다 없으면 reject — 호출측은 "주석 없음"으로 처리한다.
+   */
+  readPdfDraw(root: string, pdfPath: string): Promise<string>;
+  /**
+   * PDF 주석(드로잉) 사이드카 쓰기. 항상 `.synapse/draw` 안에 저장하고, 저장 성공 후
+   * 기존 PDF옆 `<pdf>.draw.json`이 남아 있으면 삭제해 새 위치로 이전한다.
+   */
+  writePdfDraw(root: string, pdfPath: string, content: string): Promise<void>;
+  /**
    * 마크다운 문서 저장 (FR-6 협업): base(에디터가 마지막으로 본 텍스트) 대비
    * content의 변경을 CRDT에 기록하고, 원격 머지·외부 편집까지 합쳐진 최종
    * 텍스트를 디스크에 쓴 뒤 돌려준다. frontmatter에 synapse_id가 보장된다.
@@ -279,6 +321,8 @@ export interface SynapseIpc {
   saveDoc(root: string, path: string, content: string, base: string): Promise<string>;
   /** dir 안에 "새 노트.md" 계열의 겹치지 않는 빈 노트 생성, 생성된 경로 반환 */
   createNote(root: string, dir: string): Promise<string>;
+  /** dir 안에 "새 폴더" 계열의 겹치지 않는 빈 폴더 생성, 생성된 폴더 URI 반환 */
+  createFolder(root: string, dir: string): Promise<string>;
   /**
    * path(현재 노트)를 가리키는 다른 노트들의 백링크를 모은다 (FR-2.8 → FR-6.1).
    * 표준 링크 `[t](rel.md)`와 위키링크 `[[basename]]`을 모두 인식한다.
@@ -294,6 +338,11 @@ export interface SynapseIpc {
    * 비켜 쓰고 실제 저장된 파일명을 반환 (드래그앤드롭/붙여넣기)
    */
   saveImage(root: string, dir: string, desiredName: string, base64: string): Promise<string>;
+  /**
+   * 바이너리(base64) 바이트를 dir에 새 파일로 쓴다. 같은 이름이 있으면 "이름 2.ext"로
+   * 비켜 쓰고 최종 파일명을 반환 (PDF 굽기 등 임의 바이너리 저장용)
+   */
+  writeBinaryUnique(root: string, dir: string, desiredName: string, base64: string): Promise<string>;
   /** 새 앱 창 열기 (여러 폴더 동시 사용) */
   newWindow(): Promise<void>;
 
@@ -304,6 +353,16 @@ export interface SynapseIpc {
   deletePath(root: string, path: string): Promise<void>;
   /** 파일을 "이름 2.ext"로 복제, 새 파일명 반환 */
   duplicatePath(root: string, path: string): Promise<string>;
+  /**
+   * 파일/폴더를 워크스페이스 내부의 다른 폴더로 이동(트리 드래그앤드롭).
+   * 대상에 같은 이름이 있으면 실패. 옮긴 새 절대 경로(원격이면 URI) 반환.
+   */
+  movePath(root: string, path: string, destDir: string): Promise<string>;
+  /**
+   * 트리 항목을 OS로 끌어 내보낼 때 쓰는 드래그 미리보기 아이콘의 절대 경로.
+   * (tauri-plugin-drag의 startDrag는 icon 인자가 필수다)
+   */
+  dragIconPath(): Promise<string>;
   /** OS 파일 매니저(Finder/탐색기)에서 해당 항목을 선택해 보여준다 */
   revealPath(path: string): Promise<void>;
   /** 최근 연 폴더 (최신순) */
@@ -316,6 +375,31 @@ export interface SynapseIpc {
   /** 워크스페이스별 세션(열린 탭 등) — FR-5.5: 폴더가 아닌 전역 레지스트리에 저장 */
   getWorkspaceState(root: string): Promise<WorkspaceSession | null>;
   setWorkspaceState(root: string, state: WorkspaceSession): Promise<void>;
+
+  // ---- 라이브 상태 브리지 (MCP) ----
+  /**
+   * 현재 윈도우의 라이브 상태(활성 노트·저장 전 버퍼·열린 탭)를 앱 내부 브리지
+   * 서버에 올린다. 외부 에이전트가 띄운 Synapse MCP 사이드카가 이를 질의한다.
+   * 윈도우 라벨은 IPC 계층에서 채워 넣는다(호출자는 라이브 상태만 넘긴다).
+   */
+  bridgePushState(live: LiveStatePayload): Promise<void>;
+
+  // ---- 내장 터미널 (PTY) ----
+  /**
+   * 새 PTY를 연다. 셸은 플랫폼 기본값, cwd는 워크스페이스 루트(ssh://면 홈),
+   * 자식 env에 브리지 접속 정보가 주입된다. 이후 write/resize/kill에 쓸 id를 반환.
+   */
+  ptyOpen(root: string | null, cols: number, rows: number): Promise<string>;
+  /** 사용자 입력(키 입력 등)을 PTY에 쓴다 */
+  ptyWrite(id: string, data: string): Promise<void>;
+  /** 터미널 크기 변경 */
+  ptyResize(id: string, cols: number, rows: number): Promise<void>;
+  /** 터미널 종료 + 세션 정리 */
+  ptyKill(id: string): Promise<void>;
+  /** PTY 출력(base64) 구독. 해제 함수 반환 */
+  onPtyData(handler: (payload: PtyDataPayload) => void): Promise<() => void>;
+  /** PTY 종료(id) 구독. 해제 함수 반환 */
+  onPtyExit(handler: (id: string) => void): Promise<() => void>;
 
   // ---- GitHub 인증 (FR-4.1) ----
   githubLoginStart(): Promise<DeviceCode>;
@@ -371,39 +455,16 @@ export interface SynapseIpc {
    */
   prepareHtmlView(cacheName: string, html: string): Promise<string>;
 
-  // ---- Claude 에이전트 (PLAN-v0.4 Phase 1) ----
-  /** claude CLI 설치 여부 (PATH + 표준 설치 경로 탐색) */
-  agentStatus(): Promise<AgentStatus>;
+  // ---- 외부 파일 변경 감시 (수동 새로고침 없이 자동 reload) ----
   /**
-   * 헤드리스 claude 한 턴 실행 (cwd=root, 읽기 전용 도구만 허용).
-   * 응답은 onAgentEvent 스트림으로 runId와 함께 도착한다.
-   * sessionId를 주면 이전 대화를 이어간다(--resume).
+   * 워크스페이스 루트를 OS 워처로 재귀 감시 시작(기존 감시는 교체).
+   * 로컬 폴더만 감시하며, 원격(ssh://)이면 무동작이다.
    */
-  agentSend(root: string, prompt: string, sessionId: string | null, runId: string): Promise<void>;
-  /**
-   * 권한 요청(permissionRequest)에 대한 사용자 결정을 CLI에 회신한다 (2-B).
-   * 편집 도구는 보통 allow=false로 회신해 CLI 직접 쓰기를 막고, 대신
-   * agentEditFile로 CRDT 경유 편집을 적용한다.
-   */
-  agentRespondPermission(requestId: string, allow: boolean): Promise<void>;
-  /**
-   * 승인된 AI 편집을 ai-assistant actor로 라우팅해 안전하게 적용한다 (2-B).
-   * 파일을 직접 덮어쓰지 않고 CRDT(log-ai-assistant.y)를 경유해 사용자
-   * 편집과 자동 병합하고, 합쳐진 최종 텍스트를 돌려준다.
-   */
-  agentEditFile(root: string, path: string, newContent: string, baseContent: string): Promise<string>;
-  /** 실행 중인 에이전트 프로세스 중단 (aborted 이벤트로 마감됨) */
-  agentStop(): Promise<void>;
-  /** 에이전트 이벤트 구독. 해제 함수를 반환한다 */
-  onAgentEvent(handler: (payload: AgentEventPayload) => void): Promise<() => void>;
-
-  // ---- 에이전트 API 키 (2-D) — 키는 OS 키체인에만 저장된다 ----
-  /** Anthropic API 키를 키체인에 저장(덮어쓰기). 빈 키는 거부 */
-  setAgentApiKey(key: string): Promise<void>;
-  /** 저장된 API 키 삭제 (idempotent) */
-  clearAgentApiKey(): Promise<void>;
-  /** 키체인에 API 키가 저장돼 있는지 (값은 노출하지 않음) */
-  hasAgentApiKey(): Promise<boolean>;
+  startWatching(root: string): Promise<void>;
+  /** 감시 중단 (idempotent) */
+  stopWatching(): Promise<void>;
+  /** 외부 파일 변경 이벤트 구독. 해제 함수를 반환한다 */
+  onFilesChanged(handler: (payload: FilesChangedPayload) => void): Promise<() => void>;
 
   // ---- 앱 업데이트 (F2) ----
   appVersion(): Promise<string>;

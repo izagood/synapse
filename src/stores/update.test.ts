@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { UPDATE_RECHECK_INTERVAL_MS, useUpdate } from "./update";
+import { useUpdate } from "./update";
 import { mockSyncControl } from "../ipc/mock";
 
 describe("update store (mock ipc)", () => {
@@ -12,7 +12,6 @@ describe("update store (mock ipc)", () => {
       checking: false,
       installing: false,
       checked: false,
-      lastCheckedAt: null,
       error: null,
     });
   });
@@ -60,27 +59,13 @@ describe("update store (mock ipc)", () => {
     expect(s.available).not.toBe(s.dismissedVersion);
   });
 
-  it("recheckIfStale skips within the interval and rechecks after it", async () => {
-    const t0 = 1_000_000;
-    await useUpdate.getState().check(t0);
-    expect(useUpdate.getState().lastCheckedAt).toBe(t0);
-
-    // 간격 이내: 새 버전이 생겨도 다시 확인하지 않는다
-    mockSyncControl.updateAvailable = "0.4.0";
-    await useUpdate.getState().recheckIfStale(t0 + UPDATE_RECHECK_INTERVAL_MS - 1);
+  it("re-checks on every call and surfaces a newly published version", async () => {
+    await useUpdate.getState().check();
     expect(useUpdate.getState().available).toBeNull();
 
-    // 간격 경과: 다시 확인해서 새 버전을 발견한다
-    const t1 = t0 + UPDATE_RECHECK_INTERVAL_MS;
-    await useUpdate.getState().recheckIfStale(t1);
-    const s = useUpdate.getState();
-    expect(s.available).toBe("0.4.0");
-    expect(s.lastCheckedAt).toBe(t1);
-  });
-
-  it("recheckIfStale checks immediately when never checked before", async () => {
+    // 포커스 복귀 등으로 다시 확인하면 그 사이 올라온 새 버전을 발견한다
     mockSyncControl.updateAvailable = "0.4.0";
-    await useUpdate.getState().recheckIfStale(123);
+    await useUpdate.getState().check();
     const s = useUpdate.getState();
     expect(s.checked).toBe(true);
     expect(s.available).toBe("0.4.0");

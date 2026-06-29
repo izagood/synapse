@@ -1,4 +1,15 @@
 import type { FileNode } from "../../ipc/types";
+import { dirname } from "../../shared/pathUtils";
+
+/**
+ * +버튼/단축키로 새 항목을 만들 때 대상 폴더를 고른다.
+ * 현재 열린 파일(activePath)이 있으면 그 파일이 든 폴더, 없으면 워크스페이스 루트.
+ * 부모를 구할 수 없으면(구분자 없는 경로 등) 루트로 폴백한다.
+ */
+export function createTargetDir(activePath: string | null, root: string): string {
+  if (!activePath) return root;
+  return dirname(activePath) || root;
+}
 
 /**
  * 컨텍스트 메뉴가 뷰포트 밖으로 넘치지 않도록 좌표를 보정한다.

@@ -6,20 +6,23 @@ import { ContentPane } from "./ContentPane";
 import { QuickOpenModal } from "./QuickOpenModal";
 import { SearchModal } from "./SearchModal";
 import { ActivityBar } from "./ActivityBar";
+import { CreateMenu } from "./CreateMenu";
+import { createTargetDir } from "./fileTreeUtils";
 import { SyncBar } from "../sync/SyncBar";
-import { AgentPanel } from "../agent/AgentPanel";
+import { TerminalDock } from "../terminal/TerminalDock";
+import { useTerminal } from "../../stores/terminal";
 import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
 import { GlobeIcon, PlusIcon, RefreshIcon } from "../../shared/Icons";
 import { basename } from "../../shared/pathUtils";
+import { isShortcut } from "../../shared/shortcuts";
 import { useT } from "../../i18n";
 
 const SIDEBAR_DEFAULT = 260;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 520;
 const SIDEBAR_KEY = "synapse.sidebarWidth";
-const AGENT_PANEL_KEY = "synapse.agentPanelVisible";
 
 function loadSidebarWidth(): number {
   const saved = Number(localStorage.getItem(SIDEBAR_KEY));
@@ -31,6 +34,9 @@ export function WorkspaceView() {
   const error = useWorkspace((s) => s.error);
   const refreshTree = useWorkspace((s) => s.refreshTree);
   const createNote = useWorkspace((s) => s.createNote);
+  const createFolder = useWorkspace((s) => s.createFolder);
+  const createDrawing = useWorkspace((s) => s.createDrawing);
+  const createDrawioFile = useWorkspace((s) => s.createDrawioFile);
   const importHtmlAsNote = useWorkspace((s) => s.importHtmlAsNote);
   const saveActive = useWorkspace((s) => s.saveActive);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -38,18 +44,29 @@ export function WorkspaceView() {
   const [graph, setGraph] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const [agentVisible, setAgentVisible] = useState(
-    () => localStorage.getItem(AGENT_PANEL_KEY) === "1",
-  );
+  const terminalVisible = useTerminal((s) => s.visible);
+  const toggleTerminal = useTerminal((s) => s.toggle);
   const historyPath = useHistoryUi((s) => s.path);
   const closeHistory = useHistoryUi((s) => s.close);
   const dragging = useRef(false);
+  // + 버튼에서 여는 "새로 만들기" 메뉴의 기준 좌표 (null이면 닫힘)
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null);
   const t = useT();
 
-  const toggleAgent = useCallback(() => {
-    setAgentVisible((v) => {
-      localStorage.setItem(AGENT_PANEL_KEY, v ? "0" : "1");
-      return !v;
+  // 새 항목을 만들 대상 폴더: 현재 열린 파일이 든 폴더, 없으면 루트.
+  // store에서 직접 읽어 키다운/클릭 시점의 최신 선택을 반영한다.
+  const targetDir = useCallback(() => {
+    const { activePath, root: r } = useWorkspace.getState();
+    return createTargetDir(activePath, r ?? "");
+  }, []);
+
+  // + 버튼 클릭 → 버튼 바로 아래에 메뉴를 띄운다(다시 누르면 토글로 닫힘)
+  const toggleCreateMenu = useCallback(() => {
+    setCreateMenu((cur) => {
+      if (cur) return null;
+      const r = plusBtnRef.current?.getBoundingClientRect();
+      return r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 };
     });
   }, []);
 
@@ -59,35 +76,60 @@ export function WorkspaceView() {
     if (html && html.trim()) await importHtmlAsNote(html);
   }, [importHtmlAsNote]);
 
-  // Ctrl/Cmd+S 저장 · Ctrl/Cmd+P 빠른 열기 · Ctrl/Cmd+B 사이드바 (VS Code)
-  // Ctrl/Cmd+Shift+A Claude 패널
+  // 워크스페이스 단축키 (VS Code 관례) — 정의는 shared/shortcuts 단일 출처
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const key = e.key.toLowerCase();
-      if (e.shiftKey && key === "a") {
-        e.preventDefault();
-        toggleAgent();
-      } else if (e.shiftKey && key === "g") {
+      if (isShortcut(e, "view.graph")) {
         e.preventDefault();
         setGraph((v) => !v);
-      } else if (e.shiftKey && key === "f") {
+      } else if (isShortcut(e, "nav.search")) {
         e.preventDefault();
         setSearch((v) => !v);
-      } else if (key === "s") {
+      } else if (isShortcut(e, "file.newNote")) {
+        e.preventDefault();
+        void createNote(targetDir());
+      } else if (isShortcut(e, "file.newDrawing")) {
+        e.preventDefault();
+        void createDrawing(targetDir());
+      } else if (isShortcut(e, "file.newDiagram")) {
+        e.preventDefault();
+        void createDrawioFile(targetDir());
+      } else if (isShortcut(e, "file.save")) {
         e.preventDefault();
         void saveActive();
-      } else if (key === "p") {
+      } else if (isShortcut(e, "nav.quickOpen")) {
         e.preventDefault();
         setQuickOpen((v) => !v);
-      } else if (key === "b") {
+      } else if (isShortcut(e, "view.toggleSidebar")) {
         e.preventDefault();
         setSidebarVisible((v) => !v);
+      } else if (isShortcut(e, "view.toggleTerminal")) {
+        e.preventDefault();
+        toggleTerminal();
+      } else if (isShortcut(e, "tab.close")) {
+        // 포커스가 터미널 도크 안이면 노트가 아니라 활성 터미널을 닫는다(VS Code 동작).
+        const term = useTerminal.getState();
+        if (
+          term.visible &&
+          term.activeId &&
+          document.activeElement?.closest(".terminal-dock")
+        ) {
+          e.preventDefault();
+          term.closeTerminal(term.activeId);
+          return;
+        }
+        // 그 외에는 현재 노트 탭을 닫는다. 탭이 없으면 가로채지 않고 OS 기본
+        // 동작(창/앱 닫기)에 맡겨, 마지막 노트까지 닫혔을 때만 앱이 닫힌다.
+        const { activePath, closeTab } = useWorkspace.getState();
+        if (activePath) {
+          e.preventDefault();
+          void closeTab(activePath);
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive, toggleAgent]);
+  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir, toggleTerminal]);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -138,8 +180,8 @@ export function WorkspaceView() {
           onQuickOpen={() => setQuickOpen(true)}
           onSearch={() => setSearch(true)}
           onGraph={() => setGraph(true)}
-          agentVisible={agentVisible}
-          onToggleAgent={toggleAgent}
+          terminalVisible={terminalVisible}
+          onToggleTerminal={toggleTerminal}
         />
         {sidebarVisible && (
           <>
@@ -149,7 +191,11 @@ export function WorkspaceView() {
                   {folderName}
                 </span>
                 <span className="sidebar-actions">
-                  <button onClick={() => void createNote()} title={t("workspace.newNote")}>
+                  <button
+                    ref={plusBtnRef}
+                    onClick={toggleCreateMenu}
+                    title={t("workspace.newItem")}
+                  >
                     <PlusIcon size={15} />
                   </button>
                   <button
@@ -180,8 +226,9 @@ export function WorkspaceView() {
           <div className="content-pane">
             <ContentPane />
           </div>
+          {/* 항상 마운트(터미널 있으면). 숨김은 Dock 내부에서 CSS로 처리 → 토글해도 세션 유지 */}
+          <TerminalDock />
         </main>
-        {agentVisible && <AgentPanel onClose={toggleAgent} />}
       </div>
       <SyncBar />
       {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
@@ -189,6 +236,16 @@ export function WorkspaceView() {
       {graph && <GraphView onClose={() => setGraph(false)} />}
       {historyPath && (
         <FileHistoryModal key={historyPath} path={historyPath} onClose={closeHistory} />
+      )}
+      {createMenu && (
+        <CreateMenu
+          anchor={createMenu}
+          onNote={() => void createNote(targetDir())}
+          onFolder={() => void createFolder(targetDir())}
+          onDrawing={() => void createDrawing(targetDir())}
+          onDiagram={() => void createDrawioFile(targetDir())}
+          onClose={() => setCreateMenu(null)}
+        />
       )}
     </div>
   );

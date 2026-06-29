@@ -5,7 +5,7 @@ import { MarkdownEditor, SourceEditor } from "../editor/MarkdownEditor";
 import { HtmlViewer } from "../html-viewer/HtmlViewer";
 import { PdfViewer } from "../pdf-viewer/PdfViewer";
 import { ImageViewer } from "../image-viewer/ImageViewer";
-import { DrawioPane } from "../drawio-viewer/DrawioPane";
+import { DrawioEditor } from "../drawio/DrawioEditor";
 import { BacklinksPanel } from "./BacklinksPanel";
 
 // Excalidraw 번들은 무거우므로(수 MB) 드로잉을 열 때만 동적으로 불러온다.
@@ -71,7 +71,8 @@ export function ContentPane() {
   }
 
   if (tab?.fileType === "drawio" && !sourceMode) {
-    return <DrawioPane key={activePath} path={activePath} />;
+    // externalRev를 key에 넣어 외부 변경(원격 머지 등) 시에만 시드를 새로 읽는다.
+    return <DrawioEditor key={`${activePath}:${doc.externalRev}`} path={activePath} />;
   }
 
   if (tab?.fileType === "excalidraw") {

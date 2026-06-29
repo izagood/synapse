@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, fileTypeOf, stripExt, toRelativePath } from "./pathUtils";
+import { basename, dirname, fileTypeOf, stripExt, toRelativePath } from "./pathUtils";
 
 describe("fileTypeOf", () => {
   it("마크다운 확장자를 분류한다", () => {
@@ -48,6 +48,19 @@ describe("basename", () => {
   });
   it("빈 마지막 구성요소면 원본을 돌려준다", () => {
     expect(basename("/a/b/")).toBe("/a/b/");
+  });
+});
+
+describe("dirname", () => {
+  it("부모 디렉터리를 돌려준다", () => {
+    expect(dirname("/a/b/c.pdf")).toBe("/a/b");
+    expect(dirname("ssh://h/x/y.pdf")).toBe("ssh://h/x");
+  });
+  it("백슬래시도 인식한다", () => {
+    expect(dirname("a\\b\\c.pdf")).toBe("a\\b");
+  });
+  it("구분자가 없으면 빈 문자열", () => {
+    expect(dirname("c.pdf")).toBe("");
   });
 });
 

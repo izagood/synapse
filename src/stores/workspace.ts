@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { ipc, parseRemoteConnectError } from "../ipc/ipc";
-import type { FileNode, FileType, RemoteConnectError } from "../ipc/types";
-import { ancestorDirsOf } from "../features/workspace/fileTreeUtils";
+import type { FileNode, FileType, LiveStatePayload, RemoteConnectError } from "../ipc/types";
+import { ancestorDirsOf, findNode } from "../features/workspace/fileTreeUtils";
+import { isRedundantOrInvalidMove } from "../features/workspace/dndUtils";
 import { basename, fileTypeOf } from "../shared/pathUtils";
+import { arrayBufferToBase64 } from "../shared/binary";
 import { useSettings } from "./settings";
 import { htmlToMarkdown } from "../features/html/htmlToMarkdown";
 import {
@@ -11,6 +13,7 @@ import {
   titleFromPath,
 } from "../features/html/markdownToHtml";
 import { emptySceneJson } from "../features/excalidraw/scene";
+import { emptyDrawioXml } from "../features/drawio/drawioEmbed";
 
 export interface TabInfo {
   path: string;
@@ -54,6 +57,13 @@ interface WorkspaceState {
   activePath: string | null;
   docs: Record<string, DocState>;
   sourceMode: boolean;
+  /**
+   * 활성 파일이 바뀔 때 에디터가 자동으로 포커스를 가져갈지.
+   * 사이드바 트리에서 파일을 "선택"할 때는 false로 두어 포커스를 트리 행에
+   * 유지한다(그래야 Enter로 인라인 이름 변경 진입이 동작). 새 노트 생성·퀵오픈·
+   * 내부 링크 등 "바로 편집"이 자연스러운 경로에서는 true.
+   */
+  autoFocusEditor: boolean;
   /** 트리에서 펼쳐진 디렉터리 절대 경로 집합 */
   expandedDirs: Record<string, true>;
 
@@ -73,10 +83,32 @@ interface WorkspaceState {
       acceptNewHostKey?: boolean;
     },
   ): Promise<RemoteConnectError | null>;
+  /**
+   * `ssh ...` 명령어를 파싱·접속만 한다(워크스페이스 루트는 바꾸지 않는다).
+   * 성공하면 해소된 원격 홈 URI(`{ home }`)를 돌려줘 디렉토리 브라우저의
+   * 시작점으로 쓴다. 실패는 분류된 오류(호스트키/비밀번호/일반)를 돌려준다.
+   * 폴더를 고른 뒤 캐시된 세션으로 `openFolder(uri)`를 부르면 재접속 없이 열린다.
+   */
+  connectRemoteSession(
+    command: string,
+    opts: {
+      password?: string | null;
+      passphrase?: string | null;
+      acceptNewHostKey?: boolean;
+    },
+  ): Promise<{ home: string } | RemoteConnectError>;
   refreshTree(): Promise<void>;
   closeWorkspace(): void;
 
-  openFile(node: Pick<FileNode, "path" | "name" | "kind" | "fileType">): Promise<void>;
+  /**
+   * 파일을 탭으로 연다. `opts.focusEditor`가 false면 에디터가 자동 포커스를
+   * 가져가지 않는다(사이드바에서 선택만 하고 포커스를 트리에 유지하는 경우).
+   * 기본값은 true.
+   */
+  openFile(
+    node: Pick<FileNode, "path" | "name" | "kind" | "fileType">,
+    opts?: { focusEditor?: boolean },
+  ): Promise<void>;
   /**
    * 절대 경로로 트리에서 파일을 찾아 연다 (노트 내 내부 링크 이동용).
    * 확장자가 없으면 `.md`를 붙여 재시도. 트리에 없으면 false.
@@ -98,6 +130,10 @@ interface WorkspaceState {
   createNote(dir?: string): Promise<void>;
   /** dir 안에 빈 `.excalidraw` 드로잉을 만들어 연다 */
   createDrawing(dir?: string): Promise<void>;
+  /** dir 안에 빈 `.drawio` 다이어그램을 만들어 연다 */
+  createDrawioFile(dir?: string): Promise<void>;
+  /** dir 안에 "새 폴더" 계열의 빈 폴더를 만들고 그 경로를 반환(에디터로 열지 않음) */
+  createFolder(dir?: string): Promise<string | undefined>;
   /**
    * HTML 텍스트(AI 산출물 등)를 정화·변환해 새 마크다운 노트로 가져온다 (FR-3.4).
    * 생성된 노트를 열고, 생성 경로를 반환한다.
@@ -120,6 +156,13 @@ interface WorkspaceState {
   renameEntry(node: Pick<FileNode, "path" | "kind">, newName: string): Promise<void>;
   deleteEntry(node: Pick<FileNode, "path" | "kind">): Promise<void>;
   duplicateEntry(node: Pick<FileNode, "path">): Promise<void>;
+  /** 트리 내부 드래그앤드롭: srcPath의 파일/폴더를 destDir 폴더로 옮긴다 */
+  moveEntry(srcPath: string, destDir: string): Promise<void>;
+  /**
+   * 외부(Finder/탐색기) 파일들을 destDir 폴더로 복사해 가져온다 (드래그앤드롭).
+   * 디렉터리는 호출 전에 걸러내야 한다(파일 단위로만 가져온다).
+   */
+  importExternalFiles(destDir: string, files: ArrayLike<File>): Promise<void>;
 }
 
 
@@ -134,6 +177,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   activePath: null,
   docs: {},
   sourceMode: false,
+  autoFocusEditor: true,
   expandedDirs: {},
 
   async init() {
@@ -217,6 +261,26 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  async connectRemoteSession(command, opts) {
+    set({ loading: true, error: null });
+    try {
+      // 1) 명령어 → 접속 대상(별칭 해소). 2) 접속만 하고 루트는 그대로 둔다.
+      const target = await ipc.parseSshCommand(command);
+      const conn = await ipc.connectRemote(
+        target.uri,
+        target.keyPath,
+        opts.password ?? null,
+        opts.passphrase ?? null,
+        opts.acceptNewHostKey ?? false,
+      );
+      set({ loading: false });
+      return { home: conn.root };
+    } catch (e) {
+      set({ loading: false });
+      return parseRemoteConnectError(e);
+    }
+  },
+
   async refreshTree() {
     const { root } = get();
     if (!root) return;
@@ -242,9 +306,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     });
   },
 
-  async openFile(node) {
+  async openFile(node, opts) {
     const { root, tabs, docs } = get();
     if (!root || node.kind !== "file") return;
+
+    // 에디터 자동 포커스 여부는 활성 파일을 바꾸기 전에 정해 둔다(리마운트 시
+    // 에디터가 이 값을 읽음). 기본은 true, 사이드바 "선택"만 false.
+    set({ autoFocusEditor: opts?.focusEditor ?? true });
 
     // fileType은 항상 파일명으로 재계산한다. 세션 복원(restoreSession)은 디스크에
     // 저장된 옛 fileType을 넘기는데, 구버전에서 저장된 .png/.pdf 탭은 "other"로
@@ -314,7 +382,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   setActiveTab(path) {
-    set({ activePath: path });
+    // 탭을 직접 고르는 건 "이 문서를 편집하겠다"는 의도 → 에디터에 포커스.
+    set({ activePath: path, autoFocusEditor: true });
   },
 
   async closeTab(path) {
@@ -498,11 +567,26 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  async createFolder(dir) {
+    const { root } = get();
+    if (!root) return undefined;
+    try {
+      const path = await ipc.createFolder(root, dir ?? root);
+      await get().refreshTree();
+      // 부모 폴더를 펼쳐 새 폴더가 트리에 보이게 한다
+      get().revealPath(path);
+      return path;
+    } catch (e) {
+      set({ error: String(e) });
+      return undefined;
+    }
+  },
+
   async createDrawing(dir) {
     const { root, tree } = get();
     if (!root || !tree) return;
     try {
-      const path = uniqueDrawingPath(dir ?? root, collectFilePaths(tree));
+      const path = uniqueFilePath(dir ?? root, collectFilePaths(tree), "드로잉", "excalidraw");
       await ipc.writeFile(root, path, emptySceneJson());
       await get().refreshTree();
       await get().openFile({
@@ -510,6 +594,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         name: basename(path),
         kind: "file",
         fileType: "excalidraw",
+      });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async createDrawioFile(dir) {
+    const { root, tree } = get();
+    if (!root || !tree) return;
+    try {
+      const path = uniqueFilePath(dir ?? root, collectFilePaths(tree), "다이어그램", "drawio");
+      await ipc.writeFile(root, path, emptyDrawioXml());
+      await get().refreshTree();
+      await get().openFile({
+        path,
+        name: basename(path),
+        kind: "file",
+        fileType: "drawio",
       });
     } catch (e) {
       set({ error: String(e) });
@@ -663,6 +765,57 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       set({ error: String(e) });
     }
   },
+
+  async moveEntry(srcPath, destDir) {
+    const { root, tree } = get();
+    if (!root || !tree) return;
+    if (isRedundantOrInvalidMove(srcPath, destDir)) return;
+    const node = findNode(tree, srcPath);
+    if (!node) return;
+    try {
+      // 영향받는 열린 탭을 먼저 저장·정리한다 (자동 저장이 옛 경로에 쓰지 않게).
+      // 파일이면 옮긴 뒤 새 경로로 다시 연다 (renameEntry와 같은 동작).
+      const affected = get().tabs.filter(
+        (t) => t.path === srcPath || t.path.startsWith(`${srcPath}/`),
+      );
+      const reopen =
+        node.kind === "file" ? affected.find((t) => t.path === srcPath) : undefined;
+      for (const t of affected) {
+        await get().closeTab(t.path);
+      }
+      const newPath = await ipc.movePath(root, srcPath, destDir);
+      await get().refreshTree();
+      if (reopen) {
+        const name = basename(newPath);
+        await get().openFile({
+          path: newPath,
+          name,
+          kind: "file",
+          fileType: fileTypeOf(name),
+        });
+      }
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async importExternalFiles(destDir, files) {
+    const { root } = get();
+    if (!root) return;
+    let imported = 0;
+    for (const file of Array.from(files)) {
+      const name = basename(file.name);
+      if (!name || name === "." || name === "..") continue;
+      try {
+        const base64 = arrayBufferToBase64(await file.arrayBuffer());
+        await ipc.writeBinaryUnique(root, destDir, name, base64);
+        imported += 1;
+      } catch (e) {
+        set({ error: String(e) });
+      }
+    }
+    if (imported) await get().refreshTree();
+  },
 }));
 
 function collectFilePaths(tree: FileNode, into = new Set<string>()): Set<string> {
@@ -671,12 +824,15 @@ function collectFilePaths(tree: FileNode, into = new Set<string>()): Set<string>
   return into;
 }
 
-/** dir 안에서 겹치지 않는 `드로잉.excalidraw` 계열 경로를 고른다 (create_unique_note의 .excalidraw 판) */
-function uniqueDrawingPath(dir: string, existing: Set<string>): string {
-  const base = `${dir}/드로잉`;
-  let candidate = `${base}.excalidraw`;
+/**
+ * dir 안에서 겹치지 않는 `<baseName>.<ext>` 계열 경로를 고른다 — 이름이 이미 있으면
+ * `<baseName> 2.<ext>`, `<baseName> 3.<ext>` … 로 비켜 간다 (create_unique_note의 프론트 판).
+ */
+function uniqueFilePath(dir: string, existing: Set<string>, baseName: string, ext: string): string {
+  const base = `${dir}/${baseName}`;
+  let candidate = `${base}.${ext}`;
   for (let i = 2; existing.has(candidate); i++) {
-    candidate = `${base} ${i}.excalidraw`;
+    candidate = `${base} ${i}.${ext}`;
   }
   return candidate;
 }
@@ -725,4 +881,50 @@ useWorkspace.subscribe((s) => {
   persistTimer = setTimeout(() => {
     void ipc.setWorkspaceState(root, state).catch(() => undefined);
   }, SESSION_PERSIST_DELAY_MS);
+});
+
+// 활성 노트·열린 탭·저장 전 편집 버퍼가 바뀔 때마다 라이브 상태를 MCP 브리지에
+// 올린다. 외부 에이전트(claude/codex)가 "지금 보고 있는 노트"를 저장 전 내용까지
+// 받아갈 수 있게 한다. 동기 구간은 참조 비교만 하고(타이핑마다 전체 직렬화 방지),
+// 실제 직렬화·전송은 디바운스 발화 시점에만 한다.
+const BRIDGE_PUSH_DELAY_MS = 300;
+let bridgeTimer: ReturnType<typeof setTimeout> | undefined;
+let lastBridgeRoot: string | null = null;
+let lastBridgeActive: string | null = null;
+let lastBridgeTabs: TabInfo[] | null = null;
+let lastBridgeDoc: DocState | undefined;
+let bridgeInitialized = false;
+
+useWorkspace.subscribe((s) => {
+  const active = s.activePath;
+  const doc = active ? s.docs[active] : undefined;
+  // 참조만 비교 — content 변경 시 updateContent가 새 doc 객체를 만들므로 안전.
+  if (
+    bridgeInitialized &&
+    s.root === lastBridgeRoot &&
+    active === lastBridgeActive &&
+    s.tabs === lastBridgeTabs &&
+    doc === lastBridgeDoc
+  ) {
+    return;
+  }
+  bridgeInitialized = true;
+  lastBridgeRoot = s.root;
+  lastBridgeActive = active;
+  lastBridgeTabs = s.tabs;
+  lastBridgeDoc = doc;
+  if (bridgeTimer) clearTimeout(bridgeTimer);
+  bridgeTimer = setTimeout(() => {
+    const cur = useWorkspace.getState();
+    const a = cur.activePath;
+    const d = a ? cur.docs[a] : undefined;
+    const live: LiveStatePayload = {
+      root: cur.root,
+      activePath: a,
+      // 로딩 중이 아닌 텍스트 문서일 때만 라이브 버퍼를 싣는다(PDF/이미지 등은 null).
+      activeContent: d && !d.loading ? d.content : null,
+      openTabs: cur.tabs,
+    };
+    void ipc.bridgePushState(live).catch(() => undefined);
+  }, BRIDGE_PUSH_DELAY_MS);
 });

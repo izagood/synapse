@@ -16,6 +16,15 @@ cargo test                   # crates/synapse-core 에서 실행
 cargo check                  # src-tauri 에서 실행
 ```
 
+UI(임베드 뷰어/에디터 등 jsdom 으로 못 잡는 영역) 검증 환경 — `docs/UI-VERIFICATION.md`:
+
+```bash
+npm run ladle                # 컴포넌트 워크벤치(라이트/다크·픽스처로 보면서 개발)
+npm run e2e                  # 실제 앱 E2E + 시각 회귀 (chromium + webkit)
+npm run e2e:update           # 시각 스냅샷 기준선 (재)생성
+# 최초 1회: sudo npx playwright install-deps  (리눅스 브라우저 시스템 의존성)
+```
+
 ## 개발 컨벤션
 
 ### 1. 기능에는 테스트가 따라온다

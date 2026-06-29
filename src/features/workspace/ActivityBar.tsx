@@ -10,9 +10,10 @@ import {
   SearchIcon,
   SearchTextIcon,
   SidebarIcon,
-  SparkleIcon,
+  TerminalIcon,
 } from "../../shared/Icons";
 import { shortcutLabel } from "../../shared/platform";
+import { shortcutById } from "../../shared/shortcuts";
 import { useT } from "../../i18n";
 
 interface ActivityBarProps {
@@ -21,8 +22,8 @@ interface ActivityBarProps {
   onQuickOpen: () => void;
   onSearch: () => void;
   onGraph: () => void;
-  agentVisible: boolean;
-  onToggleAgent: () => void;
+  terminalVisible: boolean;
+  onToggleTerminal: () => void;
 }
 
 // VS Code 액티비티 바: 상단 내비게이션 / 하단 폴더·설정
@@ -32,18 +33,18 @@ export function ActivityBar({
   onQuickOpen,
   onSearch,
   onGraph,
-  agentVisible,
-  onToggleAgent,
+  terminalVisible,
+  onToggleTerminal,
 }: ActivityBarProps) {
   const openFolder = useWorkspace((s) => s.openFolder);
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
   const openSettings = useSettings((s) => s.openSettings);
-  const quickOpenShortcut = shortcutLabel(["Mod", "P"]);
-  const searchShortcut = shortcutLabel(["Shift", "Mod", "F"]);
-  const agentShortcut = shortcutLabel(["Shift", "Mod", "A"]);
-  const graphShortcut = shortcutLabel(["Shift", "Mod", "G"]);
-  const newWindowShortcut = shortcutLabel(["Shift", "Mod", "N"]);
-  const settingsShortcut = shortcutLabel(["Mod", ","]);
+  const quickOpenShortcut = shortcutLabel(shortcutById("nav.quickOpen").keys);
+  const searchShortcut = shortcutLabel(shortcutById("nav.search").keys);
+  const graphShortcut = shortcutLabel(shortcutById("view.graph").keys);
+  const terminalShortcut = shortcutLabel(shortcutById("view.toggleTerminal").keys);
+  const newWindowShortcut = shortcutLabel(shortcutById("window.new").keys);
+  const settingsShortcut = shortcutLabel(shortcutById("settings.toggle").keys);
   const t = useT();
 
   return (
@@ -66,11 +67,11 @@ export function ActivityBar({
           <GraphIcon size={18} />
         </button>
         <button
-          className={agentVisible ? "active" : ""}
-          onClick={onToggleAgent}
-          title={t("activity.agentPanel", { shortcut: agentShortcut })}
+          className={terminalVisible ? "active" : ""}
+          onClick={onToggleTerminal}
+          title={t("activity.terminal", { shortcut: terminalShortcut })}
         >
-          <SparkleIcon size={18} />
+          <TerminalIcon size={18} />
         </button>
       </div>
       <div className="activity-bottom">

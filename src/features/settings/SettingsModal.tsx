@@ -3,7 +3,17 @@ import { useSettings } from "../../stores/settings";
 import { useUpdate } from "../../stores/update";
 import { ipc } from "../../ipc/ipc";
 import { SUPPORTED_LOCALES, useT } from "../../i18n";
-import type { ConfigSyncStatus, Language } from "../../ipc/types";
+import { CUSTOM_COLOR_KEYS } from "../../ipc/types";
+import type {
+  CanvasTheme,
+  ConfigSyncStatus,
+  CustomColorKey,
+  Language,
+  ThemeSetting,
+} from "../../ipc/types";
+import { PRESET_PALETTES, effectiveBaseTheme } from "../theme/theme";
+import { shortcutLabel } from "../../shared/platform";
+import { shortcutById } from "../../shared/shortcuts";
 
 // 숫자 설정 입력: 지우는 동안 빈칸을 허용하고(즉시 기본값으로 되돌리지 않음),
 // 유효한 숫자만 커밋하며 포커스를 벗어날 때 범위를 보정한다
@@ -194,156 +204,91 @@ function ConfigSyncSection() {
   );
 }
 
-// 선택 가능한 모델 목록(빈 값=CLI 기본). datalist로 제안하되 자유 입력도 허용한다.
-const AGENT_MODELS = [
-  "claude-opus-4-5",
-  "claude-sonnet-4-5",
-  "claude-haiku-4-5",
-] as const;
 
-// Claude 에이전트 설정 (2-D): 인증 방식·모델·API 키. 키는 키체인에만 저장된다.
-function AgentSection() {
-  const t = useT();
+// 단일 전역 설정 화면 (FR-5.2) — 모든 항목이 이 한 곳에서 관리된다
+// 커스텀 색상 편집기 — 활성 테마 위에 개별 색을 덮어쓴다.
+// 컬러 피커 초기값은 선택한 테마의 기본 팔레트에서 가져온다.
+function ThemeColorEditor() {
   const settings = useSettings((s) => s.settings);
   const update = useSettings((s) => s.update);
-  const [hasKey, setHasKey] = useState(false);
-  const [keyInput, setKeyInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const t = useT();
 
-  useEffect(() => {
-    ipc.hasAgentApiKey().then(setHasKey).catch(() => setHasKey(false));
-  }, []);
+  const { theme, customColors } = settings.appearance;
+  const preset = PRESET_PALETTES[effectiveBaseTheme(theme)];
+  const hasOverrides = Object.keys(customColors).length > 0;
 
-  const saveKey = async () => {
-    if (!keyInput.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await ipc.setAgentApiKey(keyInput.trim());
-      setKeyInput("");
-      setHasKey(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const setColor = (key: CustomColorKey, value: string) =>
+    void update({
+      appearance: {
+        ...settings.appearance,
+        customColors: { ...customColors, [key]: value },
+      },
+    });
 
-  const clearKey = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await ipc.clearAgentApiKey();
-      setHasKey(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const apiKeyMode = settings.agent.authMode === "apiKey";
+  const reset = () =>
+    void update({
+      appearance: { ...settings.appearance, customColors: {} },
+    });
 
   return (
-    <section>
-      <h3>{t("settings.agent")}</h3>
-      <label className="setting-row">
-        <span>{t("settings.agentAuthMode")}</span>
-        <select
-          value={settings.agent.authMode}
-          onChange={(e) =>
-            void update({
-              agent: {
-                ...settings.agent,
-                authMode: e.target.value as "subscription" | "apiKey",
-              },
-            })
-          }
-        >
-          <option value="subscription">{t("settings.agentAuthSubscription")}</option>
-          <option value="apiKey">{t("settings.agentAuthApiKey")}</option>
-        </select>
-      </label>
-      <p className="setting-hint">{t("settings.agentAuthHint")}</p>
-
-      {apiKeyMode && (
-        <>
-          <label className="setting-row">
-            <span>
-              {t("settings.agentApiKey")} ·{" "}
-              {hasKey ? t("settings.agentApiKeySet") : t("settings.agentApiKeyNotSet")}
-            </span>
-            <span className="setting-actions">
-              <input
-                type="password"
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-                placeholder={t("settings.agentApiKeyPlaceholder")}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <button
-                className="setting-action-btn"
-                disabled={busy || !keyInput.trim()}
-                onClick={() => void saveKey()}
-              >
-                {t("settings.agentApiKeySave")}
-              </button>
-              {hasKey && (
-                <button
-                  className="setting-action-btn"
-                  disabled={busy}
-                  onClick={() => void clearKey()}
-                >
-                  {t("settings.agentApiKeyClear")}
-                </button>
-              )}
-            </span>
+    <>
+      <div className="custom-colors-head">
+        <span>{t("settings.customColors")}</span>
+        <button className="custom-colors-reset" disabled={!hasOverrides} onClick={reset}>
+          {t("settings.resetColors")}
+        </button>
+      </div>
+      <p className="setting-hint">{t("settings.customColorsHint")}</p>
+      <div className="color-grid">
+        {CUSTOM_COLOR_KEYS.map((key) => (
+          <label
+            key={key}
+            className={customColors[key] != null ? "color-row overridden" : "color-row"}
+          >
+            <input
+              type="color"
+              value={customColors[key] ?? preset[key]}
+              onChange={(e) => setColor(key, e.target.value)}
+            />
+            <span>{t(`settings.color.${key}`)}</span>
           </label>
-          <p className="setting-hint">{t("settings.agentApiKeyStored")}</p>
-          {!hasKey && (
-            <p className="setting-warning error">{t("settings.agentApiKeyMissing")}</p>
-          )}
-          {error && <p className="setting-warning error">{error}</p>}
-        </>
-      )}
-
-      <label className="setting-row">
-        <span>{t("settings.agentModel")}</span>
-        <input
-          list="synapse-agent-models"
-          value={settings.agent.model}
-          onChange={(e) =>
-            void update({ agent: { ...settings.agent, model: e.target.value } })
-          }
-          placeholder={t("settings.agentModelDefault")}
-          spellCheck={false}
-        />
-      </label>
-      <datalist id="synapse-agent-models">
-        {AGENT_MODELS.map((m) => (
-          <option key={m} value={m} />
         ))}
-      </datalist>
-    </section>
+      </div>
+    </>
   );
 }
 
-// 단일 전역 설정 화면 (FR-5.2) — 모든 항목이 이 한 곳에서 관리된다
 export function SettingsModal() {
   const show = useSettings((s) => s.showSettings);
   const settings = useSettings((s) => s.settings);
   const update = useSettings((s) => s.update);
   const closeSettings = useSettings((s) => s.closeSettings);
+  const openShortcuts = useSettings((s) => s.openShortcuts);
   const t = useT();
 
   if (!show) return null;
+
+  // 치트시트를 여는 단축키(⌘/)를 라벨로 함께 보여줘 단축키 자체도 발견할 수 있게 한다
+  const cheatsheetLabel = shortcutLabel(shortcutById("help.cheatsheet").keys);
+  const openCheatsheet = () => {
+    closeSettings();
+    openShortcuts();
+  };
 
   return (
     <div className="modal-backdrop" onClick={closeSettings}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <h2>{t("settings.title")}</h2>
+
+        <section>
+          <h3>{t("shortcuts.title")}</h3>
+          <div className="setting-row">
+            <span>{t("settings.shortcutsHint")}</span>
+            <button className="setting-action-btn" onClick={openCheatsheet}>
+              {t("settings.viewShortcuts", { shortcut: cheatsheetLabel })}
+            </button>
+          </div>
+        </section>
 
         <section>
           <h3>{t("settings.appearance")}</h3>
@@ -355,12 +300,31 @@ export function SettingsModal() {
                 void update({
                   appearance: {
                     ...settings.appearance,
-                    theme: e.target.value as "system" | "light" | "dark",
+                    theme: e.target.value as ThemeSetting,
                   },
                 })
               }
             >
               <option value="system">{t("settings.themeSystem")}</option>
+              <option value="light">{t("settings.themeLight")}</option>
+              <option value="dark">{t("settings.themeDark")}</option>
+              <option value="pink">{t("settings.themePink")}</option>
+            </select>
+          </label>
+          <label className="setting-row">
+            <span>{t("settings.canvasTheme")}</span>
+            <select
+              value={settings.appearance.canvasTheme}
+              onChange={(e) =>
+                void update({
+                  appearance: {
+                    ...settings.appearance,
+                    canvasTheme: e.target.value as CanvasTheme,
+                  },
+                })
+              }
+            >
+              <option value="auto">{t("settings.canvasThemeAuto")}</option>
               <option value="light">{t("settings.themeLight")}</option>
               <option value="dark">{t("settings.themeDark")}</option>
             </select>
@@ -385,6 +349,7 @@ export function SettingsModal() {
               ))}
             </select>
           </label>
+          <ThemeColorEditor />
         </section>
 
         <section>
@@ -512,8 +477,6 @@ export function SettingsModal() {
             </p>
           )}
         </section>
-
-        <AgentSection />
 
         <ConfigSyncSection />
 

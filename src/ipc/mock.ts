@@ -1,6 +1,4 @@
 import type {
-  AgentEvent,
-  AgentEventPayload,
   ConfigSyncStatus,
   ConflictPreview,
   FileCommit,
@@ -16,6 +14,8 @@ import type {
 import { DEFAULT_SETTINGS } from "./types";
 import { computeBacklinks, computeGraph } from "../features/editor/backlinks";
 import { basename, fileTypeOf } from "../shared/pathUtils";
+import { SAMPLE_DRAWIO_XML } from "../features/drawio/fixtures";
+import { SAMPLE_EXCALIDRAW_JSON } from "../features/excalidraw/fixtures";
 
 // 브라우저(tauri 밖) 개발용 인메모리 워크스페이스.
 // 파일 맵에서 트리를 파생시키므로 쓰기/생성도 실제처럼 동작한다.
@@ -26,8 +26,11 @@ const files = new Map<string, string>([
   [`${MOCK_ROOT}/daily/2026-06-10.md`, "---\ntitle: 데일리 노트\n---\n\n# 오늘 할 일\n\n- [ ] Synapse M1 마무리\n- [x] M0 완료"],
   [`${MOCK_ROOT}/ai/summary.html`, "<h1>AI 요약</h1><p>HTML 뷰어 데모 문서입니다.</p>"],
   [`${MOCK_ROOT}/assets/diagram.png`, ""],
+  [`${MOCK_ROOT}/diagrams/flow.drawio`, SAMPLE_DRAWIO_XML],
+  [`${MOCK_ROOT}/drawings/sketch.excalidraw`, SAMPLE_EXCALIDRAW_JSON],
 ]);
 
+const emptyDirs = new Set<string>();
 
 function buildMockTree(): FileNode {
   const root: FileNode = {
@@ -63,6 +66,10 @@ function buildMockTree(): FileNode {
       kind: "file",
       fileType: fileTypeOf(path),
     });
+  }
+
+  for (const dirPath of emptyDirs) {
+    ensureDir(dirPath);
   }
 
   const sortChildren = (node: FileNode) => {
@@ -184,6 +191,12 @@ function assertInside(root: string, path: string) {
   }
 }
 
+/** PDF 주석 사이드카의 숨김 경로(`.synapse/draw/<상대경로>.draw.json`). Rust 정책 미러. */
+function pdfDrawSidecar(root: string, pdfPath: string): string {
+  const rel = pdfPath.slice(root.length + 1); // "docs/report.pdf"
+  return `${root}/.synapse/draw/${rel}.draw.json`;
+}
+
 /** 파일 경로로부터 결정적인(매번 동일한) 그럴듯한 더미 커밋 히스토리를 만든다 */
 function mockFileHistory(path: string): FileCommit[] {
   // 경로 해시로 항목 수(2~4개)를 정해 파일마다 조금씩 다르게 보이게 한다
@@ -226,6 +239,12 @@ export const mockIpc: SynapseIpc = {
   async disconnectRemote() {
     // 브라우저 mock에서는 원격 세션이 없으므로 no-op
   },
+  async parseSshCommand() {
+    throw new Error("원격 연결은 데스크톱 앱에서만 가능합니다");
+  },
+  async listRemoteDir() {
+    throw new Error("원격 연결은 데스크톱 앱에서만 가능합니다");
+  },
   async listWorkspace(path) {
     if (path !== MOCK_ROOT) throw new Error(`not a directory: ${path}`);
     return buildMockTree();
@@ -245,6 +264,22 @@ export const mockIpc: SynapseIpc = {
   async writeFile(root, path, content) {
     assertInside(root, path);
     files.set(path, content);
+    sync.dirty = true;
+  },
+  async readPdfDraw(root, pdfPath) {
+    assertInside(root, pdfPath);
+    const sidecar = pdfDrawSidecar(root, pdfPath);
+    const fromNew = files.get(sidecar);
+    if (fromNew !== undefined) return fromNew;
+    const legacy = `${pdfPath}.draw.json`;
+    const fromLegacy = files.get(legacy);
+    if (fromLegacy !== undefined) return fromLegacy;
+    throw new Error(`no such file: ${sidecar}`);
+  },
+  async writePdfDraw(root, pdfPath, content) {
+    assertInside(root, pdfPath);
+    files.set(pdfDrawSidecar(root, pdfPath), content);
+    files.delete(`${pdfPath}.draw.json`); // 점진 이전: 레거시 사이드카 제거
     sync.dirty = true;
   },
   async saveDoc(root, path, content, _base) {
@@ -276,6 +311,21 @@ export const mockIpc: SynapseIpc = {
     }
     throw new Error("too many untitled notes");
   },
+  async createFolder(root, dir) {
+    assertInside(root, `${dir === root ? root : dir}/x`);
+    for (let i = 1; i < 1000; i++) {
+      const name = i === 1 ? "새 폴더" : `새 폴더 ${i}`;
+      const path = `${dir}/${name}`;
+      const taken =
+        [...files.keys()].some((k) => k.startsWith(`${path}/`)) ||
+        emptyDirs.has(path);
+      if (!taken) {
+        emptyDirs.add(path);
+        return path;
+      }
+    }
+    throw new Error("too many untitled folders");
+  },
   async backlinks(root, path) {
     void root;
     return computeBacklinks(MOCK_ROOT, path, files);
@@ -285,6 +335,20 @@ export const mockIpc: SynapseIpc = {
     return computeGraph(MOCK_ROOT, files);
   },
   async saveImage(root, dir, desiredName, base64) {
+    assertInside(root, `${dir}/x`);
+    const dotAt = desiredName.lastIndexOf(".");
+    const stem = dotAt > 0 ? desiredName.slice(0, dotAt) : desiredName;
+    const ext = dotAt > 0 ? desiredName.slice(dotAt) : "";
+    for (let i = 1; i < 1000; i++) {
+      const name = i === 1 ? desiredName : `${stem} ${i}${ext}`;
+      if (!files.has(`${dir}/${name}`)) {
+        files.set(`${dir}/${name}`, `base64:${base64.slice(0, 32)}`);
+        return name;
+      }
+    }
+    throw new Error("too many name collisions");
+  },
+  async writeBinaryUnique(root, dir, desiredName, base64) {
     assertInside(root, `${dir}/x`);
     const dotAt = desiredName.lastIndexOf(".");
     const stem = dotAt > 0 ? desiredName.slice(0, dotAt) : desiredName;
@@ -360,6 +424,39 @@ export const mockIpc: SynapseIpc = {
     }
     throw new Error("too many name collisions");
   },
+  async movePath(root, path, destDir) {
+    assertInside(root, path);
+    assertInside(root, `${destDir}/x`);
+    const name = basename(path);
+    const target = `${destDir}/${name}`;
+    if (destDir === path || destDir.startsWith(`${path}/`)) {
+      throw new Error("폴더를 자기 자신의 하위로 옮길 수 없습니다");
+    }
+    const parent = path.slice(0, path.lastIndexOf("/"));
+    if (parent === destDir) return target; // 이미 그 폴더에 있음 — 무동작
+    const isDir = !files.has(path);
+    if (files.has(target) || [...files.keys()].some((k) => k.startsWith(`${target}/`))) {
+      throw new Error(`이미 존재합니다: ${name}`);
+    }
+    if (isDir) {
+      for (const [k, v] of [...files]) {
+        if (k.startsWith(`${path}/`)) {
+          files.delete(k);
+          files.set(target + k.slice(path.length), v);
+        }
+      }
+    } else {
+      const content = files.get(path);
+      if (content === undefined) throw new Error(`no such file: ${path}`);
+      files.delete(path);
+      files.set(target, content);
+    }
+    return target;
+  },
+  async dragIconPath() {
+    // 브라우저/테스트 환경에선 네이티브 드래그가 없으므로 더미 경로
+    return "/mock/drag-icon.png";
+  },
   async revealPath(path) {
     // 브라우저/테스트 환경에선 OS 파일 매니저가 없으므로 no-op
     void path;
@@ -384,6 +481,23 @@ export const mockIpc: SynapseIpc = {
   },
   async setWorkspaceState(root, state) {
     session.states.set(root, structuredClone(state));
+  },
+  async bridgePushState() {
+    // 브라우저/테스트 환경에는 브리지 서버가 없으므로 no-op.
+  },
+
+  // 브라우저/테스트 환경에는 PTY가 없으므로 터미널은 no-op로 흉내만 낸다.
+  async ptyOpen() {
+    return "mock-pty";
+  },
+  async ptyWrite() {},
+  async ptyResize() {},
+  async ptyKill() {},
+  async onPtyData() {
+    return () => {};
+  },
+  async onPtyExit() {
+    return () => {};
   },
 
   // ---- GitHub / 동기화 시뮬레이션 ----
@@ -516,60 +630,11 @@ export const mockIpc: SynapseIpc = {
     return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   },
 
-  // ---- Claude 에이전트 시뮬레이션 ----
-  async agentStatus() {
-    return {
-      installed: agent.installed,
-      path: agent.installed ? "/mock/bin/claude" : null,
-    };
-  },
-  async agentSend(root, prompt, sessionId, runId) {
-    if (!agent.installed) throw new Error("claude CLI를 찾을 수 없습니다");
-    if (agent.running) throw new Error("이미 처리 중인 요청이 있습니다");
-    agent.lastSend = { root, prompt, sessionId, runId };
-    agent.running = true;
-    const events = agent.script ?? defaultAgentScript(prompt);
-    agent.script = null;
-    // 실제 CLI처럼 send가 끝난 뒤(다음 태스크에) 이벤트를 흘려보낸다
-    setTimeout(() => {
-      for (const event of events) {
-        if (!agent.running) return; // agentStop이 끊었다
-        deliverAgentEvent({ runId, event });
-        if (event.kind === "completed") agent.running = false;
-      }
-      agent.running = false;
-    }, 0);
-  },
-  async agentRespondPermission(requestId, allow) {
-    agent.permissionResponses.push({ requestId, allow });
-  },
-  async agentEditFile(root, path, newContent, _baseContent) {
-    void _baseContent;
-    assertInside(root, path);
-    // 브라우저 mock: CRDT 병합 없이 새 내용을 그대로 쓴다(테스트용 단순화)
-    files.set(path, newContent);
-    sync.dirty = true;
-    return newContent;
-  },
-  async agentStop() {
-    if (!agent.running || !agent.lastSend) return;
-    agent.running = false;
-    deliverAgentEvent({ runId: agent.lastSend.runId, event: { kind: "aborted" } });
-  },
-  async onAgentEvent(handler) {
-    agent.listeners.add(handler);
-    return () => agent.listeners.delete(handler);
-  },
-
-  async setAgentApiKey(key) {
-    if (!key.trim()) throw new Error("API 키가 비어 있습니다");
-    agent.apiKey = key.trim();
-  },
-  async clearAgentApiKey() {
-    agent.apiKey = null;
-  },
-  async hasAgentApiKey() {
-    return agent.apiKey !== null;
+  // 브라우저/테스트 환경에는 OS 워처가 없으므로 무동작 (수동 새로고침만)
+  async startWatching() {},
+  async stopWatching() {},
+  async onFilesChanged() {
+    return () => {};
   },
 
   async appVersion() {
@@ -616,40 +681,3 @@ function currentSyncStatus(): SyncStatus {
 /** 테스트 전용: mock 동기화 상태 제어 */
 export const mockSyncControl = sync;
 
-const agent = {
-  installed: true,
-  /** 다음 agentSend가 흘려보낼 이벤트. null이면 기본 스크립트 사용 */
-  script: null as AgentEvent[] | null,
-  listeners: new Set<(p: AgentEventPayload) => void>(),
-  lastSend: null as
-    | { root: string; prompt: string; sessionId: string | null; runId: string }
-    | null,
-  running: false,
-  /** 키체인 시뮬레이션: 저장된 Anthropic API 키 (null=없음) */
-  apiKey: null as string | null,
-  /** 테스트 전용: 회신된 권한 결정 기록 */
-  permissionResponses: [] as { requestId: string; allow: boolean }[],
-};
-
-function deliverAgentEvent(payload: AgentEventPayload) {
-  for (const listener of [...agent.listeners]) listener(payload);
-}
-
-function defaultAgentScript(prompt: string): AgentEvent[] {
-  const text = `mock 응답: ${prompt}`;
-  return [
-    { kind: "started", sessionId: "mock-session", model: "claude-mock" },
-    { kind: "text", text },
-    {
-      kind: "completed",
-      ok: true,
-      result: text,
-      sessionId: "mock-session",
-      costUsd: 0,
-      numTurns: 1,
-    },
-  ];
-}
-
-/** 테스트 전용: mock 에이전트 상태 제어 */
-export const mockAgentControl = agent;

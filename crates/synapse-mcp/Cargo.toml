@@ -1,0 +1,23 @@
+[package]
+name = "synapse-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "Synapse MCP server — exposes the currently-viewed note and workspace to external agents (claude/codex) over MCP stdio"
+authors = ["Jaebin Lee"]
+license = "Apache-2.0"
+repository = "https://github.com/izagood/synapse"
+
+[[bin]]
+name = "synapse-mcp"
+path = "src/main.rs"
+
+[dependencies]
+synapse-core = { path = "../synapse-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 앱 측 loopback 브리지(127.0.0.1)에 질의하는 HTTP 클라이언트.
+# synapse-core와 동일한 기능 세트로 맞춰 중복 빌드를 피한다.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+
+[dev-dependencies]
+tempfile = "3"

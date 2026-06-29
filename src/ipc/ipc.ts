@@ -8,17 +8,19 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { mockIpc } from "./mock";
 import type {
-  AgentEventPayload,
-  AgentStatus,
   ConfigSyncStatus,
   ConflictPreview,
   Backlink,
+  FilesChangedPayload,
   LinkGraph,
   DeviceCode,
   FileCommit,
   FileNode,
+  ParsedRemoteTarget,
   PollResult,
+  PtyDataPayload,
   RemoteConnection,
+  RemoteDirEntry,
   RetrievalResult,
   SearchHit,
   Settings,
@@ -49,6 +51,9 @@ const tauriIpc: SynapseIpc = {
       acceptNewHostKey,
     }),
   disconnectRemote: (uri) => invoke<void>("disconnect_remote", { uri }),
+  parseSshCommand: (command) =>
+    invoke<ParsedRemoteTarget>("parse_ssh_command", { command }),
+  listRemoteDir: (uri) => invoke<RemoteDirEntry[]>("list_remote_dir", { uri }),
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
   searchWorkspace: (root, query) =>
     invoke<SearchHit[]>("search_workspace", { root, query }),
@@ -57,18 +62,28 @@ const tauriIpc: SynapseIpc = {
   readFile: (root, path) => invoke<string>("read_file", { root, path }),
   writeFile: (root, path, content) =>
     invoke<void>("write_file", { root, path, content }),
+  readPdfDraw: (root, pdfPath) =>
+    invoke<string>("read_pdf_draw", { root, pdfPath }),
+  writePdfDraw: (root, pdfPath, content) =>
+    invoke<void>("write_pdf_draw", { root, pdfPath, content }),
   saveDoc: (root, path, content, base) =>
     invoke<string>("save_doc", { root, path, content, base }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
+  createFolder: (root, dir) => invoke<string>("create_folder", { root, dir }),
   backlinks: (root, path) => invoke<Backlink[]>("backlinks", { root, path }),
   linkGraph: (root) => invoke<LinkGraph>("link_graph", { root }),
   saveImage: (root, dir, desiredName, base64) =>
     invoke<string>("save_image", { root, dir, desiredName, dataBase64: base64 }),
+  writeBinaryUnique: (root, dir, desiredName, base64) =>
+    invoke<string>("write_binary_unique", { root, dir, desiredName, dataBase64: base64 }),
   newWindow: () => invoke<void>("new_window"),
   renamePath: (root, path, newName) =>
     invoke<string>("rename_path", { root, path, newName }),
   deletePath: (root, path) => invoke<void>("delete_path", { root, path }),
   duplicatePath: (root, path) => invoke<string>("duplicate_path", { root, path }),
+  movePath: (root, path, destDir) =>
+    invoke<string>("move_path", { root, path, destDir }),
+  dragIconPath: () => invoke<string>("drag_icon_path"),
   revealPath: (path) => revealItemInDir(path),
   recentWorkspaces: () => invoke<string[]>("recent_workspaces"),
   recordWorkspaceOpened: (path) =>
@@ -83,6 +98,27 @@ const tauriIpc: SynapseIpc = {
   },
   setWorkspaceState: (root, state) =>
     invoke<void>("set_workspace_state", { path: root, state }),
+
+  bridgePushState: (live) =>
+    invoke<void>("bridge_push_state", {
+      windowLabel: getCurrentWindow().label,
+      live,
+    }),
+
+  ptyOpen: (root, cols, rows) =>
+    invoke<string>("pty_open", {
+      windowLabel: getCurrentWindow().label,
+      root,
+      shell: null,
+      cols,
+      rows,
+    }),
+  ptyWrite: (id, data) => invoke<void>("pty_write", { id, data }),
+  ptyResize: (id, cols, rows) => invoke<void>("pty_resize", { id, cols, rows }),
+  ptyKill: (id) => invoke<void>("pty_kill", { id }),
+  onPtyData: (handler) =>
+    listen<PtyDataPayload>("pty:data", (e) => handler(e.payload)),
+  onPtyExit: (handler) => listen<string>("pty:exit", (e) => handler(e.payload)),
 
   githubLoginStart: () => invoke<DeviceCode>("github_login_start"),
   githubLoginPoll: () => invoke<PollResult>("github_login_poll"),
@@ -127,20 +163,12 @@ const tauriIpc: SynapseIpc = {
     return convertFileSrc(path);
   },
 
-  agentStatus: () => invoke<AgentStatus>("agent_status"),
-  agentSend: (root, prompt, sessionId, runId) =>
-    invoke<void>("agent_send", { root, prompt, sessionId, runId }),
-  agentRespondPermission: (requestId, allow) =>
-    invoke<void>("agent_respond_permission", { requestId, allow }),
-  agentEditFile: (root, path, newContent, baseContent) =>
-    invoke<string>("agent_edit_file", { root, path, newContent, baseContent }),
-  agentStop: () => invoke<void>("agent_stop"),
-  onAgentEvent: (handler) =>
-    listen<AgentEventPayload>("agent:event", (e) => handler(e.payload)),
-
-  setAgentApiKey: (key) => invoke<void>("set_agent_api_key", { key }),
-  clearAgentApiKey: () => invoke<void>("clear_agent_api_key"),
-  hasAgentApiKey: () => invoke<boolean>("has_agent_api_key"),
+  startWatching: (root) => invoke<void>("start_watching", { root }),
+  stopWatching: () => invoke<void>("stop_watching"),
+  onFilesChanged: (handler) =>
+    listen<FilesChangedPayload>("workspace:files-changed", (e) =>
+      handler(e.payload),
+    ),
 
   appVersion: () => getVersion(),
   async checkUpdate() {
