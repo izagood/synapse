@@ -72,6 +72,8 @@ export function TerminalDock() {
 
   const onHandleDown = useCallback(
     (e: React.PointerEvent) => {
+      // 드래그 시작 시 텍스트 선택을 막는다(CSS user-select와 함께 2차 방어).
+      e.preventDefault();
       drag.current = { startY: e.clientY, startH: heightPx };
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       document.body.classList.add("resizing-sidebar");
