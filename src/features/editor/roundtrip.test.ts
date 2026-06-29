@@ -66,6 +66,21 @@ const CASES: Record<string, { input: string; mustContain: string[] }> = {
     input: "![diagram](image-mbz3k1-x4f2a.png)",
     mustContain: ["![diagram](image-mbz3k1-x4f2a.png)"],
   },
+  // 회귀(2026-06-29 meeting): 외부 머지 적용 경로(setContent)가 다중 섹션 문서를
+  // 무손실로 반영해야 한다. 라이브 버퍼 붕괴 시 상단 섹션이 사라졌었다.
+  meetingMultiSection: {
+    input:
+      "# | DevOps Union |\n\n- DevOps Union\n  - <https://app.notion.com/p/x>\n\n" +
+      "# | RCNS 인프라 리소스 |\n\n- 인프라 리소스\n  - atom-max\n\n" +
+      "# | Cloud Infra |\n\n- [Cloud SDK](https://example.com/sdk)\n\n" +
+      "# | Cloud 데일리 |\n\n- [Cloud Jira](https://example.com/jira)",
+    mustContain: [
+      "# | DevOps Union |",
+      "# | RCNS 인프라 리소스 |",
+      "# | Cloud Infra |",
+      "# | Cloud 데일리 |",
+    ],
+  },
 };
 
 describe("markdown roundtrip (tiptap-markdown)", () => {

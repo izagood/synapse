@@ -10,6 +10,7 @@ import { FrontmatterPanel } from "./FrontmatterPanel";
 import { FindBar } from "./FindBar";
 import { useT } from "../../i18n";
 import { hasRoundtripContentLoss } from "./roundtripSafety";
+import { deferUntilCompositionEnd } from "./deferUntilCompositionEnd";
 
 // 활성 마크다운 문서의 WYSIWYG 에디터.
 // 탭 전환/모드 전환 시 key로 리마운트되어 항상 store의 content에서 출발한다.
@@ -151,21 +152,38 @@ export function MarkdownEditor({ path }: { path: string }) {
   const appliedRev = useRef(externalRev);
   useEffect(() => {
     if (!editor || editor.isDestroyed || externalRev === appliedRev.current) return;
-    appliedRev.current = externalRev;
-    const text = useWorkspace.getState().docs[path]?.content ?? "";
-    if (text === original.current) return;
-    const split = splitFrontmatter(text);
-    const { from, to } = editor.state.selection;
-    editor.commands.setContent(split.body, { emitUpdate: false });
-    const max = editor.state.doc.content.size;
-    editor.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
-    original.current = text;
-    fmRef.current = split.frontmatter;
-    keepNlRef.current = /\n$/.test(split.body);
-    setFrontmatter(split.frontmatter);
-    baseline.current = getMarkdown(editor);
-    setLossy(hasRoundtripContentLoss(split.body, baseline.current));
-    setDismissedWarning(false);
+
+    // 외부 머지를 화면에 반영한다. 적용 시점에 store의 최신 내용/rev를 다시 읽어,
+    // 조합 종료까지 연기된 사이 추가로 들어온 변경까지 한 번에 coalesce해 반영한다.
+    const applyExternal = () => {
+      if (!editor || editor.isDestroyed) return;
+      const doc = useWorkspace.getState().docs[path];
+      appliedRev.current = doc?.externalRev ?? externalRev;
+      const text = doc?.content ?? "";
+      if (text === original.current) return;
+      const split = splitFrontmatter(text);
+      const { from, to } = editor.state.selection;
+      // 불변식: setContent은 undo 가능해야 한다(붕괴 시 마지막 복구 수단).
+      // addToHistory:false를 넣지 않는다.
+      editor.commands.setContent(split.body, { emitUpdate: false });
+      const max = editor.state.doc.content.size;
+      editor.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
+      original.current = text;
+      fmRef.current = split.frontmatter;
+      keepNlRef.current = /\n$/.test(split.body);
+      setFrontmatter(split.frontmatter);
+      baseline.current = getMarkdown(editor);
+      setLossy(hasRoundtripContentLoss(split.body, baseline.current));
+      setDismissedWarning(false);
+    };
+
+    // 한글 IME 조합 도중 setContent가 발화하면 문서가 붕괴하므로
+    // 조합 종료(compositionend)까지 연기한다. 조합 중이 아니면 즉시 반영.
+    return deferUntilCompositionEnd(
+      editor.view.dom,
+      editor.view.composing,
+      applyExternal,
+    );
   }, [editor, externalRev, path]);
 
   return (
