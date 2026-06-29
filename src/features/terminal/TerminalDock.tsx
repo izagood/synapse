@@ -52,6 +52,14 @@ export function TerminalDock() {
     return () => ro.disconnect();
   }, [activeId]);
 
+  // 창을 줄이면 상한(뷰포트 비례)도 줄어든다 → 저장된 높이를 새 상한으로 재클램프.
+  // setHeight 자체가 clamp하므로 현재 값으로 다시 호출하기만 하면 된다.
+  useEffect(() => {
+    const onResize = () => setHeight(useTerminal.getState().heightPx);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [setHeight]);
+
   // 목록에서 사라진 터미널의 세션을 정리한다(탭 닫기 = 진짜 종료).
   const prevIds = useRef<string[]>([]);
   useEffect(() => {
