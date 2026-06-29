@@ -157,9 +157,9 @@ export function MarkdownEditor({ path }: { path: string }) {
     // 조합 종료까지 연기된 사이 추가로 들어온 변경까지 한 번에 coalesce해 반영한다.
     const applyExternal = () => {
       if (!editor || editor.isDestroyed) return;
-      const doc = useWorkspace.getState().docs[path];
-      appliedRev.current = doc?.externalRev ?? externalRev;
-      const text = doc?.content ?? "";
+      const liveDoc = useWorkspace.getState().docs[path];
+      appliedRev.current = liveDoc?.externalRev ?? externalRev;
+      const text = liveDoc?.content ?? "";
       if (text === original.current) return;
       const split = splitFrontmatter(text);
       const { from, to } = editor.state.selection;
