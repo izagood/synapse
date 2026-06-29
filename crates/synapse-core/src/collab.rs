@@ -968,7 +968,12 @@ mod tests {
     const MEETING_V1: &str = "---\nsynapse_id: a1c582dd-71a3-49b1-b3af-16154eec4d9b\n---\n\n# | DevOps Union |\n\n- DevOps Union\n  - <https://app.notion.com/p/rebellions/DevOps-Union-FDE-x-FSW-2026-358494d2a63d806bbe63ca35bd79bb39>\n- 디자인 컴포넌트\n  - <https://ui.shadcn.com/>\n\n# | RCNS 인프라 리소스 |\n\n- 인프라 리소스\n  - atom-max\n    - 기준 16장\n  - rebel\n    - 최소 3대\n    - 최대 4대\n- PEX\n  - 이번에 들어가나/\n\n# | Cloud Infra |\n\n- [Cloud SDK Notion](https://www.notion.so/rebellions/Cloud-SDK-26b494d2a63d8076b8e0d991c16bc972)\n\n# | Cloud 데일리 |\n\n- [Cloud Jira](https://rbln.atlassian.net/jira/software/projects/CLD/boards/485)\n";
 
     fn assert_keeps_all_sections(merged: &str, label: &str) {
-        for section in ["DevOps Union", "RCNS 인프라 리소스", "Cloud Infra", "Cloud 데일리"] {
+        for section in [
+            "DevOps Union",
+            "RCNS 인프라 리소스",
+            "Cloud Infra",
+            "Cloud 데일리",
+        ] {
             assert!(
                 merged.contains(section),
                 "[{label}] 섹션 '{section}'이(가) 사라졌다:\n{merged}",
@@ -1044,7 +1049,10 @@ mod tests {
         // A는 옛 base(V0) 기준으로 `/` 줄을 추가 저장
         let merged = a.save_text(id, MEETING_V0, MEETING_V1).unwrap();
         assert_keeps_all_sections(&merged, "divergent merge");
-        assert!(merged.contains("원격 추가 줄"), "원격 편집이 사라짐:\n{merged}");
+        assert!(
+            merged.contains("원격 추가 줄"),
+            "원격 편집이 사라짐:\n{merged}"
+        );
     }
 
     #[test]
