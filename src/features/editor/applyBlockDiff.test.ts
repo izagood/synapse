@@ -51,6 +51,28 @@ describe("diffTopLevelBlocks", () => {
     expect(hunks.length).toBe(1);
     expect(hunks[0].nodes.length).toBe(1); // # C 한 블록 삽입
   });
+
+  it("중간 블록 삭제는 nodes가 빈 hunk 하나다 (순수 삭제) + from/to가 블록 경계와 정확히 일치", () => {
+    const e = editor();
+    const a = parseMarkdownToDoc(e, "# A\n\n# B\n\n# C");
+    const b = parseMarkdownToDoc(e, "# A\n\n# C");
+    const hunks = diffTopLevelBlocks(a, b);
+    expect(hunks.length).toBe(1);
+    expect(hunks[0].nodes.length).toBe(0); // 순수 삭제
+    // from/to가 B 블록 경계(A 다음 ~ C 앞)와 정확히 일치 — 위치 산술을 못박는다
+    const aSize = a.child(0).nodeSize;
+    expect(hunks[0].from).toBe(aSize);
+    expect(hunks[0].to).toBe(aSize + a.child(1).nodeSize);
+  });
+
+  it("한 블록을 두 블록으로 교체하면 nodes 2개짜리 hunk 하나다", () => {
+    const e = editor();
+    const a = parseMarkdownToDoc(e, "# A\n\n# B\n\n# C");
+    const b = parseMarkdownToDoc(e, "# A\n\n# X\n\n# Y\n\n# C");
+    const hunks = diffTopLevelBlocks(a, b);
+    expect(hunks.length).toBe(1);
+    expect(hunks[0].nodes.length).toBe(2);
+  });
 });
 
 describe("applyBlockDiff", () => {
@@ -84,5 +106,15 @@ describe("applyBlockDiff", () => {
     applyBlockDiff(e, "# A\n\n- 하나\n- 둘\n- 셋\n\n# C");
     expect(getMarkdown(e)).toContain("- 셋");
     expect(getMarkdown(e)).toContain("# C");
+  });
+
+  it("중간 블록 삭제를 비파괴로 적용하고 이웃 블록을 보존한다", () => {
+    const e = editor("# A\n\n# B\n\n# C");
+    const beforeA = e.state.doc.child(0);
+    const beforeC = e.state.doc.child(2);
+    applyBlockDiff(e, "# A\n\n# C");
+    expect(e.state.doc.child(0)).toBe(beforeA); // A 보존(동일 인스턴스)
+    expect(e.state.doc.child(1)).toBe(beforeC); // C가 인덱스1로 당겨지며 보존
+    expect(getMarkdown(e)).not.toContain("# B");
   });
 });
