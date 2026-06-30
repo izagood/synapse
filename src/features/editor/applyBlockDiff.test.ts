@@ -74,8 +74,8 @@ describe("applyBlockDiff", () => {
     e.commands.setTextSelection(posInC);
     const before = e.state.selection.from;
     applyBlockDiff(e, "# A2\n\n# B\n\n# C"); // A만 변경
-    // C는 안 바뀌었고 A 변경분이 미미 → 커서가 C 영역(끝부분)에 유지
-    expect(e.state.selection.from).toBeGreaterThan(0);
+    // 앞 블록 A의 +1글자만큼만 매핑되어 커서가 여전히 C 영역의 같은 지점을 가리킨다
+    expect(e.state.selection.from).toBe(before + 1);
     expect(getMarkdown(e)).toContain("# C");
   });
 
