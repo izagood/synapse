@@ -83,3 +83,25 @@ export function diffTopLevelBlocks(oldDoc: PMNode, newDoc: PMNode): BlockHunk[] 
   pushGap(m, n);
   return hunks;
 }
+
+// 외부 머지(newBody)를 바뀐 블록만 한 트랜잭션으로 적용한다. 적용했으면 true,
+// 파싱 실패 등으로 호출측이 setContent 폴백을 해야 하면 false.
+// undo 불변식: 평범한(undoable) 트랜잭션으로 dispatch한다 (addToHistory:false 금지).
+export function applyBlockDiff(editor: Editor, newBody: string): boolean {
+  let newDoc: PMNode;
+  try {
+    newDoc = parseMarkdownToDoc(editor, newBody);
+  } catch {
+    return false; // 파싱 실패 → 폴백
+  }
+  const hunks = diffTopLevelBlocks(editor.state.doc, newDoc);
+  if (hunks.length === 0) return true; // 변경 없음 — no-op
+  const tr = editor.state.tr;
+  // 뒤에서 앞으로 적용해야 앞쪽 from/to 위치가 안 밀린다.
+  for (let k = hunks.length - 1; k >= 0; k--) {
+    const h = hunks[k];
+    tr.replaceWith(h.from, h.to, h.nodes);
+  }
+  editor.view.dispatch(tr);
+  return true;
+}

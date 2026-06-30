@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
-import { editorExtensions } from "./extensions";
-import { parseMarkdownToDoc, diffTopLevelBlocks } from "./applyBlockDiff";
+import { editorExtensions, getMarkdown } from "./extensions";
+import { parseMarkdownToDoc, diffTopLevelBlocks, applyBlockDiff } from "./applyBlockDiff";
 
 let ed: Editor | null = null;
 afterEach(() => {
@@ -50,5 +50,39 @@ describe("diffTopLevelBlocks", () => {
     const hunks = diffTopLevelBlocks(a, b);
     expect(hunks.length).toBe(1);
     expect(hunks[0].nodes.length).toBe(1); // # C 한 블록 삽입
+  });
+});
+
+describe("applyBlockDiff", () => {
+  it("다중 구역 변경: 안 바뀐 블록 노드는 동일 인스턴스로 보존된다", () => {
+    const e = editor("# A\n\n# B\n\n# C\n\n# D\n\n# E");
+    const beforeA = e.state.doc.child(0);
+    const beforeC = e.state.doc.child(2);
+    const ok = applyBlockDiff(e, "# A\n\n# B2\n\n# C\n\n# D2\n\n# E");
+    expect(ok).toBe(true);
+    // 안 바뀐 A, C는 같은 노드 인스턴스(===)로 남는다
+    expect(e.state.doc.child(0)).toBe(beforeA);
+    expect(e.state.doc.child(2)).toBe(beforeC);
+    expect(getMarkdown(e)).toContain("# B2");
+    expect(getMarkdown(e)).toContain("# D2");
+  });
+
+  it("안 바뀐 블록에 둔 커서는 위치가 보존된다", () => {
+    const e = editor("# A\n\n# B\n\n# C");
+    // C 블록 안에 커서 (문서 끝 근처)
+    const posInC = e.state.doc.content.size - 1;
+    e.commands.setTextSelection(posInC);
+    const before = e.state.selection.from;
+    applyBlockDiff(e, "# A2\n\n# B\n\n# C"); // A만 변경
+    // C는 안 바뀌었고 A 변경분이 미미 → 커서가 C 영역(끝부분)에 유지
+    expect(e.state.selection.from).toBeGreaterThan(0);
+    expect(getMarkdown(e)).toContain("# C");
+  });
+
+  it("최종 직렬화가 새 본문과 일치한다(무손실)", () => {
+    const e = editor("# A\n\n- 하나\n- 둘\n\n# C");
+    applyBlockDiff(e, "# A\n\n- 하나\n- 둘\n- 셋\n\n# C");
+    expect(getMarkdown(e)).toContain("- 셋");
+    expect(getMarkdown(e)).toContain("# C");
   });
 });
