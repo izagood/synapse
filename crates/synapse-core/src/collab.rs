@@ -553,7 +553,10 @@ impl CollabStore {
     /// 자동으로 호출하지 말 것 — 누적 이력을 버리므로 다른 기기가 수렴한 상태에서만 안전.
     pub fn rebaseline(&self, id: &str, text: &str) -> io::Result<()> {
         if !valid_id(id) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid doc id"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid doc id",
+            ));
         }
         // 최소 새 문서를 결정적으로 만든다
         let doc = Doc::with_options(Options {
@@ -570,17 +573,19 @@ impl CollabStore {
             .encode_state_as_update_v1(&StateVector::default());
         let dir = self.doc_dir(id);
         self.backend.create_dir_all(&dir)?;
-        // 기존 .y(모든 로그+옛 스냅샷) 전부 삭제
+        // 새 스냅샷을 먼저 쓴다: 어느 시점에도 유효한 상태 파일이 남도록 해
+        // 크래시 시 문서가 통째로 사라지지 않게 한다 (maybe_compact와 동일 순서).
+        let name = format!("snap-{:016x}.y", fnv1a64(&[&snapshot]));
+        let keep = dir.join(&name);
+        self.backend.write_atomic(&keep, &snapshot)?;
+        // 그다음 기존 .y(모든 로그+옛 스냅샷)를 지운다 — 방금 쓴 스냅샷은 제외
         if let Ok(entries) = self.backend.read_dir(&dir) {
             for e in entries {
-                if e.name.ends_with(".y") {
+                if e.name.ends_with(".y") && e.path != keep {
                     let _ = self.backend.remove_file(&e.path);
                 }
             }
         }
-        // 새 스냅샷만 남긴다
-        let name = format!("snap-{:016x}.y", fnv1a64(&[&snapshot]));
-        self.backend.write_atomic(&dir.join(&name), &snapshot)?;
         Ok(())
     }
 
@@ -1155,7 +1160,10 @@ mod tests {
         let before = sum_y(&s.doc_dir(&id));
         s.rebaseline(&id, &text).unwrap();
         let after = sum_y(&s.doc_dir(&id));
-        assert!(after < before, "재베이스라인이 축소하지 않음: {before} -> {after}");
+        assert!(
+            after < before,
+            "재베이스라인이 축소하지 않음: {before} -> {after}"
+        );
         assert_eq!(s.doc_text(&id).unwrap(), text, "텍스트 보존 실패");
         // 이후 저장이 정상 동작한다
         let next = format!("{text}추가 줄\n");
