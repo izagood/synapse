@@ -439,6 +439,7 @@ impl CollabStore {
             }
             let update = foundation_update(id, disk, &sv0);
             self.append_own_log(id, &update)?;
+            self.compact(id)?;
             return Ok(true);
         }
         let cur = text.get_string(&doc.transact());
@@ -447,6 +448,7 @@ impl CollabStore {
         }
         let update = deterministic_patch(id, &doc, &sv0, &cur, disk, b"absorb");
         self.append_own_log(id, &update)?;
+        self.compact(id)?;
         Ok(true)
     }
 
@@ -471,6 +473,7 @@ impl CollabStore {
             let update = doc.transact().encode_diff_v1(&sv0);
             if !found {
                 self.append_own_log(id, &update)?;
+                self.compact(id)?;
             }
             return Ok(cur);
         }
@@ -513,6 +516,7 @@ impl CollabStore {
         }
         let update = tmp.transact().encode_diff_v1(&sv0);
         self.append_own_log(id, &update)?;
+        self.compact(id)?;
         let merged = tmp_text.get_string(&tmp.transact());
         Ok(merged)
     }
@@ -529,6 +533,61 @@ impl CollabStore {
         frame.extend_from_slice(&(update.len() as u32).to_le_bytes());
         frame.extend_from_slice(update);
         self.backend.append(&path, &frame)
+    }
+
+    /// append 후 호출: 문서를 새로 로드해(방금 append 반영) 임계치 초과 시 압축한다.
+    /// absorb 경로가 save_text과 동일하게 로그를 바운드하도록 한다.
+    pub fn compact(&self, id: &str) -> io::Result<()> {
+        if !valid_id(id) {
+            return Ok(());
+        }
+        let (doc, _text, found, snaps) = self.load(id)?;
+        if found {
+            self.maybe_compact(id, &doc, &snaps)?;
+        }
+        Ok(())
+    }
+
+    /// 문서 CRDT를 현재 텍스트로 재구성한다(누적 이력 폐기). 오염된 문서 청소용.
+    /// 결정적 foundation으로 최소 상태를 만들어 단일 스냅샷으로 쓰고, 그 문서
+    /// 디렉터리의 기존 .y(모든 로그+옛 스냅샷)를 전부 지운다.
+    /// 자동으로 호출하지 말 것 — 누적 이력을 버리므로 다른 기기가 수렴한 상태에서만 안전.
+    pub fn rebaseline(&self, id: &str, text: &str) -> io::Result<()> {
+        if !valid_id(id) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid doc id",
+            ));
+        }
+        // 최소 새 문서를 결정적으로 만든다
+        let doc = Doc::with_options(Options {
+            skip_gc: false,
+            ..Options::default()
+        });
+        let update = foundation_update(id, text, &StateVector::default());
+        {
+            let mut txn = doc.transact_mut();
+            apply_bytes(&mut txn, &update);
+        }
+        let snapshot = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let dir = self.doc_dir(id);
+        self.backend.create_dir_all(&dir)?;
+        // 새 스냅샷을 먼저 쓴다: 어느 시점에도 유효한 상태 파일이 남도록 해
+        // 크래시 시 문서가 통째로 사라지지 않게 한다 (maybe_compact와 동일 순서).
+        let name = format!("snap-{:016x}.y", fnv1a64(&[&snapshot]));
+        let keep = dir.join(&name);
+        self.backend.write_atomic(&keep, &snapshot)?;
+        // 그다음 기존 .y(모든 로그+옛 스냅샷)를 지운다 — 방금 쓴 스냅샷은 제외
+        if let Ok(entries) = self.backend.read_dir(&dir) {
+            for e in entries {
+                if e.name.ends_with(".y") && e.path != keep {
+                    let _ = self.backend.remove_file(&e.path);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// 자기 로그가 임계치를 넘으면 전체 상태를 스냅샷으로 굳히고
@@ -1052,6 +1111,95 @@ mod tests {
         assert!(
             merged.contains("원격 추가 줄"),
             "원격 편집이 사라짐:\n{merged}"
+        );
+    }
+
+    // 재현(회귀 방지): git-sync의 absorb_workspace는 매 sync마다 모든 .md에 대해
+    // absorb_external을 호출한다. disk와 CRDT 텍스트가 (정규화 불일치·다중 writer로)
+    // 계속 어긋나면 absorb는 매번 로그에 append만 하는데, absorb 경로엔 maybe_compact가
+    // 없어 무한 누적된다 → 로그가 GitHub 100MB 한도를 넘겨 push가 막힌다.
+    // (대조: save_text는 매번 compaction하므로 compaction_truncates_log_and_keeps_text 통과)
+    #[test]
+    fn repeated_absorb_stays_bounded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = CollabStore::with_threshold(tmp.path(), "actor-a".into(), 8 * 1024);
+        let id = new_doc_id();
+        s.save_text(&id, "", "# 제목\n0\n").unwrap();
+        // 매 sync마다 조금씩 다른 외부 상태를 흡수한다 (absorb_workspace 패턴)
+        for i in 1..=200 {
+            let disk = format!("# 제목\n{i}\n");
+            s.absorb_external(&id, &disk).unwrap();
+        }
+        let log_size = fs::metadata(s.own_log(&id)).map(|m| m.len()).unwrap_or(0);
+        assert!(
+            log_size <= 8 * 1024,
+            "absorb 반복이 compaction 없이 로그를 누적함: {log_size} bytes (임계치 8KB)"
+        );
+    }
+
+    #[test]
+    fn rebaseline_shrinks_bloated_doc_and_keeps_text() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = CollabStore::with_threshold(tmp.path(), "actor-a".into(), 8 * 1024);
+        let id = new_doc_id();
+        // 전체 교체 편집을 반복해 tombstone으로 struct를 부풀린다
+        let mut text = String::from("처음 내용\n둘째 줄\n");
+        s.save_text(&id, "", &text).unwrap();
+        for i in 0..300 {
+            let next = format!("완전히 다른 내용 {i}\n또 다른 줄 {i}\n");
+            s.save_text(&id, &text, &next).unwrap();
+            text = next;
+        }
+        let sum_y = |dir: &std::path::Path| -> u64 {
+            fs::read_dir(dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".y"))
+                .map(|e| e.metadata().unwrap().len())
+                .sum()
+        };
+        let before = sum_y(&s.doc_dir(&id));
+        s.rebaseline(&id, &text).unwrap();
+        let after = sum_y(&s.doc_dir(&id));
+        assert!(
+            after < before,
+            "재베이스라인이 축소하지 않음: {before} -> {after}"
+        );
+        assert_eq!(s.doc_text(&id).unwrap(), text, "텍스트 보존 실패");
+        // 이후 저장이 정상 동작한다
+        let next = format!("{text}추가 줄\n");
+        let merged = s.save_text(&id, &text, &next).unwrap();
+        assert!(merged.contains("추가 줄"), "{merged}");
+    }
+
+    // compaction이 (absorb 경로에서 발동해도) 다른 actor의 편집을 버리지 않아야 한다.
+    // maybe_compact은 전체 병합 상태를 스냅샷으로 굳히고 "자기 로그"만 truncate하므로,
+    // A가 흡수 중 compaction해도 B의 기여가 doc_text에 살아있어야 한다.
+    #[test]
+    fn compaction_during_absorb_preserves_other_actor_edits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (ws_a, ws_b) = (tmp.path().join("a"), tmp.path().join("b"));
+        fs::create_dir_all(&ws_a).unwrap();
+        fs::create_dir_all(&ws_b).unwrap();
+        let a = CollabStore::with_threshold(&ws_a, "actor-a".into(), 1024);
+        let b = store(&ws_b, "actor-b");
+        let id = new_doc_id();
+        let base = "공통\n";
+        a.save_text(&id, "", base).unwrap();
+        merge_dirs(&ws_a, &ws_b);
+        // B가 편집한 뒤 A가 B의 로그를 받는다
+        b.save_text(&id, base, "공통\nB의 줄\n").unwrap();
+        merge_dirs(&ws_a, &ws_b);
+        // A가 외부 편집을 여러 번 흡수 → 로그가 임계치(1024)를 넘겨 compaction 발동
+        for i in 0..50 {
+            a.absorb_external(&id, &format!("공통\nB의 줄\n외부 {i}\n"))
+                .unwrap();
+        }
+        // compaction으로 A의 자기 로그가 truncate됐어도 B의 편집은 살아있어야 한다
+        let text = a.doc_text(&id).unwrap();
+        assert!(
+            text.contains("B의 줄"),
+            "compaction이 다른 actor 편집을 드롭함: {text}"
         );
     }
 
