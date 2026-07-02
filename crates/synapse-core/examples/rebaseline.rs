@@ -18,9 +18,13 @@ fn main() -> std::io::Result<()> {
     let root = PathBuf::from(&args[1]);
     let id = &args[2];
     let text = std::fs::read_to_string(&args[3])?;
+    // actor id는 여기서 무의미하다 — rebaseline은 로그를 append하지 않고 스냅샷만 쓴다.
     let store = CollabStore::local(root, "cleanup-tool".to_string());
     store.rebaseline(id, &text)?;
     let restored = store.doc_text(id).unwrap_or_default();
-    println!("rebaseline 완료: {id} — 텍스트 {}바이트 복원", restored.len());
+    println!(
+        "rebaseline 완료: {id} — 텍스트 {}바이트 복원",
+        restored.len()
+    );
     Ok(())
 }

@@ -473,6 +473,7 @@ impl CollabStore {
             let update = doc.transact().encode_diff_v1(&sv0);
             if !found {
                 self.append_own_log(id, &update)?;
+                self.compact(id)?;
             }
             return Ok(cur);
         }
@@ -1169,6 +1170,37 @@ mod tests {
         let next = format!("{text}추가 줄\n");
         let merged = s.save_text(&id, &text, &next).unwrap();
         assert!(merged.contains("추가 줄"), "{merged}");
+    }
+
+    // compaction이 (absorb 경로에서 발동해도) 다른 actor의 편집을 버리지 않아야 한다.
+    // maybe_compact은 전체 병합 상태를 스냅샷으로 굳히고 "자기 로그"만 truncate하므로,
+    // A가 흡수 중 compaction해도 B의 기여가 doc_text에 살아있어야 한다.
+    #[test]
+    fn compaction_during_absorb_preserves_other_actor_edits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (ws_a, ws_b) = (tmp.path().join("a"), tmp.path().join("b"));
+        fs::create_dir_all(&ws_a).unwrap();
+        fs::create_dir_all(&ws_b).unwrap();
+        let a = CollabStore::with_threshold(&ws_a, "actor-a".into(), 1024);
+        let b = store(&ws_b, "actor-b");
+        let id = new_doc_id();
+        let base = "공통\n";
+        a.save_text(&id, "", base).unwrap();
+        merge_dirs(&ws_a, &ws_b);
+        // B가 편집한 뒤 A가 B의 로그를 받는다
+        b.save_text(&id, base, "공통\nB의 줄\n").unwrap();
+        merge_dirs(&ws_a, &ws_b);
+        // A가 외부 편집을 여러 번 흡수 → 로그가 임계치(1024)를 넘겨 compaction 발동
+        for i in 0..50 {
+            a.absorb_external(&id, &format!("공통\nB의 줄\n외부 {i}\n"))
+                .unwrap();
+        }
+        // compaction으로 A의 자기 로그가 truncate됐어도 B의 편집은 살아있어야 한다
+        let text = a.doc_text(&id).unwrap();
+        assert!(
+            text.contains("B의 줄"),
+            "compaction이 다른 actor 편집을 드롭함: {text}"
+        );
     }
 
     #[test]
