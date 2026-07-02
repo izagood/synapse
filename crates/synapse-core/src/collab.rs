@@ -547,6 +547,43 @@ impl CollabStore {
         Ok(())
     }
 
+    /// 문서 CRDT를 현재 텍스트로 재구성한다(누적 이력 폐기). 오염된 문서 청소용.
+    /// 결정적 foundation으로 최소 상태를 만들어 단일 스냅샷으로 쓰고, 그 문서
+    /// 디렉터리의 기존 .y(모든 로그+옛 스냅샷)를 전부 지운다.
+    /// 자동으로 호출하지 말 것 — 누적 이력을 버리므로 다른 기기가 수렴한 상태에서만 안전.
+    pub fn rebaseline(&self, id: &str, text: &str) -> io::Result<()> {
+        if !valid_id(id) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid doc id"));
+        }
+        // 최소 새 문서를 결정적으로 만든다
+        let doc = Doc::with_options(Options {
+            skip_gc: false,
+            ..Options::default()
+        });
+        let update = foundation_update(id, text, &StateVector::default());
+        {
+            let mut txn = doc.transact_mut();
+            apply_bytes(&mut txn, &update);
+        }
+        let snapshot = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let dir = self.doc_dir(id);
+        self.backend.create_dir_all(&dir)?;
+        // 기존 .y(모든 로그+옛 스냅샷) 전부 삭제
+        if let Ok(entries) = self.backend.read_dir(&dir) {
+            for e in entries {
+                if e.name.ends_with(".y") {
+                    let _ = self.backend.remove_file(&e.path);
+                }
+            }
+        }
+        // 새 스냅샷만 남긴다
+        let name = format!("snap-{:016x}.y", fnv1a64(&[&snapshot]));
+        self.backend.write_atomic(&dir.join(&name), &snapshot)?;
+        Ok(())
+    }
+
     /// 자기 로그가 임계치를 넘으면 전체 상태를 스냅샷으로 굳히고
     /// 자기 로그를 비운다. 방금 읽어들인(=포함된) 옛 스냅샷은 지운다.
     fn maybe_compact(&self, id: &str, doc: &Doc, loaded_snaps: &[PathBuf]) -> io::Result<()> {
@@ -1092,6 +1129,38 @@ mod tests {
             log_size <= 8 * 1024,
             "absorb 반복이 compaction 없이 로그를 누적함: {log_size} bytes (임계치 8KB)"
         );
+    }
+
+    #[test]
+    fn rebaseline_shrinks_bloated_doc_and_keeps_text() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = CollabStore::with_threshold(tmp.path(), "actor-a".into(), 8 * 1024);
+        let id = new_doc_id();
+        // 전체 교체 편집을 반복해 tombstone으로 struct를 부풀린다
+        let mut text = String::from("처음 내용\n둘째 줄\n");
+        s.save_text(&id, "", &text).unwrap();
+        for i in 0..300 {
+            let next = format!("완전히 다른 내용 {i}\n또 다른 줄 {i}\n");
+            s.save_text(&id, &text, &next).unwrap();
+            text = next;
+        }
+        let sum_y = |dir: &std::path::Path| -> u64 {
+            fs::read_dir(dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".y"))
+                .map(|e| e.metadata().unwrap().len())
+                .sum()
+        };
+        let before = sum_y(&s.doc_dir(&id));
+        s.rebaseline(&id, &text).unwrap();
+        let after = sum_y(&s.doc_dir(&id));
+        assert!(after < before, "재베이스라인이 축소하지 않음: {before} -> {after}");
+        assert_eq!(s.doc_text(&id).unwrap(), text, "텍스트 보존 실패");
+        // 이후 저장이 정상 동작한다
+        let next = format!("{text}추가 줄\n");
+        let merged = s.save_text(&id, &text, &next).unwrap();
+        assert!(merged.contains("추가 줄"), "{merged}");
     }
 
     #[test]
