@@ -439,6 +439,7 @@ impl CollabStore {
             }
             let update = foundation_update(id, disk, &sv0);
             self.append_own_log(id, &update)?;
+            self.compact(id)?;
             return Ok(true);
         }
         let cur = text.get_string(&doc.transact());
@@ -447,6 +448,7 @@ impl CollabStore {
         }
         let update = deterministic_patch(id, &doc, &sv0, &cur, disk, b"absorb");
         self.append_own_log(id, &update)?;
+        self.compact(id)?;
         Ok(true)
     }
 
@@ -513,6 +515,7 @@ impl CollabStore {
         }
         let update = tmp.transact().encode_diff_v1(&sv0);
         self.append_own_log(id, &update)?;
+        self.compact(id)?;
         let merged = tmp_text.get_string(&tmp.transact());
         Ok(merged)
     }
@@ -529,6 +532,19 @@ impl CollabStore {
         frame.extend_from_slice(&(update.len() as u32).to_le_bytes());
         frame.extend_from_slice(update);
         self.backend.append(&path, &frame)
+    }
+
+    /// append 후 호출: 문서를 새로 로드해(방금 append 반영) 임계치 초과 시 압축한다.
+    /// absorb 경로가 save_text과 동일하게 로그를 바운드하도록 한다.
+    pub fn compact(&self, id: &str) -> io::Result<()> {
+        if !valid_id(id) {
+            return Ok(());
+        }
+        let (doc, _text, found, snaps) = self.load(id)?;
+        if found {
+            self.maybe_compact(id, &doc, &snaps)?;
+        }
+        Ok(())
     }
 
     /// 자기 로그가 임계치를 넘으면 전체 상태를 스냅샷으로 굳히고
@@ -1052,6 +1068,29 @@ mod tests {
         assert!(
             merged.contains("원격 추가 줄"),
             "원격 편집이 사라짐:\n{merged}"
+        );
+    }
+
+    // 재현(회귀 방지): git-sync의 absorb_workspace는 매 sync마다 모든 .md에 대해
+    // absorb_external을 호출한다. disk와 CRDT 텍스트가 (정규화 불일치·다중 writer로)
+    // 계속 어긋나면 absorb는 매번 로그에 append만 하는데, absorb 경로엔 maybe_compact가
+    // 없어 무한 누적된다 → 로그가 GitHub 100MB 한도를 넘겨 push가 막힌다.
+    // (대조: save_text는 매번 compaction하므로 compaction_truncates_log_and_keeps_text 통과)
+    #[test]
+    fn repeated_absorb_stays_bounded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = CollabStore::with_threshold(tmp.path(), "actor-a".into(), 8 * 1024);
+        let id = new_doc_id();
+        s.save_text(&id, "", "# 제목\n0\n").unwrap();
+        // 매 sync마다 조금씩 다른 외부 상태를 흡수한다 (absorb_workspace 패턴)
+        for i in 1..=200 {
+            let disk = format!("# 제목\n{i}\n");
+            s.absorb_external(&id, &disk).unwrap();
+        }
+        let log_size = fs::metadata(s.own_log(&id)).map(|m| m.len()).unwrap_or(0);
+        assert!(
+            log_size <= 8 * 1024,
+            "absorb 반복이 compaction 없이 로그를 누적함: {log_size} bytes (임계치 8KB)"
         );
     }
 
