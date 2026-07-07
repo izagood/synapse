@@ -410,11 +410,15 @@ impl CollabStore {
                 (id, owned.as_str())
             }
         };
-        // 에디터가 모르는 디스크상의 외부 편집을 먼저 흡수해 유실을 막는다
+        // 저장 전 CRDT를 디스크로 수렴시킨다. 두 상황을 함께 바로잡는다:
+        // (1) 에디터가 모르는 디스크상의 외부 편집(disk != base),
+        // (2) CRDT가 디스크와 발산한 손상 상태(disk == base인데 cur != disk).
+        // 건강한 문서는 모든 CRDT 변이가 디스크를 쓰므로 cur == disk다 — 어긋났다면
+        // cur를 신뢰할 수 없다. 그대로 두면 save_text가 낡은 cur에 패치를 재매핑해
+        // 디스크에만 있던 내용이 붕괴한다(발산 파괴 버그). absorb_external은 cur == disk면
+        // 무해한 no-op이라, 항상 호출해도 건강한 저장에는 부작용이 없다.
         if let Ok(disk) = self.backend.read_to_string(file) {
-            if disk != base {
-                let _ = self.absorb_external(&id, &disk);
-            }
+            let _ = self.absorb_external(&id, &disk);
         }
         let merged = self.save_text(&id, base, content)?;
         self.backend.write_atomic(file, merged.as_bytes())?;
@@ -1111,6 +1115,45 @@ mod tests {
         assert!(
             merged.contains("원격 추가 줄"),
             "원격 편집이 사라짐:\n{merged}"
+        );
+    }
+
+    // 시나리오 D (실제 프로덕션 버그 2026-07-06/07): CRDT cur가 디스크보다 *뒤처진*
+    // 발산 상태(disk가 base와 같은데 cur는 그보다 짧아 일부 섹션이 CRDT에 없음).
+    // 건강한 문서는 모든 CRDT 변이가 디스크를 쓰므로 cur==disk여야 한다 — cur!=disk는
+    // 손상이다. save_doc_file은 disk==base일 때 흡수를 건너뛰어, save_text가 낡은 cur를
+    // 신뢰하고 패치를 재매핑 → 디스크에만 있던 섹션이 붕괴하고 사용자가 방금 친 내용까지
+    // 사라진다. (A/C 시나리오는 cur가 base보다 *앞선* 경우라 이 방향을 못 잡았다.)
+    #[test]
+    fn meeting_note_crdt_behind_disk_keeps_sections() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = store(tmp.path(), "actor-a");
+        let file = tmp.path().join("2026-07-07-meeting.md");
+        let id = "a1c582dd-71a3-49b1-b3af-16154eec4d9b";
+
+        // 손상 재현: CRDT cur를 마지막 두 섹션이 없는 짧은 텍스트로 재베이스라인한다.
+        let crdt_stale = MEETING_V0
+            .split("# | Cloud Infra |")
+            .next()
+            .unwrap()
+            .to_string();
+        s.rebaseline(id, &crdt_stale).unwrap();
+        assert_eq!(s.doc_text(id).unwrap(), crdt_stale, "발산 상태 준비 실패");
+
+        // 디스크는 완전한 V0 — 에디터가 이 디스크에서 열려 base=V0(=disk)로 편집한다.
+        fs::write(&file, MEETING_V0).unwrap();
+
+        // 에디터 저장: base==disk(V0)이지만 cur(짧음)와 발산.
+        let merged = s.save_doc_file(&file, MEETING_V1, MEETING_V0).unwrap();
+        assert_keeps_all_sections(&merged, "crdt behind disk");
+        assert!(
+            merged.contains("이번에 들어가나"),
+            "사용자 편집이 사라짐:\n{merged}"
+        );
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            merged,
+            "디스크에 붕괴된 텍스트가 쓰임"
         );
     }
 
