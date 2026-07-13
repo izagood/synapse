@@ -1,5 +1,4 @@
 pub mod bridge;
-pub mod collab;
 pub mod config_sync;
 pub mod docid;
 pub mod fs_io;
@@ -25,7 +24,6 @@ pub mod walk;
 pub mod watch;
 
 pub use bridge::{generate_token, token_matches, LiveState, OpenTab};
-pub use collab::CollabStore;
 pub use config_sync::ConfigSyncState;
 pub use docid::strip_doc_id;
 pub use fs_io::{
@@ -37,7 +35,7 @@ pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, Link
 pub use location::{
     path_to_uri, urify_tree, Location, LocationError, SshLocation, DEFAULT_SSH_PORT,
 };
-pub use merge::merge_three_way;
+pub use merge::{merge_agent_edit, merge_three_way};
 pub use paths::{ensure_within, legacy_pdf_draw_sidecar, pdf_draw_sidecar_path, rel_path_within};
 pub use registry::{recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};

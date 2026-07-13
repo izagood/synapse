@@ -14,12 +14,12 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::collab;
+use crate::paths::DATA_DIR;
 use crate::sftp::SftpBackend;
 use crate::ssh::SshSession;
 use crate::vfs::{Backend, LocalBackend};
@@ -202,6 +202,13 @@ fn run_command(
     ))
 }
 
+/// 같은 프로세스 안에서 여러 `GitWorkspace`(멀티 윈도우)가 한 워크스페이스의
+/// git/워킹트리를 동시에 만지지 않도록 직렬화한다.
+fn workspace_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 impl GitWorkspace {
     pub fn new(root: impl Into<PathBuf>, auth_header: Option<String>) -> Self {
         GitWorkspace {
@@ -209,7 +216,7 @@ impl GitWorkspace {
             auth_header,
             exec: GitExec::Local,
             backend: Arc::new(LocalBackend),
-            lock: collab::workspace_lock(),
+            lock: workspace_lock(),
             #[cfg(test)]
             after_fetch: None,
         }
@@ -225,7 +232,7 @@ impl GitWorkspace {
             auth_header: None,
             exec: GitExec::Remote(session),
             backend,
-            lock: collab::workspace_lock(),
+            lock: workspace_lock(),
             #[cfg(test)]
             after_fetch: None,
         }
@@ -703,7 +710,7 @@ impl GitWorkspace {
         for path in self.conflicted_files()? {
             // `.synapse/` 밑 충돌은 마이그레이션 과도기 동안 항상 삭제로 해소한다
             // (다른 기기가 아직 그 파일을 쓸 수 있으므로 git rm으로 없앤다).
-            if path.starts_with(&format!("{}/", collab::DATA_DIR)) {
+            if path.starts_with(&format!("{}/", DATA_DIR)) {
                 self.run_ok(&["rm", "-f", "--", &path])?;
                 continue;
             }
@@ -847,7 +854,7 @@ impl GitWorkspace {
             .iter()
             .filter(|f| theirs_changed.contains(*f))
             // .synapse 내부 CRDT 로그 등은 사용자에게 보여줄 diff가 아니다
-            .filter(|f| !f.starts_with(collab::DATA_DIR))
+            .filter(|f| !f.starts_with(DATA_DIR))
             .cloned()
             .collect();
         files.sort();

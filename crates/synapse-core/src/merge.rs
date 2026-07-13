@@ -11,8 +11,8 @@
 //!   부분적으로 겹치는 동일 삽입(예: 양쪽이 base에 같은 줄을 각자 다른
 //!   편집과 함께 추가한 경우)은 client id가 side 전체 문자열을 해시하므로
 //!   중복될 수 있다 — 다만 양쪽 내용은 모두 보존된다(소실 없음).
-//!   이는 구 CRDT 스토어(collab.rs `absorb_three_way`)의 3-way 병합과
-//!   동일한 특성이며, 어색한 중복 결과는 git 히스토리로 복구한다.
+//!   이는 삭제된 옛 CRDT 저장 계층의 3-way 병합과 동일한 특성이며,
+//!   어색한 중복 결과는 git 히스토리로 복구한다.
 //! - 입력 순서(mine/theirs 스왑)에도 대칭
 //!
 //! `diff_patches`/`Patch`/`fnv1a64`/`det_client`는 `collab.rs`에서 이식했다
@@ -169,6 +169,17 @@ pub fn merge_three_way(base: &str, mine: &str, theirs: &str) -> String {
     merged
 }
 
+/// 외부(에이전트) 편집 요청을 현재 디스크 내용과 stateless 병합하고, 남아 있는
+/// 레거시 `synapse_id` frontmatter를 지연 제거한다.
+///
+/// `disk`(요청 처리 시점의 실제 파일 내용)를 mine으로, `new_content`(에이전트가
+/// 쓰려는 내용)를 theirs로 다룬다: 동시 사용자 편집이 없다면(`disk == base`)
+/// `new_content`가 그대로 반환된다.
+pub fn merge_agent_edit(base: &str, disk: &str, new_content: &str) -> String {
+    let merged = merge_three_way(base, disk, new_content);
+    crate::docid::strip_doc_id(&merged).unwrap_or(merged)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +268,39 @@ mod tests {
         let theirs = "줄1\r\n줄2\r\n줄3\r\n";
         let merged = merge_three_way(base, mine, theirs);
         assert_eq!(merged, "줄1 수정\r\n줄2\r\n줄3\r\n");
+    }
+
+    #[test]
+    fn agent_edit_merges_concurrent_user_edit() {
+        // 에이전트가 base 기준으로 편집을 제출하는 사이 사용자가 디스크에 다른
+        // 편집을 남긴 경우 — 둘 다 보존돼야 한다(bridge `/edit` 엔드포인트 경로).
+        let base = "A\n";
+        let disk = "A\nuser\n";
+        let new_content = "A\nagent\n";
+        let merged = merge_agent_edit(base, disk, new_content);
+        assert!(
+            merged.contains("user"),
+            "사용자 편집이 보존돼야 한다: {merged}"
+        );
+        assert!(
+            merged.contains("agent"),
+            "에이전트 편집이 보존돼야 한다: {merged}"
+        );
+    }
+
+    #[test]
+    fn agent_edit_returns_new_content_verbatim_when_disk_matches_base() {
+        // 동시 사용자 편집이 없으면(disk == base) 에이전트 내용을 그대로 쓴다.
+        let base = "A\n";
+        let new_content = "A\nagent\n";
+        assert_eq!(merge_agent_edit(base, base, new_content), new_content);
+    }
+
+    #[test]
+    fn agent_edit_strips_legacy_synapse_id() {
+        let base = "---\nsynapse_id: abc123\ntitle: t\n---\n\n본문\n";
+        let new_content = "---\nsynapse_id: abc123\ntitle: t\n---\n\n수정된 본문\n";
+        let merged = merge_agent_edit(base, base, new_content);
+        assert_eq!(merged, "---\ntitle: t\n---\n\n수정된 본문\n");
     }
 }

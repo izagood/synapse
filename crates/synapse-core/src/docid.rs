@@ -1,9 +1,9 @@
 //! `synapse_id` frontmatter 지연 제거 (Task 3: 저장 경로 단순화).
 //!
 //! 디스크가 단일 진실이 되면서 CRDT 문서 식별자(`synapse_id`)는 저장 경로에서
-//! 더 이상 필요 없다. 이 모듈은 [`collab`](crate::collab)에 의존하지 않고
-//! frontmatter 파싱 로직만 이식해, 저장 시 남아 있는 `synapse_id` 줄을 지연
-//! 제거(lazy strip)한다 — 옛 CRDT 저장분을 여는 즉시 정리되는 방식.
+//! 더 이상 필요 없다. 이 모듈은 삭제된 옛 CRDT 저장 계층에 의존하지 않고
+//! frontmatter 파싱 로직만 독립적으로 구현해, 저장 시 남아 있는 `synapse_id`
+//! 줄을 지연 제거(lazy strip)한다 — 옛 CRDT 저장분을 여는 즉시 정리되는 방식.
 
 const ID_KEY: &str = "synapse_id";
 
@@ -14,7 +14,7 @@ const ID_KEY: &str = "synapse_id";
 /// - `inner_end`: 닫는 `---` 줄이 시작하는 바이트 오프셋(내용은 `[inner_start, inner_end)`)
 /// - `block_end`: 닫는 `---` 줄이 끝나는(그 줄바꿈까지 포함한) 바이트 오프셋
 ///
-/// frontmatter는 파일 맨 앞에서만 인정한다(collab::frontmatter_range와 동일 규칙).
+/// frontmatter는 파일 맨 앞에서만 인정한다(옛 CRDT 저장 계층의 frontmatter 탐지와 동일 규칙).
 fn frontmatter_bounds(text: &str) -> Option<(usize, usize, usize)> {
     let inner_start = text
         .strip_prefix("---\r\n")

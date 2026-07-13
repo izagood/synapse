@@ -264,12 +264,13 @@ struct EditRequest {
     base_content: String,
 }
 
-/// `/edit` 본문을 파싱해 CRDT(`ai-assistant` actor)로 적용하고 합쳐진 텍스트를 돌려준다.
-/// 사용자 편집과 자동 병합되며, 디스크 쓰기는 파일 워처를 통해 열린 에디터에 반영된다.
+/// `/edit` 본문을 파싱해 현재 디스크 내용과 stateless 3-way 병합한 뒤 원자적으로
+/// 쓰고, 합쳐진 텍스트를 돌려준다. 병합은 상태를 남기지 않으므로(디스크가 유일한
+/// 진실) 동시에 열려 있는 에디터의 편집과도 자동으로 합쳐지며, 디스크 쓰기는
+/// 파일 워처를 통해 열린 에디터에 반영된다.
 fn apply_edit_request(live: &LiveState, body: &[u8]) -> Result<String, String> {
     use std::path::Path;
-    use std::sync::Arc;
-    use synapse_core::{collab, Backend, CollabStore, LocalBackend};
+    use synapse_core::{merge_agent_edit, Backend, LocalBackend};
 
     let req: EditRequest =
         serde_json::from_slice(body).map_err(|e| format!("bad request body: {e}"))?;
@@ -283,18 +284,14 @@ fn apply_edit_request(live: &LiveState, body: &[u8]) -> Result<String, String> {
     let resolved = backend
         .ensure_writable_within(root_path, Path::new(&req.path))
         .map_err(|e| e.to_string())?;
-    // 사용자 actor와 분리된 고정 "ai-assistant" actor로 기록(commands::agent_edit_file과 동일).
-    let _guard = collab::workspace_lock()
-        .lock()
-        .map_err(|_| "workspace lock poisoned".to_string())?;
-    let store = CollabStore::new(
-        Arc::new(backend),
-        root_path.to_path_buf(),
-        "ai-assistant".to_string(),
-    );
-    store
-        .save_doc_file(&resolved, &req.new_content, &req.base_content)
-        .map_err(|e| e.to_string())
+    // 파일이 없으면(에이전트가 새 노트를 만드는 경우) 빈 문자열이 현재 디스크
+    // 상태다 — merge_agent_edit이 base와 비교해 알아서 처리한다.
+    let disk = backend.read_to_string(&resolved).unwrap_or_default();
+    let merged = merge_agent_edit(&req.base_content, &disk, &req.new_content);
+    backend
+        .write_atomic(&resolved, merged.as_bytes())
+        .map_err(|e| e.to_string())?;
+    Ok(merged)
 }
 
 fn reason(status: u16) -> &'static str {
