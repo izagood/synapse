@@ -29,10 +29,7 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
                 if let Some(state) = window.try_state::<bridge::BridgeState>() {
-                    let token = state.0.ensure_token(window.label());
-                    let mut map = mcp::load_map();
-                    synapse_core::discovery::remove_by_token(&mut map, &token);
-                    let _ = mcp::save_map(&map);
+                    let _ = mcp::unpublish_for(&state.0, window.label());
                     state.0.drop_window(window.label());
                 }
                 if let Some(pty) = window.try_state::<terminal::PtyState>() {
