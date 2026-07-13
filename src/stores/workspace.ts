@@ -517,6 +517,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         }
         // 입력이 계속된 경우: savedContent를 snapshot까지만 전진시킨다.
         // (그 사이 들어온 추가 입력은 다음 자동 저장이 그대로 처리한다)
+        // strip이 일어났다면 savedContent가 잠깐 pre-strip 텍스트(디스크와 다름)를
+        // 갖지만, 다음 자동 저장이 merged를 반영하면서 수렴한다.
         return {
           docs: {
             ...s.docs,
@@ -564,9 +566,21 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       if (binaryType === "pdf" || binaryType === "image") continue;
       if (isDirty(doc)) {
         // 편집 중이면 디스크에 이미 양쪽 내용이 다 있다(git이 sync 전에 커밋해
-        // 둔다) — 여기서 저장하지 않는다. 배지만 띄우고, 다음 저장이 곧 다음
-        // sync에서 자연히 머지되게 둔다.
-        if (!doc.externalStale) {
+        // 둔다) — 여기서 저장하지 않는다. 디스크가 정말 발산했을 때만 배지를
+        // 세우고, 발산이 없으면(디스크가 에디터 내용 또는 저장 기준과 같음)
+        // 남아 있던 배지도 내린다. 다음 저장이 곧 다음 sync에서 자연히 머지된다.
+        try {
+          const text = await ipc.readFile(root, path);
+          const diverged = text !== doc.content && text !== doc.savedContent;
+          set((s) => {
+            const current = s.docs[path];
+            // 읽는 사이 사용자가 입력했으면 판단 기준이 낡았다 — 건드리지 않는다
+            if (!current || current.content !== doc.content) return s;
+            if (current.externalStale === diverged) return s;
+            return { docs: { ...s.docs, [path]: { ...current, externalStale: diverged } } };
+          });
+        } catch {
+          // 파일이 원격에서 삭제되었을 수 있다 — 외부 변경으로 간주해 배지를 세운다
           set((s) => {
             const current = s.docs[path];
             if (!current || current.externalStale) return s;
@@ -580,7 +594,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         set((s) => {
           const current = s.docs[path];
           // 읽는 사이 사용자가 입력했으면 건드리지 않는다 — 다음 저장이 처리한다
-          if (!current || current.content !== doc.content || text === current.content) return s;
+          if (!current || current.content !== doc.content) return s;
+          if (text === current.content) {
+            // 디스크와 에디터가 같다 — 발산 없음. 남아 있던 배지가 있으면
+            // 여기서 내린다 (undo로 깨끗해진 문서의 배지가 영영 남는 것 방지).
+            if (!current.externalStale) return s;
+            return { docs: { ...s.docs, [path]: { ...current, externalStale: false } } };
+          }
           return {
             docs: {
               ...s.docs,

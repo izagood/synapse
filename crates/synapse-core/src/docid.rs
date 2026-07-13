@@ -22,7 +22,7 @@ fn frontmatter_bounds(text: &str) -> Option<(usize, usize, usize)> {
         .or_else(|| text.strip_prefix("---\n").map(|_| 4))?;
     let mut pos = inner_start;
     for line in text[inner_start..].split_inclusive('\n') {
-        if line.trim_end_matches(['\r', '\n']) == "---" {
+        if line.trim_end() == "---" {
             return Some((inner_start, pos, pos + line.len()));
         }
         pos += line.len();
@@ -112,5 +112,42 @@ mod tests {
         let text = "---\nsynapse_id: abc123\n---\n\n본문에 synapse_id: fake 라는 글자가 있다\n";
         let stripped = strip_doc_id(text).unwrap();
         assert_eq!(stripped, "\n본문에 synapse_id: fake 라는 글자가 있다\n");
+    }
+
+    #[test]
+    fn strips_when_synapse_id_is_first_key_with_siblings() {
+        let text = "---\nsynapse_id: abc123\ntitle: Test\ntags: [a]\n---\n\n# Body\n";
+        let stripped = strip_doc_id(text).unwrap();
+        assert_eq!(stripped, "---\ntitle: Test\ntags: [a]\n---\n\n# Body\n");
+    }
+
+    #[test]
+    fn removes_whole_block_under_crlf() {
+        let text = "---\r\nsynapse_id: abc123\r\n---\r\n\r\n# Body\r\n";
+        let stripped = strip_doc_id(text).unwrap();
+        assert_eq!(stripped, "\r\n# Body\r\n");
+    }
+
+    #[test]
+    fn empty_input_returns_none() {
+        assert_eq!(strip_doc_id(""), None);
+    }
+
+    #[test]
+    fn frontmatter_only_file_with_no_body() {
+        // 다른 키가 없으면 파일이 통째로 비고, 있으면 블록만 남는다.
+        assert_eq!(
+            strip_doc_id("---\nsynapse_id: abc123\n---\n").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            strip_doc_id("---\nsynapse_id: abc123\ntitle: t\n---\n").as_deref(),
+            Some("---\ntitle: t\n---\n")
+        );
+        // 닫는 --- 뒤에 줄바꿈이 없는 파일도 처리한다.
+        assert_eq!(
+            strip_doc_id("---\nsynapse_id: abc123\n---").as_deref(),
+            Some("")
+        );
     }
 }

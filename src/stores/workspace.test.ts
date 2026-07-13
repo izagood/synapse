@@ -433,7 +433,7 @@ describe("workspace store (mock ipc)", () => {
     const path = useWorkspace.getState().activePath!;
     useWorkspace.getState().updateContent(path, "# 편집 중인 내용");
     // 그 사이 git sync가 디스크를 바꿔 놓은 상황을 모사 — 편집 중이라 자동 반영은 안 된다
-    await ipc.writeFile(MOCK_ROOT, path, "# 원격에서 합쳐진 내용");
+    await ipc.writeFile(MOCK_ROOT, path, "# 원격에서 새로 합쳐진 내용 (dirty 케이스)");
 
     await useWorkspace.getState().reloadAfterSync();
     const doc = useWorkspace.getState().docs[path];
@@ -441,6 +441,55 @@ describe("workspace store (mock ipc)", () => {
     expect(doc.content).toBe("# 편집 중인 내용");
     expect(doc.externalStale).toBe(true);
     expect(isDirty(doc)).toBe(true);
+  });
+
+  it("reloadAfterSync does not badge a dirty doc when the disk is unchanged", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용");
+    // 디스크는 sync에서 바뀌지 않았다(savedContent 그대로) — 외부 변경 없음
+
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.externalStale).toBe(false);
+    expect(doc.content).toBe("# 편집 중인 내용");
+  });
+
+  it("reloadAfterSync clears a leftover badge once the doc is clean and disk matches (undo 복귀, 디스크 무변경)", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    const original = useWorkspace.getState().docs[path].savedContent;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용"); // dirty
+    // 이전 sync에서 세워진 배지가 남아 있는 상황 모사
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+
+    // 사용자가 undo로 원래 내용으로 복귀 → clean (저장은 발화하지 않는다)
+    useWorkspace.getState().updateContent(path, original);
+    expect(isDirty(useWorkspace.getState().docs[path])).toBe(false);
+
+    // 디스크는 한 번도 바뀌지 않았다 → 발산 없음 → 배지를 내려야 한다
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.externalStale).toBe(false);
+    expect(doc.content).toBe(original); // 내용은 건드리지 않는다
+  });
+
+  it("reloadAfterSync clears the badge on a dirty doc when disk already matches the editor content", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용"); // dirty
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+    // 원격이 같은 편집 결과를 이미 디스크에 반영해 둔 상황 — 발산 없음
+    await ipc.writeFile(MOCK_ROOT, path, "# 편집 중인 내용");
+
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.externalStale).toBe(false);
+    expect(doc.content).toBe("# 편집 중인 내용");
   });
 
   it("surfaces errors for an invalid folder", async () => {
