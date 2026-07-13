@@ -4,9 +4,14 @@
 //! 앱의 loopback 브리지에 질의해 "지금 보고 있는 노트"(저장 전 편집 버퍼 포함)·열린
 //! 탭·워크스페이스 검색/읽기를 도구로 노출한다.
 //!
-//! 브리지 접속 정보는 환경변수로 받는다:
+//! 브리지 접속 정보는 우선 환경변수로 받는다:
 //! - `SYNAPSE_BRIDGE_PORT` — 앱이 바인드한 loopback 포트
 //! - `SYNAPSE_BRIDGE_TOKEN` — 윈도우별 인증 토큰(이 토큰이 곧 윈도우 선택자)
+//!
+//! 내장 터미널은 앱의 자식 프로세스라 위 env를 상속하지만, 외부 터미널은 상속이
+//! 불가능하다. env가 없으면 `~/.config/synapse/bridge.json`(앱이 기록하는
+//! 워크스페이스→접속정보 맵)을 읽어 현재 cwd의 조상 경로로 자신의 워크스페이스
+//! 항목을 찾아 접속한다(`resolve_from`, `synapse_core::discovery`).
 //!
 //! 외부 MCP SDK 의존을 피하려고 JSON-RPC 2.0 / MCP stdio 프레이밍(개행 구분 JSON)을
 //! 직접 구현한다. 디스크 검색/읽기는 사이드카가 로컬 프로세스이므로 `synapse-core`로
@@ -26,19 +31,32 @@ struct Ctx {
 
 impl Ctx {
     fn from_env() -> Self {
-        let port = std::env::var("SYNAPSE_BRIDGE_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        let token = std::env::var("SYNAPSE_BRIDGE_TOKEN").unwrap_or_default();
-        Ctx { port, token }
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let bridge_json = dirs::config_dir()
+            .map(|d| d.join("synapse").join("bridge.json"))
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        let resolved = resolve_from(
+            std::env::var("SYNAPSE_BRIDGE_PORT").ok(),
+            std::env::var("SYNAPSE_BRIDGE_TOKEN").ok(),
+            bridge_json.as_deref(),
+            &cwd,
+        );
+        match resolved {
+            Some((port, token)) => Ctx { port, token },
+            None => Ctx {
+                port: 0,
+                token: String::new(),
+            },
+        }
     }
 
     /// 앱 브리지에서 현재 윈도우의 라이브 상태를 가져온다.
     fn fetch_live(&self) -> Result<LiveState, String> {
         if self.port == 0 || self.token.is_empty() {
             return Err(
-                "Synapse 브리지 정보가 없습니다(SYNAPSE_BRIDGE_PORT/TOKEN). Synapse 앱의 내장 터미널에서 실행하세요."
+                "Synapse 브리지를 찾을 수 없습니다. 이 폴더(또는 상위 폴더)를 Synapse 앱에서 열어 두세요."
                     .to_string(),
             );
         }
@@ -62,7 +80,7 @@ impl Ctx {
     ) -> Result<String, String> {
         if self.port == 0 || self.token.is_empty() {
             return Err(
-                "Synapse 브리지 정보가 없습니다(SYNAPSE_BRIDGE_PORT/TOKEN). Synapse 앱의 내장 터미널에서 실행하세요."
+                "Synapse 브리지를 찾을 수 없습니다. 이 폴더(또는 상위 폴더)를 Synapse 앱에서 열어 두세요."
                     .to_string(),
             );
         }
@@ -359,6 +377,48 @@ fn write_message<W: Write>(out: &mut W, msg: &Value) -> std::io::Result<()> {
     out.write_all(line.as_bytes())?;
     out.write_all(b"\n")?;
     out.flush()
+}
+
+/// (port, token)을 결정한다: env 우선, 없으면 bridge.json에서 cwd로 찾는다.
+fn resolve_from(
+    env_port: Option<String>,
+    env_token: Option<String>,
+    bridge_json: Option<&str>,
+    cwd: &str,
+) -> Option<(u16, String)> {
+    if let (Some(p), Some(t)) = (env_port.as_deref(), env_token.as_deref()) {
+        if let Ok(port) = p.parse::<u16>() {
+            if !t.is_empty() {
+                return Some((port, t.to_string()));
+            }
+        }
+    }
+    let map = synapse_core::discovery::parse(bridge_json?);
+    let e = synapse_core::discovery::find_for_cwd(&map, cwd)?;
+    Some((e.port, e.token))
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    #[test]
+    fn env_takes_precedence() {
+        let r = resolve_from(Some("111".into()), Some("tok".into()), None, "/ws");
+        assert_eq!(r, Some((111, "tok".to_string())));
+    }
+
+    #[test]
+    fn falls_back_to_bridge_json_by_cwd() {
+        let json = r#"{"/ws":{"port":222,"token":"jtok","pid":1}}"#;
+        let r = resolve_from(None, None, Some(json), "/ws/sub");
+        assert_eq!(r, Some((222, "jtok".to_string())));
+    }
+
+    #[test]
+    fn none_when_no_env_and_no_match() {
+        assert_eq!(resolve_from(None, None, Some("{}"), "/ws"), None);
+    }
 }
 
 #[cfg(test)]
