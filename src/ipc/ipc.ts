@@ -106,6 +106,12 @@ const tauriIpc: SynapseIpc = {
       live,
     }),
 
+  bridgePublishDiscovery: (root) =>
+    invoke<void>("bridge_publish_discovery", {
+      windowLabel: getCurrentWindow().label,
+      root,
+    }),
+
   ptyOpen: (root, cols, rows) =>
     invoke<string>("pty_open", {
       windowLabel: getCurrentWindow().label,

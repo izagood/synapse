@@ -393,6 +393,12 @@ export interface SynapseIpc {
    * 윈도우 라벨은 IPC 계층에서 채워 넣는다(호출자는 라이브 상태만 넘긴다).
    */
   bridgePushState(live: LiveStatePayload): Promise<void>;
+  /**
+   * 워크스페이스 루트를 열 때 브리지 발견 정보를 발행한다. 이 윈도우의 브리지
+   * 접속 정보(포트·토큰)를 ~/.config/synapse/bridge.json에 쓰고, 외부 터미널이
+   * 이 파일을 읽어 접속할 수 있도록 한다. 윈도우 라벨은 IPC 계층에서 채워 넣는다.
+   */
+  bridgePublishDiscovery(root: string): Promise<void>;
 
   // ---- 내장 터미널 (PTY) ----
   /**
