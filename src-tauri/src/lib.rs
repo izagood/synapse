@@ -6,7 +6,6 @@ mod dock;
 mod mcp;
 mod remote;
 mod sync;
-mod terminal;
 mod watcher;
 
 pub fn run() {
@@ -24,16 +23,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 윈도우가 닫히면 그 윈도우의 브리지 세션·PTY·discovery 항목을 정리해
+            // 윈도우가 닫히면 그 윈도우의 브리지 세션·discovery 항목을 정리해
             // 누수/좀비를 막는다.
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
                 if let Some(state) = window.try_state::<bridge::BridgeState>() {
                     let _ = mcp::unpublish_for(&state.0, window.label());
                     state.0.drop_window(window.label());
-                }
-                if let Some(pty) = window.try_state::<terminal::PtyState>() {
-                    pty.drop_window(window.label());
                 }
             }
         })
@@ -47,7 +43,6 @@ pub fn run() {
         .manage(remote::RemoteState::default())
         .manage(watcher::WatcherState::default())
         .manage(bridge_state)
-        .manage(terminal::PtyState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             commands::migrate_workspace,
@@ -87,10 +82,6 @@ pub fn run() {
             bridge::bridge_push_state,
             mcp::bridge_publish_discovery,
             mcp::bridge_unpublish_discovery,
-            terminal::pty_open,
-            terminal::pty_write,
-            terminal::pty_resize,
-            terminal::pty_kill,
             auth::github_login_start,
             auth::github_login_poll,
             auth::github_user,
