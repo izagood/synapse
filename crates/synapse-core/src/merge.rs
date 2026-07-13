@@ -7,7 +7,12 @@
 //!
 //! 결정성: client id를 (base, side) 내용 해시로 유도하므로
 //! - 두 기기가 같은 (base, mine, theirs)를 병합하면 바이트 단위 동일 결과
-//! - 양쪽이 동일한 편집을 했다면 같은 업데이트가 생성되어 중복 삽입 없음
+//! - 완전히 동일한 편집(mine == theirs)은 조기 반환으로 중복이 없다.
+//!   부분적으로 겹치는 동일 삽입(예: 양쪽이 base에 같은 줄을 각자 다른
+//!   편집과 함께 추가한 경우)은 client id가 side 전체 문자열을 해시하므로
+//!   중복될 수 있다 — 다만 양쪽 내용은 모두 보존된다(소실 없음).
+//!   이는 구 CRDT 스토어(collab.rs `absorb_three_way`)의 3-way 병합과
+//!   동일한 특성이며, 어색한 중복 결과는 git 히스토리로 복구한다.
 //! - 입력 순서(mine/theirs 스왑)에도 대칭
 //!
 //! `diff_patches`/`Patch`/`fnv1a64`/`det_client`는 `collab.rs`에서 이식했다
@@ -174,8 +179,10 @@ mod tests {
         let mine = "# 제목\n\n첫 문단입니다! 수정했어요.\n\n둘째 문단입니다.\n";
         let theirs = "# 제목\n\n첫 문단입니다.\n\n둘째 문단입니다. 추가 문장.\n";
         let merged = merge_three_way(base, mine, theirs);
-        assert!(merged.contains("수정했어요"));
-        assert!(merged.contains("추가 문장"));
+        assert_eq!(
+            merged,
+            "# 제목\n\n첫 문단입니다! 수정했어요.\n\n둘째 문단입니다. 추가 문장.\n"
+        );
     }
 
     #[test]
@@ -204,10 +211,27 @@ mod tests {
     }
 
     #[test]
-    fn identical_concurrent_edits_do_not_duplicate() {
+    fn fully_identical_edits_do_not_duplicate() {
+        // mine == theirs 조기 반환 경로 — 완전히 동일한 편집은 중복이 없다.
         let base = "본문\n";
         let both = "본문\n같은 추가\n";
         assert_eq!(merge_three_way(base, both, both), both);
+    }
+
+    #[test]
+    fn partially_identical_concurrent_edits_may_duplicate_but_never_lose() {
+        // mine != theirs 이므로 조기 반환 경로를 타지 않는다. 양쪽이 부분적으로
+        // 동일한 삽입("SAME\n")을 포함하면 client id가 side 전체 문자열을
+        // 해시하므로 그 삽입이 중복될 수 있다 — 이는 허용된 특성이다.
+        // 금지되는 것은 소실뿐이며, MINE/THEIRS/SAME 내용은 모두 보존되어야 한다.
+        let base = "A\n";
+        let mine = "A\nSAME\nMINE\n";
+        let theirs = "A\nSAME\nTHEIRS\n";
+        let merged = merge_three_way(base, mine, theirs);
+        assert!(merged.contains("MINE"));
+        assert!(merged.contains("THEIRS"));
+        assert!(merged.contains("SAME"));
+        assert_eq!(merged, merge_three_way(base, theirs, mine), "대칭성 유지");
     }
 
     #[test]
@@ -232,7 +256,6 @@ mod tests {
         let mine = "줄1 수정\r\n줄2\r\n";
         let theirs = "줄1\r\n줄2\r\n줄3\r\n";
         let merged = merge_three_way(base, mine, theirs);
-        assert!(merged.contains("줄1 수정\r\n"));
-        assert!(merged.contains("줄3\r\n"));
+        assert_eq!(merged, "줄1 수정\r\n줄2\r\n줄3\r\n");
     }
 }
