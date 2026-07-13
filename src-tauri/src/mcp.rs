@@ -61,6 +61,9 @@ pub fn bridge_publish_discovery(
     if root.starts_with("ssh://") {
         return Ok(()); // 원격은 로컬 사이드카 접속 대상이 아니다.
     }
+    // 외부 터미널 에이전트가 사이드카를 찾을 수 있도록, 워크스페이스 열기 시점에
+    // .mcp.json을 프로비저닝한다(discovery 발행과 한곳에서 묶는다). 베스트 에포트.
+    provision_workspace_mcp(&root);
     let token = state.0.ensure_token(&window_label);
     let port = state.0.port();
     let mut map = load_map();
