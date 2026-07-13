@@ -152,6 +152,7 @@ export interface Settings {
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
   files: { confirmDelete: boolean };
+  terminal: { external: string; customCommand: string };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -165,6 +166,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },
   files: { confirmDelete: true },
+  terminal: { external: "terminal", customCommand: "" },
 };
 
 export interface WorkspaceSession {
