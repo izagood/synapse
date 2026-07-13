@@ -94,11 +94,11 @@ pub struct ConflictPreview {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConflictChoice {
-    /// 내 버전 유지 (rebase -Xtheirs: 재생되는 로컬 커밋 우선)
+    /// 내 버전(로컬 HEAD = 병합 스테이지 2/ours) 유지
     KeepMine,
-    /// 원격 버전 가져오기 (rebase -Xours: 업스트림 우선)
+    /// 원격 버전(업스트림 = 병합 스테이지 3/theirs) 가져오기
     KeepRemote,
-    /// 원격을 받아들이고 내 버전은 "이름 (conflict).ext"로 보존
+    /// 원격을 원래 이름으로 받아들이고 내 버전은 "이름 (conflict).ext"로 보존
     KeepBoth,
 }
 
@@ -242,6 +242,20 @@ impl GitWorkspace {
         self.lock
             .lock()
             .map_err(|_| "workspace lock poisoned".to_string())
+    }
+
+    /// 워킹트리를 만지는 로컬 구간을 위한 락 획득. **전역(프로세스) 쓰기 락 →
+    /// 인스턴스 락** 순서로 잡아, 저장(`save_doc`)·브리지 편집·마이그레이션 등
+    /// git 밖의 쓰기와도 직렬화한다(자가 치유의 `reset --hard`가 방금 쓴 저장을
+    /// 되돌리는 경합 방지). 이 순서는 모든 호출부에서 동일해야 교착이 없다.
+    /// 두 가드는 반환 튜플이 사는 동안 유지되고, 반환 즉시 락을 잡은 순서의
+    /// 역순으로 풀린다(local → global). 네트워크 구간에서는 호출하지 않는다.
+    fn lock_write(&self) -> GitResult<(MutexGuard<'static, ()>, MutexGuard<'_, ()>)> {
+        let global = crate::fs_io::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
+        let local = self.lock_local()?;
+        Ok((global, local))
     }
 
     /// GitHub 토큰으로 HTTPS 인증 헤더를 만든다 (actions/checkout과 같은 방식).
@@ -465,7 +479,7 @@ impl GitWorkspace {
         }
         // 로컬 구간 (락): 잔재 정리 + 병합 전 커밋(= 소실 방지 불변식)
         {
-            let _guard = self.lock_local()?;
+            let _guards = self.lock_write()?;
             self.heal_in_progress()?;
             self.commit_all(commit_message)?;
         }
@@ -481,7 +495,7 @@ impl GitWorkspace {
             }
             // 로컬 구간 (락): merge + 자동 해소
             {
-                let _guard = self.lock_local()?;
+                let _guards = self.lock_write()?;
                 // fetch 동안 들어온 저장을 먼저 커밋해 병합에 깨끗한 트리를 보장
                 self.commit_all(commit_message)?;
                 let upstream = self.upstream()?;
@@ -512,15 +526,35 @@ impl GitWorkspace {
                 }
             }
             // 네트워크 구간 (락 없음): push는 워킹트리를 만지지 않는다
-            let branch = self.current_branch()?;
-            let (pushed, _, _) = self.run(&["push", "-u", "origin", &branch])?;
-            if pushed {
-                return Ok(SyncStatus::simple(SyncState::Synced));
+            match self.push_current_branch()? {
+                PushOutcome::Ok => return Ok(SyncStatus::simple(SyncState::Synced)),
+                // push 레이스(non-ff 등): 그 사이 원격이 갱신됨 → fetch부터 재시도
+                PushOutcome::Retryable => continue,
+                // 하드 실패(훅 거부·용량 초과·보호 브랜치 등)는 재시도해도 소용없다.
+                // 조용히 Pending으로 감추지 말고 원인을 UI로 표면화한다.
+                PushOutcome::Hard(msg) => return Err(format!("git push 실패: {msg}")),
             }
-            // push 레이스: 그 사이 원격이 갱신됨 → fetch부터 재시도
         }
-        // 3회 재시도로도 push 못 함 → pending 유지(다음 주기에 재시도)
+        // 3회 재시도로도 push 못 함(계속 레이스) → pending 유지(다음 주기에 재시도)
         Ok(SyncStatus::simple(SyncState::Pending))
+    }
+
+    /// 현재 브랜치를 origin에 push하고 결과를 분류한다.
+    ///
+    /// 재시도 가능(non-fast-forward/fetch first/ref 락 경합)과 하드 실패
+    /// (pre-receive 훅 거부·용량 제한·보호 브랜치 등)를 구분한다. 전자는
+    /// 다시 fetch 후 재시도로 수렴 가능하지만, 후자는 재시도해도 그대로이며
+    /// 조용한 Pending으로 감추면 사용자가 원인을 알 수 없다.
+    fn push_current_branch(&self) -> GitResult<PushOutcome> {
+        let branch = self.current_branch()?;
+        let (ok, _, stderr) = self.run(&["push", "-u", "origin", &branch])?;
+        if ok {
+            Ok(PushOutcome::Ok)
+        } else if is_retryable_push_error(&stderr) {
+            Ok(PushOutcome::Retryable)
+        } else {
+            Ok(PushOutcome::Hard(stderr.trim().to_string()))
+        }
     }
 
     /// 중단된 merge/rebase 잔재를 정리해 sync가 깨끗한 상태에서 시작하도록
@@ -588,10 +622,32 @@ impl GitWorkspace {
     /// 있으면) 또는 삭제 표시(워킹트리에서 지워졌으면). heal의 abort가
     /// 워킹트리를 HEAD로 되돌려도 이 스냅샷을 복원하면 한 바이트도 잃지 않는다.
     fn capture_dirty_state(&self) -> GitResult<Vec<(String, Option<Vec<u8>>)>> {
+        // 캡처 도중 `is_git_authored_conflict`가 `checkout -m`으로 충돌 파일의
+        // 워킹트리 바이트를 덮어쓴다. 뒤이은 파일에서 실패해 그냥 Err로 나가면
+        // 그 파일이 재생성된 마커로 남는 "캡처 핀홀"이 생긴다 — 실패 시점까지
+        // 캡처한 항목을 되돌려(원본 바이트는 덮어쓰기 전에 이미 읽어 두었다)
+        // 그 구멍을 막는다.
+        match self.capture_dirty_state_inner() {
+            Ok(captured) => Ok(captured),
+            Err((captured, e)) => {
+                let _ = self.restore_dirty_state(&captured);
+                Err(e)
+            }
+        }
+    }
+
+    /// `capture_dirty_state`의 본체. 실패 시 그때까지 캡처한 항목을 함께
+    /// 돌려주어 호출측이 되돌릴 수 있게 한다.
+    #[allow(clippy::type_complexity)]
+    fn capture_dirty_state_inner(
+        &self,
+    ) -> Result<Vec<(String, Option<Vec<u8>>)>, (Vec<(String, Option<Vec<u8>>)>, String)> {
         // -z: 경로 인용/이스케이프 없이 NUL 구분 — 공백·비ASCII 경로 안전
-        let (ok, out, err) = self.run_bytes(&["status", "--porcelain", "-z"])?;
+        let (ok, out, err) = self
+            .run_bytes(&["status", "--porcelain", "-z"])
+            .map_err(|e| (Vec::new(), e))?;
         if !ok {
-            return Err(format!("git status 실패: {}", err.trim()));
+            return Err((Vec::new(), format!("git status 실패: {}", err.trim())));
         }
         let out = String::from_utf8_lossy(&out).into_owned();
         let mut fields = out.split('\0').filter(|s| !s.is_empty());
@@ -610,7 +666,10 @@ impl GitWorkspace {
             }
             let abs = self.root.join(path);
             let content = if self.backend.exists(&abs) {
-                let bytes = self.backend.read(&abs).map_err(|e| e.to_string())?;
+                let bytes = match self.backend.read(&abs) {
+                    Ok(b) => b,
+                    Err(e) => return Err((captured, e.to_string())),
+                };
                 // 잔재 충돌 파일(UU/AA)의 내용이 git이 쓴 충돌 마커 출력
                 // 그대로라면 사용자 데이터가 아니다 — 복원하지 않아야 마커가
                 // 노트로 커밋되어 퍼지지 않는다 (실제 내용은 양쪽 부모 커밋에
@@ -752,9 +811,13 @@ impl GitWorkspace {
                 _ => return Err(format!("삭제/수정 충돌은 자동 해결하지 않습니다: {path}")),
             }
         }
-        // 병합 커밋 완결. 자동 해소 결과가 HEAD와 동일한 트리를 낳으면 커밋할
-        // 것이 없어 실패하는데, 그때는 빈 병합 커밋으로 완결해 업스트림을
-        // 조상으로 남기고 push가 fast-forward 되게 한다.
+        self.commit_merge()
+    }
+
+    /// 진행 중인 merge를 커밋해 완결한다. 해소 결과가 HEAD와 동일한 트리를
+    /// 낳으면 커밋할 것이 없어 실패하는데, 그때는 빈 병합 커밋으로 완결해
+    /// 업스트림을 조상으로 남기고 push가 fast-forward 되게 한다.
+    fn commit_merge(&self) -> GitResult<()> {
         let (ok, _, err) = self.run(&["commit", "--no-edit"])?;
         if !ok {
             if self.merge_in_progress()? {
@@ -764,6 +827,47 @@ impl GitWorkspace {
                 }
             } else {
                 return Err(format!("병합 커밋 실패: {}", err.trim()));
+            }
+        }
+        Ok(())
+    }
+
+    /// 3택 전략을 진행 중인 merge의 충돌 파일들에 적용해 스테이징한다.
+    /// 스테이지 2=ours(내 HEAD), 3=theirs(업스트림). 어느 한쪽이 없으면
+    /// (삭제/수정 충돌) 삭제(`git rm`)로 해소한다.
+    fn apply_choice(&self, choice: ConflictChoice, files: &[String]) -> GitResult<()> {
+        for path in files {
+            let ours = self.stage_bytes(2, path)?;
+            let theirs = self.stage_bytes(3, path)?;
+            match choice {
+                ConflictChoice::KeepMine => self.take_side(path, ours.as_deref())?,
+                ConflictChoice::KeepRemote => self.take_side(path, theirs.as_deref())?,
+                ConflictChoice::KeepBoth => match (ours, theirs) {
+                    // 양쪽 다 존재: theirs가 원래 이름, ours는 (conflict) 사본
+                    (Some(o), Some(t)) => self.keep_both(path, &o, &t)?,
+                    // 한쪽만 존재(삭제/수정): 남아 있는 쪽을 원래 이름에 둔다
+                    // (사본으로 뜰 것이 없다)
+                    (Some(o), None) => self.take_side(path, Some(&o))?,
+                    (None, Some(t)) => self.take_side(path, Some(&t))?,
+                    // 둘 다 삭제: 삭제를 유지
+                    (None, None) => self.take_side(path, None)?,
+                },
+            }
+        }
+        Ok(())
+    }
+
+    /// 한쪽 내용을 원래 이름에 쓰고 스테이징한다. `None`이면 삭제한다.
+    fn take_side(&self, path: &str, content: Option<&[u8]>) -> GitResult<()> {
+        match content {
+            Some(bytes) => {
+                self.backend
+                    .write(&self.root.join(path), bytes)
+                    .map_err(|e| e.to_string())?;
+                self.run_ok(&["add", "--", path])?;
+            }
+            None => {
+                self.run_ok(&["rm", "-f", "--", path])?;
             }
         }
         Ok(())
@@ -792,58 +896,64 @@ impl GitWorkspace {
             .collect())
     }
 
-    /// 충돌을 3택 전략으로 해소하고 push까지 마친다 (FR-4.5 MVP)
+    /// 충돌을 3택 전략으로 해소하고 push까지 마친다 (FR-4.5 MVP).
+    ///
+    /// sync와 같은 merge 기반 모델을 쓴다(rebase·`-X` 전략을 쓰지 않는다 —
+    /// `-X`는 삭제/수정 충돌을 해소하지 못해 rebase가 중단된 채 남는다):
+    /// fetch → `git merge --no-edit <upstream>` → 충돌 파일마다 병합
+    /// 스테이지(2=ours, 3=theirs)에서 선택한 쪽을 취해 스테이징 →
+    /// 병합 커밋 완결 → push. push 레이스(non-ff)는 fetch부터 재시도해
+    /// 최신 업스트림에 다시 병합·해소한다. 하드 실패는 Err로 표면화한다.
     pub fn resolve_conflicts(&self, choice: ConflictChoice) -> GitResult<SyncStatus> {
+        if !Self::git_available() {
+            return Ok(SyncStatus::simple(SyncState::NoGit));
+        }
+        if !self.is_repo() {
+            return Ok(SyncStatus::simple(SyncState::NoRepo));
+        }
+        if !self.has_remote() {
+            return Ok(SyncStatus::simple(SyncState::NoRemote));
+        }
+        // 로컬 구간 (락): 잔재 정리 + 해결 전 커밋(= 소실 방지 불변식)
         {
-            let _guard = self.lock_local()?;
+            let _guards = self.lock_write()?;
+            self.heal_in_progress()?;
             self.commit_all("synapse: 충돌 해결 전 저장")?;
         }
-        self.run_ok(&["fetch", "origin"])?;
-        let upstream = self.upstream()?;
-
-        let guard = self.lock_local()?;
-        match choice {
-            ConflictChoice::KeepMine => {
-                // rebase에서 -Xtheirs는 "재생되는 커밋"(= 내 로컬 변경)을 우선한다
-                self.run_ok(&["rebase", "-Xtheirs", &upstream])?;
-            }
-            ConflictChoice::KeepRemote => {
-                self.run_ok(&["rebase", "-Xours", &upstream])?;
-            }
-            ConflictChoice::KeepBoth => {
-                // 1) 충돌 파일의 내 버전을 미리 떠 둔다
-                let (ok, _, _) = self.run(&["rebase", &upstream])?;
-                let files = if ok {
-                    vec![] // 그 사이 충돌이 사라짐
-                } else {
-                    let f = self.conflicted_files()?;
-                    self.run_ok(&["rebase", "--abort"])?;
-                    f
-                };
-                let saved: Vec<(String, String)> = files
-                    .iter()
-                    .filter_map(|f| {
-                        self.run_ok(&["show", &format!("HEAD:{f}")])
-                            .ok()
-                            .map(|content| (f.clone(), content))
-                    })
-                    .collect();
-                // 2) 원격 우선으로 rebase
-                self.run_ok(&["rebase", "-Xours", &upstream])?;
-                // 3) 내 버전을 "이름 (conflict).ext"로 보존
-                for (file, content) in saved {
-                    let conflict_name = conflict_copy_name(&file);
-                    self.backend
-                        .write(&self.root.join(&conflict_name), content.as_bytes())
-                        .map_err(|e| e.to_string())?;
+        for _attempt in 0..3 {
+            // 네트워크 구간 (락 없음)
+            self.run_ok(&["fetch", "origin"])?;
+            // 로컬 구간 (락): merge + 선택 해소 + 병합 커밋
+            {
+                let _guards = self.lock_write()?;
+                self.commit_all("synapse: 충돌 해결 전 저장")?;
+                let upstream = self.upstream()?;
+                let (upstream_exists, _, _) =
+                    self.run(&["rev-parse", "--verify", &format!("{upstream}^{{commit}}")])?;
+                if upstream_exists {
+                    let (ok, _, merge_err) = self.run(&["merge", "--no-edit", &upstream])?;
+                    if !ok {
+                        let files = self.conflicted_files()?;
+                        if files.is_empty() {
+                            // merge가 시작조차 못 함(미추적 파일 덮어쓰기 등) —
+                            // sync와 동일하게 abort 후 원인을 그대로 알린다
+                            let _ = self.run(&["merge", "--abort"]);
+                            return Err(format!("git merge 실패: {}", merge_err.trim()));
+                        }
+                        self.apply_choice(choice, &files)?;
+                        self.commit_merge()?;
+                    }
+                    // ok면 fast-forward이거나 충돌 없이 병합됨 — 해소할 것이 없다
                 }
-                self.commit_all("synapse: 충돌한 내 버전을 (conflict) 사본으로 보존")?;
+            }
+            // 네트워크 구간 (락 없음)
+            match self.push_current_branch()? {
+                PushOutcome::Ok => return Ok(SyncStatus::simple(SyncState::Synced)),
+                PushOutcome::Retryable => continue,
+                PushOutcome::Hard(msg) => return Err(format!("git push 실패: {msg}")),
             }
         }
-        drop(guard);
-        let branch = self.current_branch()?;
-        self.run_ok(&["push", "-u", "origin", &branch])?;
-        Ok(SyncStatus::simple(SyncState::Synced))
+        Ok(SyncStatus::simple(SyncState::Pending))
     }
 
     /// 충돌한 파일들의 양쪽 내용을 모아 돌려준다 (FR-4.5 diff 뷰).
@@ -995,6 +1105,29 @@ fn normalize_conflict_markers(text: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// `push_current_branch`의 결과 분류.
+enum PushOutcome {
+    /// push 성공.
+    Ok,
+    /// 원격이 앞서 있어 거부됨(non-ff 등) — fetch 후 재시도로 수렴 가능.
+    Retryable,
+    /// 재시도해도 소용없는 하드 실패(훅/용량/보호 브랜치 등). 표면화할 stderr.
+    Hard(String),
+}
+
+/// push 거부가 "원격이 앞서 있어서"(재시도로 수렴 가능)인지 판별한다.
+///
+/// non-fast-forward / fetch first / ref 락 경합만 재시도 대상이다. 그 밖의
+/// 실패(pre-receive 훅 거부 `remote rejected`·`hook declined`, 용량 제한,
+/// 보호 브랜치 등)는 재시도해도 그대로이므로 하드 실패로 표면화한다.
+fn is_retryable_push_error(stderr: &str) -> bool {
+    let s = stderr.to_lowercase();
+    s.contains("non-fast-forward")
+        || s.contains("fetch first")
+        || s.contains("cannot lock ref")
+        || s.contains("failed to lock")
 }
 
 /// "dir/note.md" → "dir/note (conflict).md"
@@ -1262,6 +1395,116 @@ mod tests {
         // 사본까지 원격에 반영되어 A에서도 보인다
         git_a.sync("A pull").unwrap();
         assert_eq!(read(&ws_a, "shared (conflict).md"), "B의 수정");
+    }
+
+    // 삭제/수정 충돌은 이 브랜치에서 sync가 Conflict로 보고하는 유일한 종류다
+    // (텍스트/바이너리/.synapse는 자동 해소된다). 3택이 merge 스테이지 기반으로
+    // 이런 충돌을 실제로 해소하는지 end-to-end로 검증한다.
+
+    /// 삭제/수정 충돌 셋업: 원격(A)은 파일을 수정, 로컬(B)은 같은 파일을 삭제.
+    /// resolve_conflicts가 B의 삭제를 커밋하고 fetch·merge해 델리트/모디파이
+    /// 충돌 상태에 이르도록 준비한다.
+    fn setup_delete_modify_conflict() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let (tmp, a, b) = setup_two_clones();
+        write(&a, "shared.md", "기준 내용");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+        // A(원격)는 수정
+        write(&a, "shared.md", "A가 수정한 내용");
+        ws(&a).sync("a").unwrap();
+        // B(로컬)는 삭제 (resolve_conflicts가 커밋한다)
+        fs::remove_file(b.join("shared.md")).unwrap();
+        (tmp, a, b)
+    }
+
+    #[test]
+    fn resolve_delete_modify_keep_mine_keeps_deletion() {
+        let (_tmp, a, b) = setup_delete_modify_conflict();
+        let st = ws(&b).resolve_conflicts(ConflictChoice::KeepMine).unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        // 내 삭제가 유지된다
+        assert!(!b.join("shared.md").exists(), "삭제가 되돌려짐");
+        // 삭제가 원격에도 전파된다
+        ws(&a).sync("a pull").unwrap();
+        assert!(!a.join("shared.md").exists(), "삭제가 원격에 전파 안 됨");
+    }
+
+    #[test]
+    fn resolve_delete_modify_keep_remote_takes_modification() {
+        let (_tmp, a, b) = setup_delete_modify_conflict();
+        let st = ws(&b)
+            .resolve_conflicts(ConflictChoice::KeepRemote)
+            .unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        // 원격의 수정본이 되살아난다
+        assert_eq!(read(&b, "shared.md"), "A가 수정한 내용");
+        ws(&a).sync("a pull").unwrap();
+        assert_eq!(read(&a, "shared.md"), "A가 수정한 내용");
+    }
+
+    #[test]
+    fn resolve_delete_modify_keep_both_keeps_existing_side() {
+        let (_tmp, a, b) = setup_delete_modify_conflict();
+        let st = ws(&b).resolve_conflicts(ConflictChoice::KeepBoth).unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        // 한쪽이 삭제라 사본으로 뜰 것이 없다 — 남아 있는 원격 수정본을 원래
+        // 이름에 두고, (conflict) 사본은 만들지 않는다
+        assert_eq!(read(&b, "shared.md"), "A가 수정한 내용");
+        assert!(
+            !b.join("shared (conflict).md").exists(),
+            "삭제된 쪽에 대한 사본이 생김"
+        );
+        ws(&a).sync("a pull").unwrap();
+        assert_eq!(read(&a, "shared.md"), "A가 수정한 내용");
+    }
+
+    // ----------------------------------------------------------------
+    // push 하드 실패 표면화 (I3)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn is_retryable_push_error_classifies_only_race_failures() {
+        assert!(is_retryable_push_error(
+            "! [rejected] main -> main (non-fast-forward)"
+        ));
+        assert!(is_retryable_push_error(
+            "Updates were rejected, fetch first"
+        ));
+        assert!(is_retryable_push_error("cannot lock ref 'refs/heads/main'"));
+        // 하드 실패는 재시도 대상이 아니다
+        assert!(!is_retryable_push_error(
+            "! [remote rejected] main -> main (pre-receive hook declined)"
+        ));
+        assert!(!is_retryable_push_error("remote: error: file too large"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_surfaces_hard_push_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_tmp, remote, ws_dir) = setup();
+        let git = GitWorkspace::new(&ws_dir, None);
+        write(&ws_dir, "note.md", "첫 내용");
+        git.publish(&remote.display().to_string(), "init").unwrap();
+
+        // 초기 push 이후에 원격에 모든 push를 거부하는 pre-receive 훅을 심는다
+        let hook = remote.join("hooks").join("pre-receive");
+        fs::create_dir_all(remote.join("hooks")).unwrap();
+        fs::write(
+            &hook,
+            "#!/bin/sh\necho 'PUSH-REJECTED-BY-HOOK' 1>&2\nexit 1\n",
+        )
+        .unwrap();
+        let mut perms = fs::metadata(&hook).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&hook, perms).unwrap();
+
+        write(&ws_dir, "note.md", "바뀐 내용");
+        let err = git.sync("update").unwrap_err();
+        assert!(
+            err.contains("PUSH-REJECTED-BY-HOOK"),
+            "훅 거부 메시지가 표면화되지 않음: {err}"
+        );
     }
 
     // ----------------------------------------------------------------
