@@ -24,16 +24,20 @@ export interface TabInfo {
 export interface DocState {
   /** 현재(편집 중) 전체 파일 텍스트 — frontmatter 포함 */
   content: string;
-  /**
-   * 에디터가 마지막으로 본 디스크 텍스트 — CRDT 저장의 diff 기준(base).
-   * content는 항상 여기서 출발한 편집이어야 위치 변환 머지가 정확하다.
-   */
+  /** 마지막으로 저장(또는 로드)된 디스크 텍스트 — content와 다르면 dirty */
   savedContent: string;
   /**
-   * 에디터 밖에서 content가 통째로 바뀐 횟수 (원격 머지 반영 등).
-   * 열려 있는 에디터는 이 값이 바뀌면 content를 다시 읽어 적용한다.
+   * 에디터 밖에서 content가 통째로 바뀐 횟수 (저장 결과 반영·깨끗한 문서의
+   * 외부 리로드 등). 열려 있는 에디터는 이 값이 바뀌면 content를 다시 읽어
+   * 화면에 적용한다.
    */
   externalRev: number;
+  /**
+   * sync 중 디스크가 바뀌었는데 이 문서가 dirty라 자동으로 반영하지 못했다.
+   * 탭에 배지를 띄워 사용자가 저장하면 다음 sync에서 병합됨을 알린다
+   * (git이 양쪽 내용을 모두 갖고 있으므로 데이터 손실은 없다).
+   */
+  externalStale: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -125,7 +129,11 @@ interface WorkspaceState {
   saveActive(): Promise<void>;
   /** 미저장 문서를 전부 저장 (동기화 직전 호출) */
   flushDirty(): Promise<void>;
-  /** sync 후 열린 문서에 원격 변경을 반영 — 깨끗하면 다시 읽고, 편집 중이면 CRDT 머지 저장 */
+  /**
+   * sync 후 열린 문서에 원격 변경을 반영 — 깨끗하면 디스크에서 다시 읽고,
+   * 편집 중(dirty)이면 라이브 머지 없이 externalStale 배지만 세운다(다음
+   * 저장이 다음 sync에서 자연히 합쳐진다).
+   */
   reloadAfterSync(): Promise<void>;
   createNote(dir?: string): Promise<void>;
   /** dir 안에 빈 `.excalidraw` 드로잉을 만들어 연다 */
@@ -237,6 +245,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         loading: false,
       });
       await restoreSession(target, tree, get());
+      // 레거시 `.synapse/` 정리는 fire-and-forget: 실패해도 워크스페이스
+      // 열기 자체를 막지 않는다. 삭제분은 다음 sync가 자연히 커밋한다.
+      void ipc.migrateWorkspace(target).catch(() => undefined);
     } catch (e) {
       set({ error: String(e), loading: false });
     }
@@ -336,7 +347,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       set((s) => ({
         docs: {
           ...s.docs,
-          [node.path]: { content: "", savedContent: "", externalRev: 0, loading: false, error: null },
+          [node.path]: {
+            content: "",
+            savedContent: "",
+            externalRev: 0,
+            externalStale: false,
+            loading: false,
+            error: null,
+          },
         },
       }));
       return;
@@ -345,7 +363,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((s) => ({
       docs: {
         ...s.docs,
-        [node.path]: { content: "", savedContent: "", externalRev: 0, loading: true, error: null },
+        [node.path]: {
+          content: "",
+          savedContent: "",
+          externalRev: 0,
+          externalStale: false,
+          loading: true,
+          error: null,
+        },
       },
     }));
     try {
@@ -353,14 +378,28 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       set((s) => ({
         docs: {
           ...s.docs,
-          [node.path]: { content: text, savedContent: text, externalRev: 0, loading: false, error: null },
+          [node.path]: {
+            content: text,
+            savedContent: text,
+            externalRev: 0,
+            externalStale: false,
+            loading: false,
+            error: null,
+          },
         },
       }));
     } catch (e) {
       set((s) => ({
         docs: {
           ...s.docs,
-          [node.path]: { content: "", savedContent: "", externalRev: 0, loading: false, error: String(e) },
+          [node.path]: {
+            content: "",
+            savedContent: "",
+            externalRev: 0,
+            externalStale: false,
+            loading: false,
+            error: String(e),
+          },
         },
       }));
     }
@@ -453,8 +492,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const snapshot = doc.content;
     const isMarkdown = tabs.find((t) => t.path === path)?.fileType === "markdown";
     try {
-      // 마크다운은 CRDT 경로(save_doc)로 — 원격 머지·외부 편집이 합쳐진
-      // 최종 텍스트가 돌아온다. 그 외 파일은 단순 쓰기.
+      // 마크다운 저장은 base(마지막으로 본 디스크 = savedContent)를 함께 넘긴다.
+      // 저장 직전 디스크가 그 base에서 갈라졌으면(외부 도구·브리지·sync 병합)
+      // 백엔드가 3-way로 흡수해 미커밋 바이트를 파괴하지 않는다. 돌아온 텍스트가
+      // snapshot과 다를 수 있고(병합·synapse_id strip), 그 경우 에디터에도
+      // 반영해야 한다(아래 applyExternal 경로). 그 외 파일은 단순 쓰기.
       const merged = isMarkdown
         ? await ipc.saveDoc(root, path, snapshot, doc.savedContent)
         : (await ipc.writeFile(root, path, snapshot), snapshot);
@@ -462,7 +504,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         const current = s.docs[path];
         if (!current) return s; // 저장 중 탭이 닫힘
         if (current.content === snapshot) {
-          // 저장 중 추가 입력 없음 — 합쳐진 결과를 에디터에 그대로 반영
+          // 저장 중 추가 입력 없음 — strip 등으로 바뀐 결과를 에디터에 반영
           return {
             docs: {
               ...s.docs,
@@ -472,15 +514,21 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
                 savedContent: merged,
                 externalRev:
                   merged === snapshot ? current.externalRev : current.externalRev + 1,
+                externalStale: false,
                 error: null,
               },
             },
           };
         }
-        // 입력이 계속된 경우: base를 snapshot까지만 전진시킨다.
-        // (content는 snapshot에서 출발한 편집이므로 — 다음 저장이 3-way로 합친다)
+        // 입력이 계속된 경우: savedContent를 snapshot까지만 전진시킨다.
+        // (그 사이 들어온 추가 입력은 다음 자동 저장이 그대로 처리한다)
+        // strip이 일어났다면 savedContent가 잠깐 pre-strip 텍스트(디스크와 다름)를
+        // 갖지만, 다음 자동 저장이 merged를 반영하면서 수렴한다.
         return {
-          docs: { ...s.docs, [path]: { ...current, savedContent: snapshot, error: null } },
+          docs: {
+            ...s.docs,
+            [path]: { ...current, savedContent: snapshot, externalStale: false, error: null },
+          },
         };
       });
     } catch (e) {
@@ -522,16 +570,42 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const binaryType = fileTypeOf(basename(path));
       if (binaryType === "pdf" || binaryType === "image") continue;
       if (isDirty(doc)) {
-        // 편집 중이면 저장 경로가 곧 머지 경로다 (CRDT 3-way)
-        await get().saveDoc(path);
+        // 편집 중이면 디스크에 이미 양쪽 내용이 다 있다(git이 sync 전에 커밋해
+        // 둔다) — 여기서 저장하지 않는다. 디스크가 정말 발산했을 때만 배지를
+        // 세우고, 발산이 없으면(디스크가 에디터 내용 또는 저장 기준과 같음)
+        // 남아 있던 배지도 내린다. 다음 저장이 곧 다음 sync에서 자연히 머지된다.
+        try {
+          const text = await ipc.readFile(root, path);
+          const diverged = text !== doc.content && text !== doc.savedContent;
+          set((s) => {
+            const current = s.docs[path];
+            // 읽는 사이 사용자가 입력했으면 판단 기준이 낡았다 — 건드리지 않는다
+            if (!current || current.content !== doc.content) return s;
+            if (current.externalStale === diverged) return s;
+            return { docs: { ...s.docs, [path]: { ...current, externalStale: diverged } } };
+          });
+        } catch {
+          // 파일이 원격에서 삭제되었을 수 있다 — 외부 변경으로 간주해 배지를 세운다
+          set((s) => {
+            const current = s.docs[path];
+            if (!current || current.externalStale) return s;
+            return { docs: { ...s.docs, [path]: { ...current, externalStale: true } } };
+          });
+        }
         continue;
       }
       try {
         const text = await ipc.readFile(root, path);
         set((s) => {
           const current = s.docs[path];
-          // 읽는 사이 사용자가 입력했으면 건드리지 않는다 — 다음 저장이 합친다
-          if (!current || current.content !== doc.content || text === current.content) return s;
+          // 읽는 사이 사용자가 입력했으면 건드리지 않는다 — 다음 저장이 처리한다
+          if (!current || current.content !== doc.content) return s;
+          if (text === current.content) {
+            // 디스크와 에디터가 같다 — 발산 없음. 남아 있던 배지가 있으면
+            // 여기서 내린다 (undo로 깨끗해진 문서의 배지가 영영 남는 것 방지).
+            if (!current.externalStale) return s;
+            return { docs: { ...s.docs, [path]: { ...current, externalStale: false } } };
+          }
           return {
             docs: {
               ...s.docs,
@@ -540,6 +614,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
                 content: text,
                 savedContent: text,
                 externalRev: current.externalRev + 1,
+                externalStale: false,
               },
             },
           };

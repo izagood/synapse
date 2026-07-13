@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use synapse_core::github::{self, UreqHttp};
 use synapse_core::{
-    collab, Backend, CollabStore, ConflictChoice, ConflictPreview, FileCommit, GitWorkspace,
-    LocalBackend, Location, SftpBackend, SshSession, SyncStatus,
+    Backend, ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, LocalBackend, Location,
+    SftpBackend, SshSession, SyncStatus,
 };
 
 use crate::auth::stored_token;
@@ -50,16 +50,6 @@ fn backend_of(session: &Option<Arc<SshSession>>) -> Arc<dyn Backend> {
     }
 }
 
-/// 이 워크스페이스의 CRDT 저장 계층 (actor id는 설치본 단위, 로컬 config에서 읽음)
-fn build_store(session: Option<Arc<SshSession>>, root: &str) -> Result<CollabStore, String> {
-    let actor = collab::load_or_create_actor_id(&crate::commands::config_dir()?)
-        .map_err(|e| e.to_string())?;
-    Ok(match session {
-        Some(s) => CollabStore::new(Arc::new(SftpBackend::new(s)), root.to_string(), actor),
-        None => CollabStore::local(root, actor),
-    })
-}
-
 #[tauri::command]
 pub async fn sync_status(
     state: tauri::State<'_, RemoteState>,
@@ -82,9 +72,8 @@ pub async fn sync_now(
         } else {
             message.trim()
         };
-        // CRDT 충돌 자동 해결 포함. 락은 sync 내부에서 로컬 구간에만 잡힌다.
-        let store = build_store(session.clone(), &root).ok();
-        build_workspace(session, &root).sync_with_collab(message, store.as_ref())
+        // 충돌 자동 해소 포함. 락은 sync 내부에서 로컬 구간에만 잡힌다.
+        build_workspace(session, &root).sync(message)
     })
     .await
 }

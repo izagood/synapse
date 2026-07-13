@@ -195,7 +195,7 @@ export const useSync = create<SyncStoreState>((set, get) => ({
     if (get().syncing) return;
     set({ syncing: true, error: null, lastAttemptAt: Date.now() });
     try {
-      // 미저장 편집을 먼저 CRDT에 기록해 이번 커밋에 싣는다
+      // 미저장 편집을 먼저 디스크에 저장해 이번 커밋에 싣는다
       await useWorkspace.getState().flushDirty();
       const language = useSettings.getState().settings.appearance.language;
       const syncLabel = translate(language, "sync.timeoutLabelSync");
@@ -211,7 +211,8 @@ export const useSync = create<SyncStoreState>((set, get) => ({
       );
       // 충돌이면 diff 데이터를 함께 채워 패널이 바로 비교를 보여주게 한다
       set({ status, conflictPreview: await loadPreviewFor(root, status) });
-      // pull로 받은 원격 변경을 열린 에디터에 라이브 반영
+      // sync로 바뀐 디스크를 열린 에디터에 반영: 깨끗한 문서는 다시 읽어
+      // 교체하고, 편집 중(dirty) 문서는 발산 시 배지만 세운다(reloadAfterSync)
       await useWorkspace.getState().reloadAfterSync();
       set({ failures: 0 });
     } catch (e) {

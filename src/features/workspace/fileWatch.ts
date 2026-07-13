@@ -7,8 +7,9 @@
 //
 // 두 신호 모두 한 번에 몰릴 수 있으므로(저장 한 번에 여러 이벤트, 대량 동기화),
 // 디바운스 스케줄러로 묶어 reloadAfterSync 한 번으로 합친다. reloadAfterSync는
-// 내용을 비교해 dirty 문서는 CRDT 3-way 머지하고 clean 문서만 교체하므로,
-// 앱 자신의 저장이 유발한 잉여 트리거가 와도 안전하다(no-op).
+// 내용을 비교해 clean 문서만 디스크 내용으로 교체하고, dirty 문서는 디스크가
+// 정말 발산했을 때만 배지(externalStale)를 세운다(저장 시 다음 저장이 3-way로
+// 흡수). 앱 자신의 저장이 유발한 잉여 트리거가 와도 안전하다(no-op).
 
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";

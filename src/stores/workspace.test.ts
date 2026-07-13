@@ -45,6 +45,20 @@ describe("workspace store (mock ipc)", () => {
     expect(s.error).toBeNull();
   });
 
+  it("워크스페이스를 연 뒤 레거시 `.synapse/` 정리를 fire-and-forget으로 부른다", async () => {
+    const spy = vi.spyOn(ipc, "migrateWorkspace");
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+    expect(spy).toHaveBeenCalledWith(MOCK_ROOT);
+  });
+
+  it("migrateWorkspace가 실패해도 워크스페이스 열기 자체는 성공한다", async () => {
+    vi.spyOn(ipc, "migrateWorkspace").mockRejectedValueOnce(new Error("boom"));
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+    const s = useWorkspace.getState();
+    expect(s.root).toBe(MOCK_ROOT);
+    expect(s.error).toBeNull();
+  });
+
   it("opens a file in a tab and loads content", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     const s = useWorkspace.getState();
@@ -194,9 +208,8 @@ describe("workspace store (mock ipc)", () => {
 
       await vi.advanceTimersByTimeAsync(1500);
       expect(isDirty(useWorkspace.getState().docs[path])).toBe(false);
-      // 마크다운 저장은 CRDT 경로 — synapse_id가 주입된 채로 저장된다
-      expect(await ipc.readFile(MOCK_ROOT, path)).toContain("# 수정됨");
-      expect(await ipc.readFile(MOCK_ROOT, path)).toContain("synapse_id:");
+      // 저장 = 그냥 원자적 쓰기 (라이브 머지·synapse_id 주입 없음)
+      expect(await ipc.readFile(MOCK_ROOT, path)).toBe("# 수정됨");
     } finally {
       vi.useRealTimers();
     }
@@ -358,18 +371,72 @@ describe("workspace store (mock ipc)", () => {
     await useWorkspace.getState().deleteEntry({ path: s.activePath!, kind: "file" });
   });
 
-  it("markdown saveDoc injects synapse_id and bumps externalRev", async () => {
+  it("markdown saveDoc is a plain write when there is no legacy synapse_id", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     const path = useWorkspace.getState().activePath!;
     useWorkspace.getState().updateContent(path, "# 협업 문서");
 
     await useWorkspace.getState().saveDoc(path);
     const doc = useWorkspace.getState().docs[path];
-    // 저장 결과(id 주입)가 에디터 content에 반영되고 rev가 올라 에디터가 다시 그린다
-    expect(doc.content).toContain("synapse_id:");
+    // 저장 = 그냥 원자적 쓰기 — 내용이 바뀌지 않았으니 rev도 그대로다
+    expect(doc.content).toBe("# 협업 문서");
+    expect(await ipc.readFile(MOCK_ROOT, path)).toBe("# 협업 문서");
+    expect(doc.externalRev).toBe(0);
+    expect(isDirty(doc)).toBe(false);
+  });
+
+  it("markdown saveDoc strips a legacy synapse_id and bumps externalRev", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace
+      .getState()
+      .updateContent(path, "---\nsynapse_id: legacy-id-0001\n---\n\n# 협업 문서");
+
+    await useWorkspace.getState().saveDoc(path);
+    const doc = useWorkspace.getState().docs[path];
+    // strip된 결과(id 제거)가 에디터 content에 반영되고 rev가 올라 에디터가 다시 그린다
+    expect(doc.content).not.toContain("synapse_id");
     expect(doc.content).toContain("# 협업 문서");
     expect(doc.externalRev).toBe(1);
     expect(isDirty(doc)).toBe(false);
+  });
+
+  it("saveDoc clears externalStale on success", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중 내용");
+    // 이전 sync에서 배지가 세워졌다고 가정(실제로는 reloadAfterSync가 세운다)
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+
+    await useWorkspace.getState().saveDoc(path);
+    expect(useWorkspace.getState().docs[path].externalStale).toBe(false);
+  });
+
+  it("saveDoc absorbs diverged disk via 3-way merge and reflects it in the editor", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    const base = useWorkspace.getState().docs[path].savedContent;
+
+    // 외부(다른 기기 sync 병합 등)가 저장 사이에 디스크를 base에서 갈라놓는다
+    await ipc.writeFile(MOCK_ROOT, path, `${base}\n외부-디스크-편집\n`);
+    // 에디터는 별도의 편집을 갖고 있고, 이전 sync에서 배지가 세워졌다고 가정
+    useWorkspace.getState().updateContent(path, `에디터-편집\n${base}`);
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+
+    await useWorkspace.getState().saveDoc(path);
+    const doc = useWorkspace.getState().docs[path];
+    // 덮어쓰지 않고 양쪽 편집을 모두 보존한 병합 결과가 에디터에 반영된다
+    expect(doc.content).toContain("에디터-편집");
+    expect(doc.content).toContain("외부-디스크-편집");
+    expect(doc.content).toBe(doc.savedContent); // 저장 후 깨끗
+    expect(doc.externalRev).toBe(1); // merged !== snapshot → 에디터 다시 그림
+    expect(doc.externalStale).toBe(false); // 발산을 흡수했으니 배지 해제
+    // 디스크에도 병합 결과가 쓰였다
+    expect(await ipc.readFile(MOCK_ROOT, path)).toBe(doc.content);
   });
 
   it("flushDirty saves every dirty doc before sync", async () => {
@@ -397,6 +464,71 @@ describe("workspace store (mock ipc)", () => {
     expect(doc.content).toBe("# 원격에서 합쳐진 내용");
     expect(doc.savedContent).toBe("# 원격에서 합쳐진 내용");
     expect(doc.externalRev).toBe(1);
+    expect(doc.externalStale).toBe(false);
+  });
+
+  it("reloadAfterSync marks dirty docs externalStale without touching content (라이브 머지 없음)", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용");
+    // 그 사이 git sync가 디스크를 바꿔 놓은 상황을 모사 — 편집 중이라 자동 반영은 안 된다
+    await ipc.writeFile(MOCK_ROOT, path, "# 원격에서 새로 합쳐진 내용 (dirty 케이스)");
+
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    // 라이브 머지가 없으니 편집 중이던 내용은 그대로다 — 배지만 세운다
+    expect(doc.content).toBe("# 편집 중인 내용");
+    expect(doc.externalStale).toBe(true);
+    expect(isDirty(doc)).toBe(true);
+  });
+
+  it("reloadAfterSync does not badge a dirty doc when the disk is unchanged", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용");
+    // 디스크는 sync에서 바뀌지 않았다(savedContent 그대로) — 외부 변경 없음
+
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.externalStale).toBe(false);
+    expect(doc.content).toBe("# 편집 중인 내용");
+  });
+
+  it("reloadAfterSync clears a leftover badge once the doc is clean and disk matches (undo 복귀, 디스크 무변경)", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    const original = useWorkspace.getState().docs[path].savedContent;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용"); // dirty
+    // 이전 sync에서 세워진 배지가 남아 있는 상황 모사
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+
+    // 사용자가 undo로 원래 내용으로 복귀 → clean (저장은 발화하지 않는다)
+    useWorkspace.getState().updateContent(path, original);
+    expect(isDirty(useWorkspace.getState().docs[path])).toBe(false);
+
+    // 디스크는 한 번도 바뀌지 않았다 → 발산 없음 → 배지를 내려야 한다
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.externalStale).toBe(false);
+    expect(doc.content).toBe(original); // 내용은 건드리지 않는다
+  });
+
+  it("reloadAfterSync clears the badge on a dirty doc when disk already matches the editor content", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용"); // dirty
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+    // 원격이 같은 편집 결과를 이미 디스크에 반영해 둔 상황 — 발산 없음
+    await ipc.writeFile(MOCK_ROOT, path, "# 편집 중인 내용");
+
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.externalStale).toBe(false);
+    expect(doc.content).toBe("# 편집 중인 내용");
   });
 
   it("surfaces errors for an invalid folder", async () => {

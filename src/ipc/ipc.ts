@@ -55,6 +55,7 @@ const tauriIpc: SynapseIpc = {
     invoke<ParsedRemoteTarget>("parse_ssh_command", { command }),
   listRemoteDir: (uri) => invoke<RemoteDirEntry[]>("list_remote_dir", { uri }),
   listWorkspace: (path) => invoke<FileNode>("list_workspace", { path }),
+  migrateWorkspace: (root) => invoke<boolean>("migrate_workspace", { root }),
   searchWorkspace: (root, query) =>
     invoke<SearchHit[]>("search_workspace", { root, query }),
   retrieveNotes: (root, question) =>

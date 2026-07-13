@@ -290,6 +290,13 @@ export interface SynapseIpc {
   listRemoteDir(uri: string): Promise<RemoteDirEntry[]>;
   /** 폴더를 재귀 스캔해 파일 트리 반환 */
   listWorkspace(path: string): Promise<FileNode>;
+  /**
+   * 워크스페이스를 열 때 한 번씩 부르는 마이그레이션: 레거시 CRDT 데이터
+   * 디렉토리(`.synapse`) 잔재를 정리한다(PDF 드로잉 사이드카가 있는
+   * `.synapse/draw/`는 보존). 실패해도 워크스페이스 열기를 막아선 안 되므로
+   * 호출측은 fire-and-forget으로 부르고 실패를 무시한다.
+   */
+  migrateWorkspace(root: string): Promise<boolean>;
   /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */
   searchWorkspace(root: string, query: string): Promise<SearchHit[]>;
   /**
@@ -314,9 +321,12 @@ export interface SynapseIpc {
    */
   writePdfDraw(root: string, pdfPath: string, content: string): Promise<void>;
   /**
-   * 마크다운 문서 저장 (FR-6 협업): base(에디터가 마지막으로 본 텍스트) 대비
-   * content의 변경을 CRDT에 기록하고, 원격 머지·외부 편집까지 합쳐진 최종
-   * 텍스트를 디스크에 쓴 뒤 돌려준다. frontmatter에 synapse_id가 보장된다.
+   * 마크다운 문서 저장. 저장 직전 디스크가 `base`(에디터가 마지막에 본 기준)
+   * 에서 갈라져 있으면(외부 도구·브리지 편집·sync 병합이 그 사이에 파일을
+   * 바꿨다는 뜻) 무조건 덮어써 미커밋 바이트를 파괴하지 않고, `base`·디스크·
+   * `content`를 stateless 3-way로 병합해 양쪽을 보존한다. 레거시 frontmatter
+   * `synapse_id`가 남아 있으면 지연 제거하고, 최종 저장 텍스트를 돌려준다
+   * (병합·strip으로 바뀌었을 수 있어 에디터가 이 반환값을 반영해야 한다).
    */
   saveDoc(root: string, path: string, content: string, base: string): Promise<string>;
   /** dir 안에 "새 노트.md" 계열의 겹치지 않는 빈 노트 생성, 생성된 경로 반환 */

@@ -45,6 +45,7 @@ pub fn run() {
         .manage(terminal::PtyState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
+            commands::migrate_workspace,
             remote::connect_remote,
             remote::disconnect_remote,
             remote::parse_ssh_command,

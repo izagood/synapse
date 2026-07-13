@@ -1,7 +1,26 @@
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use crate::vfs::{Backend, LocalBackend};
+
+/// 프로세스 전역 워크스페이스 쓰기 락.
+///
+/// 디스크가 단일 진실이 된 뒤, 워킹트리를 만지는 경로가 여러 곳으로 흩어졌다:
+/// 저장(`save_doc`), 브리지 편집(`/edit`), 마이그레이션(`migrate_workspace`),
+/// 그리고 git 동기화의 로컬 구간(커밋·병합·자가 치유의 `reset --hard`).
+/// 이들이 동시에 같은 파일을 만지면 방금 쓴 바이트가 되돌려질 수 있다
+/// (예: 치유의 `reset --hard`가 저장과 경합). 하나의 코스한 프로세스 락으로
+/// 이 쓰기들을 직렬화한다.
+///
+/// 락 순서 불변식: git 로컬 구간은 **전역 락 → 인스턴스 락** 순서로 잡는다
+/// (`GitWorkspace::lock_write` 참고). 락을 잡은 함수 안에서 또다시 이 락을
+/// 잡는 함수를 호출해선 안 된다(재진입 교착 방지). 네트워크 구간(fetch/push)
+/// 에서는 풀어 두어 저장이 동기화에 막히지 않는다.
+pub fn workspace_write_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 // 이 모듈의 파일 연산 헬퍼들은 [`crate::vfs::Backend`]의 기본 제공 메서드로
 // 옮겨졌다. 아래 함수들은 로컬 파일시스템([`LocalBackend`])에 위임하는 얇은
