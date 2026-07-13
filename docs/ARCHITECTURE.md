@@ -103,14 +103,14 @@
 
 ### 4.2 GitHub 동기화 엔진 (FR-4)
 
-상태 머신: `idle → dirty → committing → pushing/pulling → idle | conflict`
+상태 머신: `idle → dirty → committing → fetching/merging/pushing → idle | conflict`
 
 1. **로그인**: Device Flow로 코드 발급 → 사용자가 브라우저에서 승인 → 토큰을 OS 키체인에 저장. 프론트엔드는 토큰을 직접 만지지 않는다.
 2. **연결**: 새 폴더 → `synapse publish`(리포 생성+초기 push) / 기존 리포 → clone 후 폴더 열기.
 3. **자동 동기화 루프** (Rust 백그라운드 태스크):
    - fs watcher 이벤트 디바운스(기본 30초 무변경 시) 또는 주기 타이머 → `git add -A && commit`
-   - `fetch` → fast-forward 가능하면 pull, 로컬 커밋 있으면 rebase 시도 → push
-   - rebase 충돌 시: 중단하고 `conflict` 상태로 전환, UI에 충돌 파일 목록 전달
+   - `fetch` → 업스트림과 갈라졌으면 `merge`로 수렴(디스크가 단일 진실 — 병합 전 무조건 커밋해 로컬 편집 보존) → push. 텍스트 충돌은 문자 단위 3-way 병합으로 자동 해소하고, 바이너리·`.synapse/draw` 사이드카는 양쪽 보존
+   - 자동 해소가 불가능한 충돌(삭제/수정)만 `merge --abort` 후 `conflict` 상태로 전환, UI에 충돌 파일 목록 전달 (3택은 다시 merge 기반으로 해소)
 4. **충돌 해결 (MVP)**: "내 버전 유지 / 원격 버전 가져오기 / 둘 다 보존(`파일 (conflict).md` 생성)" 3택. diff 뷰 고도화는 post-MVP.
 5. **UI 노출은 3상태만** (FR-4.8): ✅ 동기화됨 / 🔄 동기화 중·필요 / ⚠️ 충돌. git 용어(commit, rebase…)는 기본 UI에 노출하지 않는다.
 
