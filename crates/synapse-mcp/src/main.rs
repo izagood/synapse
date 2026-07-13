@@ -23,7 +23,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 use synapse_core::{search_workspace, Backend, LiveState, LocalBackend, SearchOptions};
 
-/// 브리지 접속 컨텍스트(환경변수에서 1회 읽음).
+/// 브리지 접속 컨텍스트(환경변수 우선, 없으면 bridge.json에서 cwd로 발견해 1회 읽음).
 struct Ctx {
     port: u16,
     token: String,
