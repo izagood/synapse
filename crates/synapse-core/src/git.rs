@@ -4,9 +4,11 @@
 //! 충돌·rebase 동작이 사용자의 git과 100% 동일하고, 실제 리포지토리로
 //! 통합 테스트가 가능하다. git 미설치 환경은 `SyncState::NoGit`으로 안내한다.
 //!
-//! 상태 머신: idle → dirty → committing → pulling/pushing → synced | conflict
-//! 충돌은 항상 rebase --abort 후 호출자에게 보고하므로 리포지토리가
-//! 충돌 상태로 방치되지 않는다 — 해결은 `resolve_conflicts`의 3택으로 수행한다.
+//! 상태 머신: idle → dirty → committing → fetching/merging/pushing → synced | conflict
+//! 디스크가 유일한 진실이다: 병합 전 무조건 커밋해 로컬 편집을 보존하고,
+//! 업스트림과 갈라졌으면 merge 커밋으로 수렴시킨다. 텍스트 충돌은 문자 단위
+//! 3-way 병합으로 자동 해소하고, 자동 해소가 불가능한 충돌(삭제/수정 등)만
+//! merge --abort 후 호출자에게 보고한다 — 해결은 `resolve_conflicts`의 3택으로 수행한다.
 
 use std::fs;
 use std::io::Read;
@@ -17,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::collab::{self, CollabStore};
+use crate::collab;
 use crate::sftp::SftpBackend;
 use crate::ssh::SshSession;
 use crate::vfs::{Backend, LocalBackend};
@@ -438,22 +440,13 @@ impl GitWorkspace {
         Ok((ahead, behind))
     }
 
-    /// commit → fetch → rebase → push 한 사이클 (FR-4.3/4.4)
-    pub fn sync(&self, commit_message: &str) -> GitResult<SyncStatus> {
-        self.sync_with_collab(commit_message, None)
-    }
-
-    /// `sync`에 CRDT 협업 계층을 끼운 버전 (FR-6).
+    /// commit → fetch → merge → push 한 사이클 (FR-4.3/4.4).
     ///
-    /// - 시작 시 워크스페이스의 외부 편집(.md가 CRDT와 어긋난 것)을 흡수해
-    ///   같은 커밋에 로그가 함께 실리게 한다.
-    /// - rebase 충돌이 나면 CRDT로 자동 해결을 시도하고, 실패한 경우에만
-    ///   기존처럼 abort 후 Conflict를 보고한다(3택 UI 폴백).
-    pub fn sync_with_collab(
-        &self,
-        commit_message: &str,
-        collab: Option<&CollabStore>,
-    ) -> GitResult<SyncStatus> {
+    /// 디스크가 유일한 진실: 병합 전 무조건 커밋해 로컬 편집을 보존하고,
+    /// 업스트림과 갈라졌으면 merge 커밋으로 수렴시킨다. 텍스트 충돌은
+    /// `auto_resolve_merge`가 문자 단위 3-way 병합으로 자동 해소하며,
+    /// 자동 해소가 불가능한 충돌(삭제/수정 등)만 abort 후 Conflict로 보고한다.
+    pub fn sync(&self, commit_message: &str) -> GitResult<SyncStatus> {
         if !Self::git_available() {
             return Ok(SyncStatus::simple(SyncState::NoGit));
         }
@@ -463,40 +456,34 @@ impl GitWorkspace {
         if !self.has_remote() {
             return Ok(SyncStatus::simple(SyncState::NoRemote));
         }
-        // 로컬 구간 1 (락): 외부 편집 흡수 + 커밋
+        // 로컬 구간 (락): 잔재 정리 + 병합 전 커밋(= 소실 방지 불변식)
         {
             let _guard = self.lock_local()?;
-            if let Some(store) = collab {
-                self.absorb_workspace(store);
+            self.heal_in_progress()?;
+            self.commit_all(commit_message)?;
+        }
+        for _attempt in 0..3 {
+            // 네트워크 구간 (락 없음): fetch 동안 저장이 막히지 않는다
+            self.run_ok(&["fetch", "origin"])?;
+            #[cfg(test)]
+            if let Some(hook) = &self.after_fetch {
+                hook();
             }
-            self.commit_all(commit_message)?;
-        }
-
-        // 네트워크 구간 (락 없음): fetch 동안 저장이 막히지 않는다
-        self.run_ok(&["fetch", "origin"])?;
-        #[cfg(test)]
-        if let Some(hook) = &self.after_fetch {
-            hook();
-        }
-
-        // 로컬 구간 2 (락): rebase + CRDT 자동 해결
-        {
-            let _guard = self.lock_local()?;
-            // fetch 동안 들어온 저장을 먼저 커밋해 rebase에 깨끗한 트리를 보장
-            self.commit_all(commit_message)?;
-            let upstream = self.upstream()?;
-            let (upstream_exists, _, _) =
-                self.run(&["rev-parse", "--verify", &format!("{upstream}^{{commit}}")])?;
-            if upstream_exists {
-                let (_, behind) = self.ahead_behind()?;
-                if behind > 0 {
-                    let (ok, _, _) = self.run(&["rebase", &upstream])?;
-                    if !ok {
-                        let resolved =
-                            collab.is_some_and(|store| self.auto_resolve_rebase(store).is_ok());
-                        if !resolved {
+            // 로컬 구간 (락): merge + 자동 해소
+            {
+                let _guard = self.lock_local()?;
+                // fetch 동안 들어온 저장을 먼저 커밋해 병합에 깨끗한 트리를 보장
+                self.commit_all(commit_message)?;
+                let upstream = self.upstream()?;
+                let (upstream_exists, _, _) =
+                    self.run(&["rev-parse", "--verify", &format!("{upstream}^{{commit}}")])?;
+                if upstream_exists {
+                    let (_, behind) = self.ahead_behind()?;
+                    if behind > 0 {
+                        let (ok, _, _) = self.run(&["merge", "--no-edit", &upstream])?;
+                        if !ok && self.auto_resolve_merge().is_err() {
                             let files = self.conflicted_files()?;
-                            let _ = self.run(&["rebase", "--abort"]);
+                            let _ = self.run(&["merge", "--abort"]);
                             return Ok(SyncStatus {
                                 state: SyncState::Conflict,
                                 ahead: 0,
@@ -508,44 +495,39 @@ impl GitWorkspace {
                     }
                 }
             }
-        }
-
-        // 네트워크 구간 (락 없음): push는 워킹트리를 만지지 않는다
-        let branch = self.current_branch()?;
-        self.run_ok(&["push", "-u", "origin", &branch])?;
-        Ok(SyncStatus::simple(SyncState::Synced))
-    }
-
-    /// 워크스페이스의 모든 .md를 훑어 CRDT와 어긋난 외부 편집(GitHub 웹,
-    /// 다른 에디터 등)을 결정적으로 흡수한다. 개별 파일 실패는 무시한다.
-    fn absorb_workspace(&self, store: &CollabStore) {
-        // 백엔드 트리(숨김·심볼릭 링크 제외 — .synapse도 제외됨)를 훑어 .md만 흡수.
-        // build_tree가 로컬/원격(SFTP) 공통 순회 정책을 제공한다.
-        let Ok(tree) = self.backend.build_tree(&self.root) else {
-            return;
-        };
-        let mut stack = vec![tree];
-        while let Some(node) = stack.pop() {
-            match node.children {
-                Some(children) => stack.extend(children),
-                None => {
-                    if node.name.ends_with(".md") {
-                        if let Ok(text) = self.backend.read_to_string(Path::new(&node.path)) {
-                            if let Some(id) = collab::extract_doc_id(&text) {
-                                let _ = store.absorb_external(&id, &text);
-                            }
-                        }
-                    }
-                }
+            // 네트워크 구간 (락 없음): push는 워킹트리를 만지지 않는다
+            let branch = self.current_branch()?;
+            let (pushed, _, _) = self.run(&["push", "-u", "origin", &branch])?;
+            if pushed {
+                return Ok(SyncStatus::simple(SyncState::Synced));
             }
+            // push 레이스: 그 사이 원격이 갱신됨 → fetch부터 재시도
         }
+        // 3회 재시도로도 push 못 함 → pending 유지(다음 주기에 재시도)
+        Ok(SyncStatus::simple(SyncState::Pending))
     }
 
-    fn rebase_in_progress(&self) -> GitResult<bool> {
-        let merge = self.run_ok(&["rev-parse", "--git-path", "rebase-merge"])?;
-        let apply = self.run_ok(&["rev-parse", "--git-path", "rebase-apply"])?;
-        Ok(self.backend.exists(&self.root.join(merge.trim()))
-            || self.backend.exists(&self.root.join(apply.trim())))
+    /// 중단된 merge/rebase 잔재를 정리해 sync가 깨끗한 상태에서 시작하도록
+    /// 자가 치유한다. MERGE_HEAD가 있으면 merge --abort, rebase 진행 디렉터리가
+    /// 있으면 rebase --abort 한다.
+    fn heal_in_progress(&self) -> GitResult<()> {
+        if self.merge_in_progress()? {
+            let _ = self.run(&["merge", "--abort"]);
+        }
+        let merge_dir = self.run_ok(&["rev-parse", "--git-path", "rebase-merge"])?;
+        let apply_dir = self.run_ok(&["rev-parse", "--git-path", "rebase-apply"])?;
+        if self.backend.exists(&self.root.join(merge_dir.trim()))
+            || self.backend.exists(&self.root.join(apply_dir.trim()))
+        {
+            let _ = self.run(&["rebase", "--abort"]);
+        }
+        Ok(())
+    }
+
+    /// 진행 중인 merge가 있는지 (MERGE_HEAD 존재).
+    fn merge_in_progress(&self) -> GitResult<bool> {
+        let merge_head = self.run_ok(&["rev-parse", "--git-path", "MERGE_HEAD"])?;
+        Ok(self.backend.exists(&self.root.join(merge_head.trim())))
     }
 
     /// 충돌 스테이지(:1: base, :2: ours, :3: theirs)의 내용. 해당 스테이지가
@@ -556,156 +538,66 @@ impl GitWorkspace {
         Ok(ok.then_some(out))
     }
 
-    fn stage_text(&self, stage: u8, path: &str) -> GitResult<Option<String>> {
-        Ok(self
-            .stage_bytes(stage, path)?
-            .map(|b| String::from_utf8_lossy(&b).into_owned()))
-    }
-
-    /// 중단된 rebase의 충돌을 CRDT로 해결하며 끝까지 진행한다.
-    /// 실패 시 rebase는 중단된 채로 남으며 호출자가 abort 한다.
-    fn auto_resolve_rebase(&self, store: &CollabStore) -> GitResult<()> {
-        for _ in 0..256 {
-            if !self.rebase_in_progress()? {
-                return Ok(());
+    /// 진행 중인 merge의 충돌을 파일별 규칙으로 자동 해소하고 병합 커밋을
+    /// 완결한다. 텍스트는 문자 단위 3-way 병합(양쪽 편집 보존), 바이너리는
+    /// 양쪽 보존(theirs가 원래 이름, ours는 conflict 사본), `.synapse/`는 삭제로
+    /// 해소한다. 자동 해소 대상이 아니면(삭제/수정) Err — 호출자가 abort 후
+    /// Conflict로 보고한다(3택 UI 폴백).
+    fn auto_resolve_merge(&self) -> GitResult<()> {
+        for path in self.conflicted_files()? {
+            // `.synapse/` 밑 충돌은 마이그레이션 과도기 동안 항상 삭제로 해소한다
+            // (다른 기기가 아직 그 파일을 쓸 수 있으므로 git rm으로 없앤다).
+            if path.starts_with(&format!("{}/", collab::DATA_DIR)) {
+                self.run_ok(&["rm", "-f", "--", &path])?;
+                continue;
             }
-            let mut files = self.conflicted_files()?;
-            // .synapse 로그를 먼저 합쳐야 .md 해석 시 CRDT가 양쪽 편집을 모두 본다
-            files.sort_by_key(|f| !f.starts_with(collab::DATA_DIR));
-            for file in &files {
-                self.resolve_one(store, file)?;
-            }
-            let (ok, out, err) = self.run(&["rebase", "--continue"])?;
-            if !ok {
-                if !self.conflicted_files()?.is_empty() {
-                    continue; // 다음 커밋의 충돌 — 루프가 이어서 처리
-                }
-                let combined = format!("{out}\n{err}");
-                if combined.contains("--skip") || combined.contains("No changes") {
-                    // 해결 결과가 업스트림과 동일해 빈 커밋이 된 경우
-                    let _ = self.run(&["rebase", "--skip"]);
-                } else {
-                    return Err(format!("rebase --continue 실패: {}", err.trim()));
-                }
-            }
-        }
-        Err("rebase 자동 해결이 수렴하지 않습니다".to_string())
-    }
-
-    /// 충돌 파일 하나를 CRDT 규칙으로 해결하고 스테이징한다.
-    /// 자동 해결 대상이 아니면 Err — 전체가 3택 UI로 폴백된다.
-    fn resolve_one(&self, store: &CollabStore, path: &str) -> GitResult<()> {
-        let name = path.rsplit('/').next().unwrap_or(path);
-
-        if path.starts_with(&format!("{}/", collab::DATA_DIR)) {
-            let ours = self.stage_bytes(2, path)?;
-            let theirs = self.stage_bytes(3, path)?;
-            let resolved = if name.starts_with("log-") && name.ends_with(".y") {
-                // 로그는 append-only 업데이트 프레임 — 합집합이 항상 안전하다
-                Some(collab::merge_log_bytes(
-                    ours.as_deref().unwrap_or(&[]),
-                    theirs.as_deref().unwrap_or(&[]),
-                ))
-            } else {
-                // 스냅샷은 내용 해시 이름의 불변 파일 — 존재하는 쪽을 살린다
-                // (삭제/수정 충돌이면 보존이 안전: 여분 스냅샷은 무해하다)
-                ours.or(theirs)
-            };
-            match resolved {
-                Some(bytes) => {
-                    let abs = self.root.join(path);
-                    if let Some(parent) = abs.parent() {
-                        let _ = self.backend.create_dir_all(parent);
-                    }
-                    self.backend
-                        .write(&abs, &bytes)
-                        .map_err(|e| e.to_string())?;
-                    self.run_ok(&["add", "--", path])?;
-                }
-                None => {
-                    self.run_ok(&["rm", "-f", "--", path])?;
-                }
-            }
-            return Ok(());
-        }
-
-        if !name.ends_with(".md") {
-            return Err(format!("CRDT 자동 해결 대상이 아닌 파일: {path}"));
-        }
-        let base = self.stage_text(1, path)?.unwrap_or_default();
-        let (Some(side2), Some(side3)) = (self.stage_text(2, path)?, self.stage_text(3, path)?)
-        else {
-            return Err(format!("삭제/수정 충돌은 자동 해결하지 않습니다: {path}"));
-        };
-        let id2 = collab::extract_doc_id(&side2);
-        let id3 = collab::extract_doc_id(&side3);
-        // 두 클라이언트가 같은 파일에 서로 다른 id를 동시에 발급했다면
-        // 사전순으로 작은 id를 채택한다 (양쪽 모두 같은 결론에 도달)
-        let target = match (&id2, &id3) {
-            (Some(a), Some(b)) => {
-                if a <= b {
-                    a.clone()
-                } else {
-                    b.clone()
-                }
-            }
-            (Some(a), None) => a.clone(),
-            (None, Some(b)) => b.clone(),
-            (None, None) => return Err(format!("synapse_id가 없어 자동 해결 불가: {path}")),
-        };
-        // id 줄 차이가 본문 diff에 끼지 않도록 모두 target id로 정규화
-        let norm = |t: &str| -> String {
-            if collab::extract_doc_id(t).is_some() {
-                collab::inject_doc_id(t, &target)
-            } else {
-                t.to_string()
-            }
-        };
-        let base_n = norm(&base);
-
-        let mut merged = match store.doc_text(&target) {
-            // CRDT 데이터가 있으면 그 텍스트가 곧 머지 결과다 — actor별
-            // 로그는 트리 머지(또는 위의 합집합)로 이미 양쪽 편집을 담고 있다
-            Some(text) => {
-                let mut m = text;
-                if let (Some(a), Some(b)) = (&id2, &id3) {
-                    if a != b {
-                        // 다른 id 밑에 저장된 쪽의 편집을 target 문서로 흡수한다
-                        let (other, side_md) = if *a == target {
-                            (b, &side3)
-                        } else {
-                            (a, &side2)
-                        };
-                        let side = store
-                            .doc_text(other)
-                            .map(|t| collab::inject_doc_id(&t, &target))
-                            .unwrap_or_else(|| norm(side_md));
-                        m = store
-                            .absorb_three_way(&target, &base_n, &side)
+            let base = self.stage_bytes(1, &path)?;
+            let ours = self.stage_bytes(2, &path)?;
+            let theirs = self.stage_bytes(3, &path)?;
+            match (ours, theirs) {
+                (Some(o), Some(t)) => match (std::str::from_utf8(&o), std::str::from_utf8(&t)) {
+                    (Ok(os), Ok(ts)) => {
+                        // 텍스트: 결정적 문자 단위 3-way 병합 (어느 기기가 해도 같은 결과)
+                        let bs = base
+                            .as_deref()
+                            .map(|b| String::from_utf8_lossy(b).into_owned())
+                            .unwrap_or_default();
+                        let merged = crate::merge::merge_three_way(&bs, os, ts);
+                        self.backend
+                            .write(&self.root.join(&path), merged.as_bytes())
                             .map_err(|e| e.to_string())?;
+                        self.run_ok(&["add", "--", &path])?;
                     }
-                }
-                m
+                    _ => {
+                        // 바이너리: 둘 다 보존 (theirs가 원래 이름, ours는 conflict 사본)
+                        let copy = conflict_copy_name(&path);
+                        self.backend
+                            .write(&self.root.join(&copy), &o)
+                            .map_err(|e| e.to_string())?;
+                        self.backend
+                            .write(&self.root.join(&path), &t)
+                            .map_err(|e| e.to_string())?;
+                        self.run_ok(&["add", "--", &path, &copy])?;
+                    }
+                },
+                // 삭제/수정 충돌은 자동 해결하지 않는다 → 3택 UI로 폴백
+                _ => return Err(format!("삭제/수정 충돌은 자동 해결하지 않습니다: {path}")),
             }
-            // 협업 데이터가 없는 레거시 충돌: base 기준으로 양쪽을 차례로
-            // 결정적 3-way 머지한다 (어느 클라이언트가 해도 같은 결과)
-            None => {
-                store
-                    .absorb_three_way(&target, &base_n, &norm(&side2))
-                    .map_err(|e| e.to_string())?;
-                store
-                    .absorb_three_way(&target, &base_n, &norm(&side3))
-                    .map_err(|e| e.to_string())?
-            }
-        };
-        if collab::extract_doc_id(&merged).as_deref() != Some(target.as_str()) {
-            merged = collab::inject_doc_id(&merged, &target);
-            let _ = store.absorb_external(&target, &merged);
         }
-        self.backend
-            .write(&self.root.join(path), merged.as_bytes())
-            .map_err(|e| e.to_string())?;
-        self.run_ok(&["add", "--", path])?;
+        // 병합 커밋 완결. 자동 해소 결과가 HEAD와 동일한 트리를 낳으면 커밋할
+        // 것이 없어 실패하는데, 그때는 빈 병합 커밋으로 완결해 업스트림을
+        // 조상으로 남기고 push가 fast-forward 되게 한다.
+        let (ok, _, err) = self.run(&["commit", "--no-edit"])?;
+        if !ok {
+            if self.merge_in_progress()? {
+                let (ok2, _, err2) = self.run(&["commit", "--no-edit", "--allow-empty"])?;
+                if !ok2 {
+                    return Err(format!("병합 커밋 실패: {}", err2.trim()));
+                }
+            } else {
+                return Err(format!("병합 커밋 실패: {}", err.trim()));
+            }
+        }
         Ok(())
     }
 
@@ -938,16 +830,62 @@ mod tests {
         (tmp, remote, ws)
     }
 
+    /// bare 원격 + 두 클론(a: publish 후, b: clone)을 만든다.
+    /// `changes_propagate_between_two_clones` 관용구를 헬퍼로 뽑은 것.
+    fn setup_two_clones() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let (tmp, remote, ws_a) = setup();
+        let git_a = GitWorkspace::new(&ws_a, None);
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
+        let ws_b = tmp.path().join("clone-b");
+        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
+        // 클론본에도 로컬 identity를 보장한다 (raw git 커밋·병합 커밋용)
+        assert!(git_raw(&ws_b, &["config", "user.name", "Tester"]));
+        assert!(git_raw(
+            &ws_b,
+            &["config", "user.email", "tester@example.com"]
+        ));
+        (tmp, ws_a, ws_b)
+    }
+
+    fn ws(root: &Path) -> GitWorkspace {
+        GitWorkspace::new(root, None)
+    }
+
     fn write(dir: &Path, name: &str, content: &str) {
-        fs::write(dir.join(name), content).unwrap();
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, content).unwrap();
+    }
+
+    fn write_bytes(dir: &Path, name: &str, content: &[u8]) {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, content).unwrap();
     }
 
     fn read(dir: &Path, name: &str) -> String {
         fs::read_to_string(dir.join(name)).unwrap()
     }
 
-    fn normalize_newlines(text: &str) -> String {
-        text.replace("\r\n", "\n")
+    fn read_bytes(dir: &Path, name: &str) -> Vec<u8> {
+        fs::read(dir.join(name)).unwrap()
+    }
+
+    /// 워크스페이스에서 raw git 명령을 돌린다 (테스트 셋업 전용). 성공 여부 반환.
+    fn git_raw(dir: &Path, args: &[&str]) -> bool {
+        Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success()
     }
 
     #[test]
@@ -1001,25 +939,22 @@ mod tests {
 
     #[test]
     fn conflict_detected_and_repo_left_clean() {
-        let (tmp, remote, ws_a) = setup();
-        let git_a = GitWorkspace::new(&ws_a, None);
+        // 삭제/수정 충돌은 자동 해소 대상이 아니므로 merge --abort 후 Conflict로
+        // 보고되고 워크스페이스는 깨끗한 상태(내 버전)로 남아야 한다.
+        let (_tmp, ws_a, ws_b) = setup_two_clones();
         write(&ws_a, "shared.md", "기준 내용");
-        git_a
-            .publish(&remote.display().to_string(), "init")
-            .unwrap();
+        ws(&ws_a).sync("init").unwrap();
+        ws(&ws_b).sync("pull").unwrap();
 
-        let ws_b = tmp.path().join("clone-b");
-        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
-        let git_b = GitWorkspace::new(&ws_b, None);
-
-        write(&ws_a, "shared.md", "A의 수정");
-        git_a.sync("A").unwrap();
+        // A는 파일을 삭제, B는 같은 파일을 수정 → 삭제/수정 충돌
+        fs::remove_file(ws_a.join("shared.md")).unwrap();
+        ws(&ws_a).sync("A 삭제").unwrap();
         write(&ws_b, "shared.md", "B의 수정");
-        let status = git_b.sync("B").unwrap();
+        let status = ws(&ws_b).sync("B").unwrap();
 
         assert_eq!(status.state, SyncState::Conflict);
         assert_eq!(status.conflict_files, vec!["shared.md"]);
-        // rebase --abort 되어 충돌 마커 없이 내 내용 그대로여야 한다
+        // merge --abort 되어 충돌 마커 없이 내 내용 그대로여야 한다
         assert_eq!(read(&ws_b, "shared.md"), "B의 수정");
     }
 
@@ -1038,9 +973,10 @@ mod tests {
 
         write(&ws_a, "shared.md", "A의 수정");
         git_a.sync("A").unwrap();
+        // B는 로컬 커밋만 남기고 갈라진 상태로 둔다 (conflict_preview는 진행 중인
+        // 충돌 상태를 요구하지 않고 HEAD 대 업스트림 diff로 계산한다)
         write(&ws_b, "shared.md", "B의 수정");
-        let status = git_b.sync("B").unwrap();
-        assert_eq!(status.state, SyncState::Conflict);
+        git_b.commit_all("B").unwrap();
 
         // diff 뷰: 내 버전(B)과 원격 버전(A)을 모두 읽어 와야 한다
         let preview = git_b.conflict_preview().unwrap();
@@ -1065,8 +1001,9 @@ mod tests {
 
         write(&ws_a, "shared.md", "A의 수정");
         git_a.sync("A").unwrap();
+        // B를 갈라진 로컬 커밋으로 둔다 (resolve_conflicts가 자체 fetch+rebase 한다)
         write(&ws_b, "shared.md", "B의 수정");
-        assert_eq!(git_b.sync("B").unwrap().state, SyncState::Conflict);
+        git_b.commit_all("B").unwrap();
 
         assert_eq!(
             git_b
@@ -1095,7 +1032,7 @@ mod tests {
         write(&ws_a, "shared.md", "A의 수정");
         git_a.sync("A").unwrap();
         write(&ws_b, "shared.md", "B의 수정");
-        git_b.sync("B").unwrap();
+        git_b.commit_all("B").unwrap();
 
         git_b.resolve_conflicts(ConflictChoice::KeepRemote).unwrap();
         assert_eq!(read(&ws_b, "shared.md"), "A의 수정");
@@ -1117,7 +1054,7 @@ mod tests {
         write(&ws_a, "shared.md", "A의 수정");
         git_a.sync("A").unwrap();
         write(&ws_b, "shared.md", "B의 수정");
-        git_b.sync("B").unwrap();
+        git_b.commit_all("B").unwrap();
 
         git_b.resolve_conflicts(ConflictChoice::KeepBoth).unwrap();
         assert_eq!(read(&ws_b, "shared.md"), "A의 수정");
@@ -1129,131 +1066,101 @@ mod tests {
     }
 
     // ----------------------------------------------------------------
-    // CRDT 자동 충돌 해결 (FR-6)
+    // merge 기반 자동 수렴 + 자가 치유 (CRDT 스토어 비의존)
     // ----------------------------------------------------------------
 
-    const DOC_ID: &str = "11111111-1111-1111-1111-111111111111";
-
-    fn doc_text(body: &str) -> String {
-        format!("---\nsynapse_id: {DOC_ID}\n---\n\n{body}")
-    }
-
-    /// 에디터 저장 흐름을 모사: CRDT에 기록하고 .md를 그 결과로 쓴다
-    fn save_via_store(store: &CollabStore, ws: &Path, file: &str, base: &str, new: &str) {
-        let merged = store.save_text(DOC_ID, base, new).unwrap();
-        fs::write(ws.join(file), merged).unwrap();
+    #[test]
+    fn sync_auto_merges_concurrent_md_edits() {
+        // 두 클론이 같은 파일을 다르게 편집 → 양쪽 sync가 충돌 없이 수렴
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "note.md", "# 노트\n\n공통 문단입니다.\n");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+        write(&a, "note.md", "# 노트\n\n공통 문단입니다. A의 추가.\n");
+        write(&b, "note.md", "B의 서두. \n\n# 노트\n\n공통 문단입니다.\n");
+        ws(&a).sync("a").unwrap();
+        let st = ws(&b).sync("b").unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        let merged = read(&b, "note.md");
+        assert!(merged.contains("A의 추가"), "A의 편집 유실: {merged}");
+        assert!(merged.contains("B의 서두"), "B의 편집 유실: {merged}");
+        // A가 다시 sync하면 동일 내용으로 수렴 (재발산 없음)
+        ws(&a).sync("a2").unwrap();
+        assert_eq!(read(&a, "note.md"), merged);
     }
 
     #[test]
-    fn crdt_auto_resolves_concurrent_md_edits() {
-        let (tmp, remote, ws_a) = setup();
-        let git_a = GitWorkspace::new(&ws_a, None);
-        let store_a = CollabStore::local(&ws_a, "actor-aaaa-1111".to_string());
+    fn sync_heals_leftover_merge_state() {
+        // MERGE_HEAD 잔재가 있어도 sync가 스스로 정리하고 진행한다
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "note.md", "# 제목\n\n공통 본문\n");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
 
-        let base = doc_text("# 회의록\n\n- 안건 하나\n");
-        save_via_store(&store_a, &ws_a, "note.md", "", &base);
-        git_a
-            .publish(&remote.display().to_string(), "init")
-            .unwrap();
+        // A는 제목 줄, B는 끝에 문단을 추가 (서로 다른 영역 → 병합은 깨끗하다)
+        write(&a, "note.md", "# 제목 (A)\n\n공통 본문\n");
+        ws(&a).sync("a").unwrap();
+        write(&b, "note.md", "# 제목\n\n공통 본문\n\nB 추가 문단\n");
 
-        let ws_b = tmp.path().join("clone-b");
-        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
-        let git_b = GitWorkspace::new(&ws_b, None);
-        let store_b = CollabStore::local(&ws_b, "actor-bbbb-2222".to_string());
+        // B에 완결되지 않은 merge를 남긴다: --no-commit이 커밋 직전에 멈춰
+        // MERGE_HEAD 잔재를 남긴다 (병합 자체는 성공)
+        assert!(git_raw(&b, &["add", "-A"]));
+        assert!(git_raw(&b, &["commit", "-m", "B"]));
+        assert!(git_raw(&b, &["fetch", "origin"]));
+        assert!(git_raw(
+            &b,
+            &["merge", "--no-commit", "--no-ff", "origin/main"]
+        ));
+        assert!(b.join(".git/MERGE_HEAD").exists(), "잔재 MERGE_HEAD가 없다");
 
-        // A와 B가 같은 문서의 다른 부분을 동시에 편집
-        let a_edit = base.replace("# 회의록", "# 회의록 (A 제목 수정)");
-        save_via_store(&store_a, &ws_a, "note.md", &base, &a_edit);
-        let b_edit = base.replace("- 안건 하나", "- 안건 하나\n- B가 추가한 안건");
-        save_via_store(&store_b, &ws_b, "note.md", &base, &b_edit);
-
-        assert_eq!(
-            git_a.sync_with_collab("A", Some(&store_a)).unwrap().state,
-            SyncState::Synced
-        );
-        // B는 note.md에서 git 충돌이 나지만 CRDT로 자동 해결되어야 한다
-        assert_eq!(
-            git_b.sync_with_collab("B", Some(&store_b)).unwrap().state,
-            SyncState::Synced
-        );
-        assert_eq!(
-            git_a
-                .sync_with_collab("A pull", Some(&store_a))
-                .unwrap()
-                .state,
-            SyncState::Synced
-        );
-
-        let merged_b = read(&ws_b, "note.md");
-        assert!(
-            merged_b.contains("(A 제목 수정)"),
-            "A의 편집 유실: {merged_b}"
-        );
-        assert!(
-            merged_b.contains("B가 추가한 안건"),
-            "B의 편집 유실: {merged_b}"
-        );
-        assert_eq!(
-            normalize_newlines(&read(&ws_a, "note.md")),
-            normalize_newlines(&merged_b)
-        );
-        // 양쪽 CRDT도 같은 텍스트로 수렴
-        assert_eq!(
-            normalize_newlines(&store_a.doc_text(DOC_ID).unwrap()),
-            normalize_newlines(&merged_b)
-        );
-        assert_eq!(
-            normalize_newlines(&store_b.doc_text(DOC_ID).unwrap()),
-            normalize_newlines(&merged_b)
-        );
+        // sync가 스스로 잔재를 정리(merge --abort)하고 다시 병합해 수렴시킨다
+        let st = ws(&b).sync("recover").unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        let merged = read(&b, "note.md");
+        assert!(merged.contains("(A)"), "A 편집 유실: {merged}");
+        assert!(merged.contains("B 추가 문단"), "B 편집 유실: {merged}");
+        assert_eq!(ws(&b).status().state, SyncState::Synced);
     }
 
     #[test]
-    fn non_md_conflict_still_reports_conflict() {
-        let (tmp, remote, ws_a) = setup();
-        let git_a = GitWorkspace::new(&ws_a, None);
-        let store_a = CollabStore::local(&ws_a, "actor-aaaa-1111".to_string());
-        write(&ws_a, "data.txt", "기준");
-        git_a
-            .publish(&remote.display().to_string(), "init")
-            .unwrap();
+    fn binary_conflict_keeps_both() {
+        // 양쪽이 같은 .png를 다르게 변경 → theirs가 파일에, ours는 conflict 사본으로
+        let (_tmp, a, b) = setup_two_clones();
+        let base_png = vec![0x89u8, b'P', b'N', b'G', 0x00, 0xFF, 0xFE, 0x01];
+        write_bytes(&a, "img.png", &base_png);
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
 
-        let ws_b = tmp.path().join("clone-b");
-        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
-        let git_b = GitWorkspace::new(&ws_b, None);
-        let store_b = CollabStore::local(&ws_b, "actor-bbbb-2222".to_string());
+        let a_png = vec![0x89u8, b'P', b'N', b'G', 0x00, 0xFF, 0xAA, 0xAA];
+        let b_png = vec![0x89u8, b'P', b'N', b'G', 0x00, 0xFF, 0xBB, 0xBB];
+        write_bytes(&a, "img.png", &a_png);
+        ws(&a).sync("a").unwrap();
+        write_bytes(&b, "img.png", &b_png);
+        let st = ws(&b).sync("b").unwrap();
 
-        write(&ws_a, "data.txt", "A의 수정");
-        git_a.sync_with_collab("A", Some(&store_a)).unwrap();
-        write(&ws_b, "data.txt", "B의 수정");
-        let status = git_b.sync_with_collab("B", Some(&store_b)).unwrap();
-
-        assert_eq!(status.state, SyncState::Conflict);
-        assert_eq!(status.conflict_files, vec!["data.txt"]);
-        // rebase --abort 되어 워크스페이스는 깨끗해야 한다
-        assert_eq!(read(&ws_b, "data.txt"), "B의 수정");
+        assert_eq!(st.state, SyncState::Synced);
+        // theirs(A)가 원래 이름, ours(B)는 conflict 사본
+        assert_eq!(read_bytes(&b, "img.png"), a_png);
+        assert_eq!(read_bytes(&b, "img (conflict).png"), b_png);
     }
 
     #[test]
-    fn sync_absorbs_external_md_edits() {
-        let (_tmp, remote, ws) = setup();
-        let git = GitWorkspace::new(&ws, None);
-        let store = CollabStore::local(&ws, "actor-aaaa-1111".to_string());
+    fn dot_synapse_conflict_resolved_by_deletion() {
+        // .synapse/ 밑 충돌은 항상 삭제로 해결한다 (마이그레이션 과도기)
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, ".synapse/doc.txt", "공용 상태\n");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
 
-        let base = doc_text("원래 내용\n");
-        save_via_store(&store, &ws, "note.md", "", &base);
-        git.publish(&remote.display().to_string(), "init").unwrap();
+        write(&a, ".synapse/doc.txt", "A가 바꾼 상태\n");
+        ws(&a).sync("a").unwrap();
+        write(&b, ".synapse/doc.txt", "B가 바꾼 상태\n");
+        let st = ws(&b).sync("b").unwrap();
 
-        // CRDT를 거치지 않은 외부 편집 (GitHub 웹 편집을 모사)
-        let external = doc_text("원래 내용\n\n외부에서 추가한 줄\n");
-        fs::write(ws.join("note.md"), &external).unwrap();
-
-        assert_eq!(
-            git.sync_with_collab("sync", Some(&store)).unwrap().state,
-            SyncState::Synced
-        );
-        // sync가 외부 편집을 CRDT로 흡수했어야 한다
-        assert_eq!(store.doc_text(DOC_ID).unwrap(), external);
+        assert_eq!(st.state, SyncState::Synced);
+        // .synapse/ 충돌은 삭제로 해소되어 파일이 사라진다
+        assert!(!b.join(".synapse/doc.txt").exists());
+        assert_eq!(ws(&b).status().state, SyncState::Synced);
     }
 
     // ----------------------------------------------------------------
