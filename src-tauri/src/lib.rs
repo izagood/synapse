@@ -3,6 +3,7 @@ mod bridge;
 mod commands;
 mod config_sync;
 mod dock;
+mod mcp;
 mod remote;
 mod sync;
 mod terminal;
@@ -18,13 +19,20 @@ pub fn run() {
             dock::install(app.handle().clone());
             // loopback HTTP 브리지 기동(실패해도 앱 본체는 정상 동작).
             bridge::start(bridge_inner.clone());
+            // 크래시로 남은 죽은 pid의 discovery 항목을 정리한다.
+            mcp::sweep_stale_discovery();
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 윈도우가 닫히면 그 윈도우의 브리지 세션·PTY를 정리해 누수/좀비를 막는다.
+            // 윈도우가 닫히면 그 윈도우의 브리지 세션·PTY·discovery 항목을 정리해
+            // 누수/좀비를 막는다.
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
                 if let Some(state) = window.try_state::<bridge::BridgeState>() {
+                    let token = state.0.ensure_token(window.label());
+                    let mut map = mcp::load_map();
+                    synapse_core::discovery::remove_by_token(&mut map, &token);
+                    let _ = mcp::save_map(&map);
                     state.0.drop_window(window.label());
                 }
                 if let Some(pty) = window.try_state::<terminal::PtyState>() {
@@ -79,6 +87,8 @@ pub fn run() {
             commands::move_path,
             commands::drag_icon_path,
             bridge::bridge_push_state,
+            mcp::bridge_publish_discovery,
+            mcp::bridge_unpublish_discovery,
             terminal::pty_open,
             terminal::pty_write,
             terminal::pty_resize,

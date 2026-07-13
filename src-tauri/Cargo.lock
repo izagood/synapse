@@ -4943,6 +4943,7 @@ dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
  "keyring",
+ "libc",
  "notify",
  "objc2",
  "objc2-app-kit",

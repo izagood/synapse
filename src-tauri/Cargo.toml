@@ -31,6 +31,8 @@ notify = "6"
 portable-pty = "0.9"
 # PTY 출력은 임의 바이트라 이벤트로 보낼 때 base64로 안전하게 감싼다
 base64 = "0.22"
+# discovery sweep의 pid 생존 확인(kill(pid, 0))에 사용
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
