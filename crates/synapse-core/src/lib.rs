@@ -1,5 +1,6 @@
 pub mod bridge;
 pub mod config_sync;
+pub mod discovery;
 pub mod docid;
 pub mod fs_io;
 pub mod git;
@@ -26,6 +27,7 @@ pub mod watch;
 
 pub use bridge::{generate_token, token_matches, LiveState, OpenTab};
 pub use config_sync::ConfigSyncState;
+pub use discovery::{find_for_cwd, remove_by_token, upsert, BridgeEntry, BridgeMap};
 pub use docid::strip_doc_id;
 pub use fs_io::{
     atomic_write, atomic_write_bytes, create_unique_folder, create_unique_note,
