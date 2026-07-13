@@ -290,6 +290,13 @@ export interface SynapseIpc {
   listRemoteDir(uri: string): Promise<RemoteDirEntry[]>;
   /** 폴더를 재귀 스캔해 파일 트리 반환 */
   listWorkspace(path: string): Promise<FileNode>;
+  /**
+   * 워크스페이스를 열 때 한 번씩 부르는 마이그레이션: 레거시 CRDT 데이터
+   * 디렉토리(`.synapse`) 잔재를 정리한다(PDF 드로잉 사이드카가 있는
+   * `.synapse/draw/`는 보존). 실패해도 워크스페이스 열기를 막아선 안 되므로
+   * 호출측은 fire-and-forget으로 부르고 실패를 무시한다.
+   */
+  migrateWorkspace(root: string): Promise<boolean>;
   /** 워크스페이스 전체 텍스트 검색(파일명+내용). 빈 질의는 빈 결과 (FR-1.5) */
   searchWorkspace(root: string, query: string): Promise<SearchHit[]>;
   /**

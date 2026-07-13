@@ -245,6 +245,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         loading: false,
       });
       await restoreSession(target, tree, get());
+      // 레거시 `.synapse/` 정리는 fire-and-forget: 실패해도 워크스페이스
+      // 열기 자체를 막지 않는다. 삭제분은 다음 sync가 자연히 커밋한다.
+      void ipc.migrateWorkspace(target).catch(() => undefined);
     } catch (e) {
       set({ error: String(e), loading: false });
     }

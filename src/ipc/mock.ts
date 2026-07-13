@@ -266,6 +266,9 @@ export const mockIpc: SynapseIpc = {
     if (path !== MOCK_ROOT) throw new Error(`not a directory: ${path}`);
     return buildMockTree();
   },
+  async migrateWorkspace(_root) {
+    return false; // 목 환경에는 정리할 레거시 `.synapse/`가 없다
+  },
   async searchWorkspace(_root, query) {
     return mockSearch(query);
   },

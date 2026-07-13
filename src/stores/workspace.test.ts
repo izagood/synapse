@@ -45,6 +45,20 @@ describe("workspace store (mock ipc)", () => {
     expect(s.error).toBeNull();
   });
 
+  it("워크스페이스를 연 뒤 레거시 `.synapse/` 정리를 fire-and-forget으로 부른다", async () => {
+    const spy = vi.spyOn(ipc, "migrateWorkspace");
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+    expect(spy).toHaveBeenCalledWith(MOCK_ROOT);
+  });
+
+  it("migrateWorkspace가 실패해도 워크스페이스 열기 자체는 성공한다", async () => {
+    vi.spyOn(ipc, "migrateWorkspace").mockRejectedValueOnce(new Error("boom"));
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+    const s = useWorkspace.getState();
+    expect(s.root).toBe(MOCK_ROOT);
+    expect(s.error).toBeNull();
+  });
+
   it("opens a file in a tab and loads content", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     const s = useWorkspace.getState();

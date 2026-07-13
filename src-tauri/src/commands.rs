@@ -41,6 +41,26 @@ pub async fn list_workspace(
     .await
 }
 
+/// 워크스페이스를 열 때 한 번씩 부르는 마이그레이션: 레거시 CRDT 데이터
+/// 디렉토리(`.synapse`) 잔재를 정리한다(PDF 드로잉 사이드카가 있는
+/// `.synapse/draw/`는 보존 — [`synapse_core::remove_collab_dir`] 참고).
+/// 지운 결과는 다음 sync의 `git add -A` 커밋에 자연히 실린다. 실패해도
+/// 워크스페이스 열기 자체를 막아선 안 되므로 프론트는 이 커맨드를
+/// fire-and-forget으로 부른다.
+#[tauri::command]
+pub async fn migrate_workspace(
+    state: tauri::State<'_, RemoteState>,
+    root: String,
+) -> Result<bool, String> {
+    let root_loc = parse_loc(&root)?;
+    let backend = backend_for(&state, &root_loc)?;
+    let root_path = fs_path(&root_loc);
+    crate::sync::run_blocking(move || {
+        synapse_core::remove_collab_dir(&*backend, &root_path).map_err(|e| e.to_string())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn read_file(
     state: tauri::State<'_, RemoteState>,

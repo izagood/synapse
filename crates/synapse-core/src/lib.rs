@@ -7,6 +7,7 @@ pub mod github;
 pub mod links;
 pub mod location;
 pub mod merge;
+pub mod migrate;
 pub mod paths;
 pub mod registry;
 pub mod retrieval;
@@ -36,6 +37,7 @@ pub use location::{
     path_to_uri, urify_tree, Location, LocationError, SshLocation, DEFAULT_SSH_PORT,
 };
 pub use merge::{merge_agent_edit, merge_three_way};
+pub use migrate::remove_collab_dir;
 pub use paths::{ensure_within, legacy_pdf_draw_sidecar, pdf_draw_sidecar_path, rel_path_within};
 pub use registry::{recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};
