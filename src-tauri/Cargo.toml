@@ -27,7 +27,7 @@ serde_json = "1"
 synapse-core = { path = "../crates/synapse-core" }
 dirs = "5"
 notify = "6"
-# PTY 출력은 임의 바이트라 이벤트로 보낼 때 base64로 안전하게 감싼다
+# 임의 바이너리 데이터를 문자열로 안전하게 감싸 전달할 때 쓰는 범용 base64 유틸리티
 base64 = "0.22"
 # discovery sweep의 pid 생존 확인(kill(pid, 0))에 사용
 libc = "0.2"

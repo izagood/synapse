@@ -8,8 +8,8 @@
 //! - `SYNAPSE_BRIDGE_PORT` — 앱이 바인드한 loopback 포트
 //! - `SYNAPSE_BRIDGE_TOKEN` — 윈도우별 인증 토큰(이 토큰이 곧 윈도우 선택자)
 //!
-//! 내장 터미널은 앱의 자식 프로세스라 위 env를 상속하지만, 외부 터미널은 상속이
-//! 불가능하다. env가 없으면 `~/.config/synapse/bridge.json`(앱이 기록하는
+//! 외부 터미널에서 실행되는 이 사이드카는 앱의 자식 프로세스가 아니므로 위 env를
+//! 상속받지 못한다. env가 없으면 `~/.config/synapse/bridge.json`(앱이 기록하는
 //! 워크스페이스→접속정보 맵)을 읽어 현재 cwd의 조상 경로로 자신의 워크스페이스
 //! 항목을 찾아 접속한다(`resolve_from`, `synapse_core::discovery`).
 //!
