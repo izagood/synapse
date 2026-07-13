@@ -544,31 +544,37 @@ impl GitWorkspace {
         let captured = self.capture_dirty_state()?;
         // 2) abort (결과 확인). 더티 트리에서 abort가 거부되면 캡처를 믿고
         //    reset --hard로 밀어낸다 — 모든 더티 바이트가 캡처돼 있어 안전하다.
-        if merge_leftover {
-            let (ok, _, _) = self.run(&["merge", "--abort"])?;
-            if !ok {
-                self.run_ok(&["reset", "--hard", "HEAD"])?;
+        let abort_result = (|| -> GitResult<()> {
+            if merge_leftover {
+                let (ok, _, _) = self.run(&["merge", "--abort"])?;
+                if !ok {
+                    self.run_ok(&["reset", "--hard", "HEAD"])?;
+                    if self.merge_in_progress()? {
+                        let _ = self.run(&["merge", "--abort"]);
+                    }
+                }
                 if self.merge_in_progress()? {
-                    let _ = self.run(&["merge", "--abort"]);
+                    return Err("남은 병합 상태를 정리하지 못했습니다".to_string());
                 }
             }
-            if self.merge_in_progress()? {
-                return Err("남은 병합 상태를 정리하지 못했습니다".to_string());
+            if rebase_leftover {
+                let (ok, _, _) = self.run(&["rebase", "--abort"])?;
+                if !ok {
+                    self.run_ok(&["reset", "--hard", "HEAD"])?;
+                    let _ = self.run(&["rebase", "--abort"]);
+                }
+                if rebase_dir_exists() {
+                    return Err("남은 rebase 상태를 정리하지 못했습니다".to_string());
+                }
             }
-        }
-        if rebase_leftover {
-            let (ok, _, _) = self.run(&["rebase", "--abort"])?;
-            if !ok {
-                self.run_ok(&["reset", "--hard", "HEAD"])?;
-                let _ = self.run(&["rebase", "--abort"]);
-            }
-            if rebase_dir_exists() {
-                return Err("남은 rebase 상태를 정리하지 못했습니다".to_string());
-            }
-        }
-        // 3) 복원: 치유 전 디스크 상태 그대로 (직후 commit_all이 이걸 커밋한다)
-        self.restore_dirty_state(&captured)?;
-        Ok(())
+            Ok(())
+        })();
+        // 3) 복원: 파괴적 단계(abort/reset) 이후에는 성공·실패와 무관하게
+        //    캡처를 최선으로 되돌린다 — Err로 나가더라도 사용자 바이트는
+        //    디스크에 남는다 (직후 commit_all이 이걸 커밋한다).
+        let restore_result = self.restore_dirty_state(&captured);
+        abort_result?;
+        restore_result
     }
 
     /// 워킹트리의 더티 상태를 통째로 떠 둔다: 경로마다 현재 바이트(파일이
@@ -597,7 +603,18 @@ impl GitWorkspace {
             }
             let abs = self.root.join(path);
             let content = if self.backend.exists(&abs) {
-                Some(self.backend.read(&abs).map_err(|e| e.to_string())?)
+                let bytes = self.backend.read(&abs).map_err(|e| e.to_string())?;
+                // 잔재 충돌 파일(UU/AA)의 내용이 git이 쓴 충돌 마커 출력
+                // 그대로라면 사용자 데이터가 아니다 — 복원하지 않아야 마커가
+                // 노트로 커밋되어 퍼지지 않는다 (실제 내용은 양쪽 부모 커밋에
+                // 안전하다). 사용자가 그 위에 편집했다면 내용이 달라 이 판별을
+                // 통과하지 못하므로 평소대로 캡처·복원한다 (보존 우선).
+                if (status.starts_with("UU") || status.starts_with("AA"))
+                    && self.is_git_authored_conflict(path, &bytes)
+                {
+                    continue;
+                }
+                Some(bytes)
             } else {
                 None // 워킹트리에서 삭제됨 — 복원 시 다시 삭제해 상태를 보존
             };
@@ -606,25 +623,61 @@ impl GitWorkspace {
         Ok(captured)
     }
 
+    /// 충돌 파일의 현재 워킹트리 바이트가 git이 만든 충돌 마커 출력
+    /// 그대로인지(= 사용자가 그 위에 편집하지 않았는지) 판별한다.
+    /// `git checkout -m`으로 인덱스 스테이지에서 git의 마커 출력을 재생성해
+    /// 비교한다 — 마커 라벨(`HEAD`/`ours` 등)은 재생성 시 달라질 수 있어
+    /// 라벨을 지운 형태로 비교한다. 판별이 실패하면 보수적으로 사용자
+    /// 편집으로 간주한다 (보존이 이긴다). 워킹트리 파일은 재생성으로
+    /// 덮어써지지만, 호출 전에 원본이 캡처되어 있고 직후의 abort/복원이
+    /// 상태를 정리하므로 안전하다.
+    fn is_git_authored_conflict(&self, path: &str, current: &[u8]) -> bool {
+        let Ok(current) = std::str::from_utf8(current) else {
+            return false; // 바이너리는 마커 출력이 아니다
+        };
+        let Ok((ok, _, _)) = self.run(&["checkout", "-m", "--", path]) else {
+            return false;
+        };
+        if !ok {
+            return false;
+        }
+        let Ok(regenerated) = self.backend.read(&self.root.join(path)) else {
+            return false;
+        };
+        normalize_conflict_markers(current)
+            == normalize_conflict_markers(&String::from_utf8_lossy(&regenerated))
+    }
+
     /// `capture_dirty_state` 스냅샷을 워킹트리에 그대로 되돌린다.
+    /// 개별 항목 실패에도 나머지를 끝까지 시도하고(최선 노력) 첫 에러를
+    /// 돌려준다 — 한 파일의 실패가 다른 파일의 복원을 막지 않는다.
     fn restore_dirty_state(&self, captured: &[(String, Option<Vec<u8>>)]) -> GitResult<()> {
+        let mut first_err = None;
         for (path, content) in captured {
             let abs = self.root.join(path);
-            match content {
+            let result = match content {
                 Some(bytes) => {
                     if let Some(parent) = abs.parent() {
                         let _ = self.backend.create_dir_all(parent);
                     }
-                    self.backend.write(&abs, bytes).map_err(|e| e.to_string())?;
+                    self.backend.write(&abs, bytes).map_err(|e| e.to_string())
                 }
                 None => {
                     if self.backend.exists(&abs) {
-                        self.backend.remove_file(&abs).map_err(|e| e.to_string())?;
+                        self.backend.remove_file(&abs).map_err(|e| e.to_string())
+                    } else {
+                        Ok(())
                     }
                 }
+            };
+            if let Err(e) = result {
+                first_err.get_or_insert(e);
             }
         }
-        Ok(())
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// 진행 중인 merge가 있는지 (MERGE_HEAD 존재).
@@ -899,6 +952,23 @@ fn parse_file_history(raw: &str) -> Vec<FileCommit> {
             })
         })
         .collect()
+}
+
+/// 충돌 마커 라벨을 지운 비교용 형태 (`<<<<<<< HEAD` → `<<<<<<<`).
+/// merge와 checkout -m이 같은 충돌에 서로 다른 라벨(HEAD/origin·ours/theirs)을
+/// 붙이므로, 라벨만 다른 동일한 git 마커 출력을 같은 것으로 비교하게 한다.
+fn normalize_conflict_markers(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            for marker in ["<<<<<<<", ">>>>>>>", "|||||||"] {
+                if line.starts_with(marker) {
+                    return marker;
+                }
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// "dir/note.md" → "dir/note (conflict).md"
@@ -1265,6 +1335,41 @@ mod tests {
             .run_ok(&["log", "--format=%H", "-S", "USER-PRECIOUS-EDIT"])
             .unwrap();
         assert!(!hits.trim().is_empty(), "편집이 어떤 커밋에도 없다");
+    }
+
+    #[test]
+    fn heal_skips_restoring_untouched_conflict_markers() {
+        // 충돌로 중단된 merge 잔재를 사용자 편집 없이 그대로 두면, 워크트리의
+        // 충돌 마커는 git이 쓴 것이지 사용자 데이터가 아니다 — 복원·커밋하지
+        // 않아야 `<<<<<<<` 마커가 노트로 퍼지지 않는다.
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "note.md", "# 제목\n\n공통 본문\n");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+
+        write(&a, "note.md", "# 제목 A\n\n공통 본문\n");
+        ws(&a).sync("a").unwrap();
+        write(&b, "note.md", "# 제목 B\n\n공통 본문\n");
+        assert!(git_raw(&b, &["add", "-A"]));
+        assert!(git_raw(&b, &["commit", "-m", "B"]));
+        assert!(git_raw(&b, &["fetch", "origin"]));
+        assert!(!git_raw(&b, &["merge", "origin/main"]), "충돌 없이 병합됨");
+        assert!(b.join(".git/MERGE_HEAD").exists(), "잔재 MERGE_HEAD가 없다");
+        assert!(read(&b, "note.md").contains("<<<<<<<"), "마커가 없다");
+
+        // 사용자 편집 없이 그대로 sync — 마커는 버려지고 병합으로 수렴해야 한다
+        let st = ws(&b).sync("recover").unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        let merged = read(&b, "note.md");
+        assert!(!merged.contains("<<<<<<<"), "충돌 마커 오염: {merged}");
+        assert!(!merged.contains("======="), "충돌 마커 오염: {merged}");
+        // 양쪽 편집은 자동 병합으로 보존된다 (마커 없이)
+        assert!(merged.contains("공통 본문"), "본문 유실: {merged}");
+        // 어떤 커밋에도 마커가 실리지 않았다
+        let hits = ws(&b)
+            .run_ok(&["log", "--format=%H", "-S", "<<<<<<<"])
+            .unwrap();
+        assert!(hits.trim().is_empty(), "마커가 커밋에 실림: {hits}");
     }
 
     #[test]
