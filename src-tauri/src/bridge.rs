@@ -84,6 +84,25 @@ impl BridgeInner {
         self.sessions.lock().unwrap().remove(label);
     }
 
+    /// `label` 이외의 살아있는 창들 중, 로컬(비-ssh) 워크스페이스 루트를 가진
+    /// 세션의 `(root, token)` 목록을 돌려준다. 창이 닫힐 때 같은 root를 연 다른
+    /// 창의 discovery 엔트리를 복원(재발행)하는 데 쓴다.
+    /// (아직 라이브 상태가 push되지 않아 `root`가 비어 있는 창은 빠질 수 있다 — 허용.)
+    pub fn live_roots_except(&self, label: &str) -> Vec<(String, String)> {
+        let sessions = self.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .filter(|(l, _)| l.as_str() != label)
+            .filter_map(|(_, s)| {
+                let root = s.live.root.as_deref()?;
+                if root.starts_with("ssh://") {
+                    return None;
+                }
+                Some((root.to_string(), s.token.clone()))
+            })
+            .collect()
+    }
+
     /// 토큰으로 세션을 찾아 라이브 상태를 복제해 돌려준다(상수 시간 비교).
     fn live_for_token(&self, token: &str) -> Option<LiveState> {
         let sessions = self.sessions.lock().unwrap();

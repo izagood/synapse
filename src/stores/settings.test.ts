@@ -106,6 +106,39 @@ describe("settings store (mock ipc)", () => {
     expect(useSettings.getState().settings.appearance.canvasTheme).toBe("light");
   });
 
+  it("terminal 기본값이 로드된다", async () => {
+    await useSettings.getState().init();
+    expect(useSettings.getState().settings.terminal).toEqual({
+      external: "terminal",
+      customCommand: "",
+    });
+  });
+
+  it("terminal.external 갱신이 다른 섹션을 건드리지 않고 저장된다", async () => {
+    await useSettings.getState().update({
+      terminal: { external: "iterm2", customCommand: "" },
+    });
+
+    const s = useSettings.getState().settings;
+    expect(s.terminal.external).toBe("iterm2");
+    expect(s.editor.fontSize).toBe(16);
+
+    const persisted = await ipc.getSettings();
+    expect(persisted.terminal.external).toBe("iterm2");
+  });
+
+  it("과거 설정의 누락된 terminal 섹션을 기본값으로 보정한다", async () => {
+    // terminal 섹션이 없던 시절의 설정 파일을 흉내낸다 (필드 누락 → 캐스팅).
+    const legacy = structuredClone(DEFAULT_SETTINGS) as Partial<Settings>;
+    delete legacy.terminal;
+    await ipc.updateSettings(legacy as Settings);
+
+    // init()이 normalizeSettings를 태워 과거 설정을 읽어들인다.
+    await useSettings.getState().init();
+
+    expect(useSettings.getState().settings.terminal).toEqual(DEFAULT_SETTINGS.terminal);
+  });
+
 });
 
 describe("effectiveCanvasTheme", () => {

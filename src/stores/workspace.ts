@@ -248,6 +248,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 레거시 `.synapse/` 정리는 fire-and-forget: 실패해도 워크스페이스
       // 열기 자체를 막지 않는다. 삭제분은 다음 sync가 자연히 커밋한다.
       void ipc.migrateWorkspace(target).catch(() => undefined);
+      // 브리지 발견 항목 발행도 베스트 에포트: 실패해도 워크스페이스 열기를 막지 않는다.
+      void ipc.bridgePublishDiscovery(target).catch(() => undefined);
     } catch (e) {
       set({ error: String(e), loading: false });
     }

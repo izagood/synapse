@@ -71,4 +71,55 @@ describe("SettingsModal i18n", () => {
     expect(useSettings.getState().showShortcuts).toBe(true);
     expect(useSettings.getState().showSettings).toBe(false);
   });
+
+  // jsdom의 userAgent는 어떤 OS에서 돌리든 detectDesktopPlatform()이 "linux"로
+  // 판정하므로, 이 환경에서 보이는 선택지는 auto|custom 두 가지다.
+  it("터미널 섹션: 선택을 custom으로 바꾸면 커스텀 명령 입력이 나타나고 저장된다", async () => {
+    useSettings.setState({
+      settings: {
+        ...structuredClone(DEFAULT_SETTINGS),
+        terminal: { external: "auto", customCommand: "" },
+      },
+      loaded: true,
+      showSettings: true,
+    });
+    render();
+
+    const selects = Array.from(host.querySelectorAll("select"));
+    const terminalSelect = selects.find((select) => select.value === "auto");
+    expect(terminalSelect).toBeTruthy();
+    expect(Array.from(terminalSelect!.options).map((o) => o.value)).toEqual([
+      "auto",
+      "custom",
+    ]);
+
+    // custom을 고르기 전에는 커스텀 명령 입력이 없다
+    expect(host.querySelector('input[placeholder="alacritty --working-directory {{cwd}}"]')).toBeNull();
+
+    await act(async () => {
+      terminalSelect!.value = "custom";
+      terminalSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(useSettings.getState().settings.terminal.external).toBe("custom");
+    const customInput = host.querySelector(
+      'input[placeholder="alacritty --working-directory {{cwd}}"]',
+    ) as HTMLInputElement;
+    expect(customInput).toBeTruthy();
+
+    // React 제어 input에 네이티브 setter로 값을 넣어야 change가 감지된다
+    // (직접 대입은 React의 value 트래커를 건너뛴다).
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      nativeSetter.call(customInput, "alacritty --working-directory {{cwd}}");
+      customInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(useSettings.getState().settings.terminal.customCommand).toBe(
+      "alacritty --working-directory {{cwd}}",
+    );
+  });
 });

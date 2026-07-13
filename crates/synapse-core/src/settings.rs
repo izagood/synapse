@@ -91,6 +91,32 @@ impl Default for FilesSettings {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TerminalSettings {
+    /// macOS: terminal|iterm2|custom / Windows: wt|cmd|custom / Linux: auto|custom
+    pub external: String,
+    /// 커스텀 명령 템플릿("{{cwd}}" 치환). 빈 값이면 기본 런처.
+    pub custom_command: String,
+}
+
+impl Default for TerminalSettings {
+    fn default() -> Self {
+        // 플랫폼별 1순위 기본값.
+        let external = if cfg!(target_os = "macos") {
+            "terminal"
+        } else if cfg!(target_os = "windows") {
+            "wt"
+        } else {
+            "auto"
+        };
+        TerminalSettings {
+            external: external.into(),
+            custom_command: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -99,6 +125,7 @@ pub struct Settings {
     pub sync: SyncSettings,
     pub html_viewer: HtmlViewerSettings,
     pub files: FilesSettings,
+    pub terminal: TerminalSettings,
 }
 
 pub fn load_settings(config_dir: &Path) -> Settings {
@@ -214,6 +241,23 @@ mod tests {
         let s = load_settings(dir.path());
         assert_eq!(s.editor.font_size, 18);
         assert!(!s.editor.show_line_numbers);
+    }
+
+    #[test]
+    fn terminal_defaults_present_and_roundtrips() {
+        let s = Settings::default();
+        assert!(!s.terminal.external.is_empty());
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.terminal.external, s.terminal.external);
+    }
+
+    #[test]
+    fn legacy_settings_without_terminal_still_load() {
+        // 과거 파일에 terminal 섹션이 없어도 기본값으로 로드돼야 한다.
+        let legacy = r#"{"appearance":{},"editor":{},"sync":{},"htmlViewer":{},"files":{}}"#;
+        let s: Settings = serde_json::from_str(legacy).unwrap_or_default();
+        assert!(!s.terminal.external.is_empty());
     }
 
     #[test]

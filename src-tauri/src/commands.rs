@@ -628,3 +628,58 @@ pub async fn update_settings(settings: synapse_core::settings::Settings) -> Resu
     })
     .await
 }
+
+/// 선택된 OS 터미널을 cwd에서 연다. spawn 실패는 에러로 표면화(조용한 실패 금지).
+#[tauri::command]
+pub fn open_external_terminal(root: String, cwd: Option<String>) -> Result<(), String> {
+    use synapse_core::external_terminal::{launch_command, linux_auto_candidates, Launch, Platform};
+
+    let target = cwd.unwrap_or(root);
+    // get_settings/update_settings와 동일하게 config sync가 연결돼 있으면 클라우드
+    // 작업트리의 settings.json을 읽는다(1-E) — 그렇지 않으면 사용자가 동기화된
+    // 환경에서 고른 터미널 선택이 무시된 채 기본값으로 조용히 되돌아간다.
+    let cfg = config_dir()?;
+    let dir = synapse_core::config_sync::settings_dir(&cfg);
+    let settings = synapse_core::settings::load_settings(&dir);
+    let choice = settings.terminal.external.as_str();
+    let custom = settings.terminal.custom_command.as_str();
+
+    let platform = if cfg!(target_os = "macos") {
+        Platform::MacOs
+    } else if cfg!(target_os = "windows") {
+        Platform::Windows
+    } else {
+        Platform::Linux
+    };
+
+    // 리눅스 auto는 존재하는 첫 후보를 고른다(which).
+    let launch: Launch = if platform == Platform::Linux && choice != "custom" {
+        linux_auto_candidates(&target)
+            .into_iter()
+            .find(|l| which_exists(&l.program))
+            .ok_or("설치된 터미널 에뮬레이터를 찾지 못했습니다")?
+    } else {
+        launch_command(platform, choice, custom, &target)?
+    };
+
+    // 런처(open/gnome-terminal 등)는 터미널에 핸드오프 후 즉시 종료하므로, 자식을
+    // detached 스레드에서 wait()해 unix defunct(좀비)를 회수한다. spawn 실패는 조용히
+    // 삼키지 않고 에러로 표면화한다.
+    let child = std::process::Command::new(&launch.program)
+        .args(&launch.args)
+        .spawn()
+        .map_err(|e| format!("터미널 실행 실패({}): {e}", launch.program))?;
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+fn which_exists(program: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(program)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}

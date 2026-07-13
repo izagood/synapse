@@ -28,7 +28,13 @@ Markdown tools.
 - Resolve sync conflicts with keep-local, keep-remote, or keep-both actions.
 - Manage all app settings globally instead of writing app config into each
   workspace.
-- Use Quick Open, tabs, themes, update checks, and an optional Claude CLI panel.
+- Use Quick Open, tabs, themes, and update checks.
+- Open the OS's native terminal (Terminal.app, iTerm2, Windows Terminal, or a
+  custom command) directly in the workspace folder instead of an embedded
+  terminal panel.
+- Let AI coding agents running in that external terminal connect back to Synapse
+  through an MCP server that discovers the running app via a local
+  `bridge.json` file — no manual port/token setup required.
 
 ## Screenshots
 
@@ -148,7 +154,7 @@ Synapse has one global settings screen. Current settings include:
 | `Ctrl/Cmd+S` | Save the active file |
 | `Ctrl/Cmd+P` | Quick Open |
 | `Ctrl/Cmd+B` | Toggle the sidebar |
-| `Ctrl/Cmd+Shift+A` | Toggle the Claude panel |
+| `Ctrl/Cmd+J` | Open the external terminal in the workspace folder |
 
 ## Development
 
