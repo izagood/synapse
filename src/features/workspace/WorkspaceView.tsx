@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
+import { ipc } from "../../ipc/ipc";
 import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
 import { ContentPane } from "./ContentPane";
@@ -105,7 +106,8 @@ export function WorkspaceView() {
         setSidebarVisible((v) => !v);
       } else if (isShortcut(e, "view.toggleTerminal")) {
         e.preventDefault();
-        toggleTerminal();
+        const { root: r } = useWorkspace.getState();
+        if (r) void ipc.openExternalTerminal(r).catch(() => undefined);
       } else if (isShortcut(e, "tab.close")) {
         // 포커스가 터미널 도크 안이면 노트가 아니라 활성 터미널을 닫는다(VS Code 동작).
         const term = useTerminal.getState();
@@ -129,7 +131,7 @@ export function WorkspaceView() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir, toggleTerminal]);
+  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir]);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {

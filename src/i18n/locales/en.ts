@@ -103,6 +103,7 @@ export const en: LocaleShape<KoMessages> = {
       "This action cannot be undone. Content synced to GitHub remains in history. Press Enter to delete now.",
     dontAskDelete: "Delete immediately without asking again",
     canRestoreInSettings: "(you can restore this in Settings)",
+    openInTerminal: "Open in External Terminal",
   },
   settings: {
     title: "Settings",
@@ -146,6 +147,19 @@ export const en: LocaleShape<KoMessages> = {
     allowScripts: "Allow scripts (dangerous)",
     scriptWarning:
       "When scripts are allowed, the original HTML runs in an isolated sandbox without sanitization. Open only documents you trust.",
+    terminal: "Terminal",
+    terminalExternal: "External terminal",
+    terminalOption: {
+      terminal: "Terminal.app",
+      iterm2: "iTerm2",
+      wt: "Windows Terminal",
+      cmd: "Command Prompt",
+      auto: "Auto-detect",
+      custom: "Custom command",
+    },
+    terminalCustomCommand: "Custom command",
+    terminalCustomCommandHint:
+      "If present, {{cwd}} is replaced with the working directory; otherwise it's appended as the last argument. (simple whitespace split, no quoting)",
   },
   update: {
     section: "Updates",

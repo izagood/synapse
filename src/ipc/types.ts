@@ -402,6 +402,12 @@ export interface SynapseIpc {
    */
   bridgePublishDiscovery(root: string): Promise<void>;
 
+  /**
+   * 선택된 OS 터미널을 연다(터미널 선택은 settings.terminal). cwd를 주면 거기서,
+   * 없으면 워크스페이스 root에서 연다. spawn 실패는 reject로 표면화한다.
+   */
+  openExternalTerminal(root: string, cwd?: string): Promise<void>;
+
   // ---- 내장 터미널 (PTY) ----
   /**
    * 새 PTY를 연다. 셸은 플랫폼 기본값, cwd는 워크스페이스 루트(ssh://면 홈),

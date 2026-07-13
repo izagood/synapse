@@ -112,6 +112,9 @@ const tauriIpc: SynapseIpc = {
       root,
     }),
 
+  openExternalTerminal: (root, cwd) =>
+    invoke<void>("open_external_terminal", { root, cwd }),
+
   ptyOpen: (root, cols, rows) =>
     invoke<string>("pty_open", {
       windowLabel: getCurrentWindow().label,

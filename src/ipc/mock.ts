@@ -524,6 +524,9 @@ export const mockIpc: SynapseIpc = {
     // 브라우저/테스트 환경에는 브리지 서버가 없으므로 no-op.
   },
 
+  // 브라우저/테스트 환경에는 OS 프로세스를 못 띄우므로 no-op.
+  async openExternalTerminal() {},
+
   // 브라우저/테스트 환경에는 PTY가 없으므로 터미널은 no-op로 흉내만 낸다.
   async ptyOpen() {
     return "mock-pty";

@@ -30,6 +30,14 @@ export function clampMenuPosition(
   };
 }
 
+/**
+ * "외부 터미널에서 열기" 등에 쓸 cwd를 고른다: 폴더 노드면 그 경로,
+ * 파일 노드면 부모 폴더(구할 수 없으면 root로 폴백).
+ */
+export function dirOf(node: FileNode, root: string): string {
+  return node.kind === "dir" ? node.path : dirname(node.path) || root;
+}
+
 /** 트리에서 경로가 일치하는 노드를 깊이 우선으로 찾는다 */
 export function findNode(node: FileNode, path: string): FileNode | null {
   if (node.path === path) return node;

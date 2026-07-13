@@ -98,6 +98,7 @@ export const ko = {
       "이 작업은 되돌릴 수 없습니다 (GitHub에 동기화된 내용은 히스토리에 남습니다). Enter 키로 바로 삭제할 수 있습니다.",
     dontAskDelete: "다시 묻지 않고 바로 삭제",
     canRestoreInSettings: "(설정에서 되돌릴 수 있음)",
+    openInTerminal: "외부 터미널에서 열기",
   },
   settings: {
     title: "설정",
@@ -140,6 +141,19 @@ export const ko = {
     allowScripts: "스크립트 실행 허용 (위험)",
     scriptWarning:
       "스크립트 허용 시 HTML 정화 없이 원문 그대로 격리된 샌드박스에서 실행됩니다. 신뢰할 수 있는 문서만 여세요.",
+    terminal: "터미널",
+    terminalExternal: "외부 터미널",
+    terminalOption: {
+      terminal: "Terminal.app",
+      iterm2: "iTerm2",
+      wt: "Windows Terminal",
+      cmd: "명령 프롬프트",
+      auto: "자동 감지",
+      custom: "커스텀 명령",
+    },
+    terminalCustomCommand: "커스텀 명령",
+    terminalCustomCommandHint:
+      "{{cwd}}가 있으면 작업 폴더 경로로 치환하고, 없으면 마지막 인자로 덧붙입니다. (인용부호 없는 단순 공백 구분)",
   },
   update: {
     section: "업데이트",

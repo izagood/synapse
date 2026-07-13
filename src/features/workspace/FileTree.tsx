@@ -14,7 +14,7 @@ import {
   ImageIcon,
   PencilIcon,
 } from "../../shared/Icons";
-import { clampMenuPosition, findNode, isDeleteShortcut } from "./fileTreeUtils";
+import { clampMenuPosition, dirOf, findNode, isDeleteShortcut } from "./fileTreeUtils";
 import { SYNAPSE_DND_MIME, dndKind, dropTargetDir } from "./dndUtils";
 import { exportPathToOS } from "./dragExport";
 import { ipc } from "../../ipc/ipc";
@@ -298,6 +298,7 @@ function TreeContextMenu({
   const createDrawioFile = useWorkspace((s) => s.createDrawioFile);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
   const openHistory = useHistoryUi((s) => s.open);
+  const root = useWorkspace((s) => s.root);
   const t = useT();
 
   const ref = useRef<HTMLDivElement>(null);
@@ -411,6 +412,15 @@ function TreeContextMenu({
       <button onClick={() => run(() => void ipc.revealPath(node.path))}>
         {t(revealLabelKey())}
       </button>
+      {root && (
+        <button
+          onClick={() =>
+            run(() => void ipc.openExternalTerminal(root, dirOf(node, root)).catch(() => undefined))
+          }
+        >
+          {t("fileTree.openInTerminal")}
+        </button>
+      )}
       {node.kind === "file" && (
         <button onClick={() => run(() => openHistory(node.path))}>
           {t("history.open")}
