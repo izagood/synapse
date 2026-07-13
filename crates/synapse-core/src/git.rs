@@ -702,15 +702,21 @@ impl GitWorkspace {
     }
 
     /// 진행 중인 merge의 충돌을 파일별 규칙으로 자동 해소하고 병합 커밋을
-    /// 완결한다. 텍스트는 문자 단위 3-way 병합(양쪽 편집 보존), 바이너리는
-    /// 양쪽 보존(theirs가 원래 이름, ours는 conflict 사본), `.synapse/`는 삭제로
-    /// 해소한다. 자동 해소 대상이 아니면(삭제/수정) Err — 호출자가 abort 후
-    /// Conflict로 보고한다(3택 UI 폴백).
+    /// 완결한다. 텍스트는 문자 단위 3-way 병합(양쪽 편집 보존), 바이너리와
+    /// `.synapse/draw/` 주석 사이드카는 양쪽 보존(theirs가 원래 이름, ours는
+    /// conflict 사본), 그 밖의 `.synapse/`(레거시)는 삭제로 해소한다.
+    /// 자동 해소 대상이 아니면(삭제/수정) Err — 호출자가 abort 후 Conflict로
+    /// 보고한다(3택 UI 폴백).
     fn auto_resolve_merge(&self) -> GitResult<()> {
+        let data_prefix = format!("{DATA_DIR}/");
+        let draw_prefix = format!("{DATA_DIR}/draw/");
         for path in self.conflicted_files()? {
-            // `.synapse/` 밑 충돌은 마이그레이션 과도기 동안 항상 삭제로 해소한다
-            // (다른 기기가 아직 그 파일을 쓸 수 있으므로 git rm으로 없앤다).
-            if path.starts_with(&format!("{}/", DATA_DIR)) {
+            let is_draw = path.starts_with(&draw_prefix);
+            // `.synapse/` 밑 충돌은 마이그레이션 과도기 동안 삭제로 해소한다
+            // (다른 기기가 아직 레거시 CRDT 파일을 쓸 수 있으므로 git rm으로
+            // 없앤다). 예외: `.synapse/draw/`는 살아 있는 PDF 주석 데이터
+            // (pdf-draw 사이드카)이므로 삭제하지 않고 아래 keep-both로 보존한다.
+            if path.starts_with(&data_prefix) && !is_draw {
                 self.run_ok(&["rm", "-f", "--", &path])?;
                 continue;
             }
@@ -718,6 +724,12 @@ impl GitWorkspace {
             let ours = self.stage_bytes(2, &path)?;
             let theirs = self.stage_bytes(3, &path)?;
             match (ours, theirs) {
+                (Some(o), Some(t)) if is_draw => {
+                    // draw 사이드카는 JSON이라 문자 단위 병합이 포맷을 깨뜨릴 수
+                    // 있다 — keep-both가 양쪽을 유효한 JSON으로 보존한다
+                    // (원본=theirs, 사본은 히스토리/수동 복구용).
+                    self.keep_both(&path, &o, &t)?;
+                }
                 (Some(o), Some(t)) => match (std::str::from_utf8(&o), std::str::from_utf8(&t)) {
                     (Ok(os), Ok(ts)) => {
                         // 텍스트: 결정적 문자 단위 3-way 병합 (어느 기기가 해도 같은 결과)
@@ -733,14 +745,7 @@ impl GitWorkspace {
                     }
                     _ => {
                         // 바이너리: 둘 다 보존 (theirs가 원래 이름, ours는 conflict 사본)
-                        let copy = conflict_copy_name(&path);
-                        self.backend
-                            .write(&self.root.join(&copy), &o)
-                            .map_err(|e| e.to_string())?;
-                        self.backend
-                            .write(&self.root.join(&path), &t)
-                            .map_err(|e| e.to_string())?;
-                        self.run_ok(&["add", "--", &path, &copy])?;
+                        self.keep_both(&path, &o, &t)?;
                     }
                 },
                 // 삭제/수정 충돌은 자동 해결하지 않는다 → 3택 UI로 폴백
@@ -761,6 +766,20 @@ impl GitWorkspace {
                 return Err(format!("병합 커밋 실패: {}", err.trim()));
             }
         }
+        Ok(())
+    }
+
+    /// 충돌 양쪽을 모두 보존하고 스테이징한다: theirs가 원래 이름을 차지하고,
+    /// ours는 "이름 (conflict).ext" 사본으로 남는다.
+    fn keep_both(&self, path: &str, ours: &[u8], theirs: &[u8]) -> GitResult<()> {
+        let copy = conflict_copy_name(path);
+        self.backend
+            .write(&self.root.join(&copy), ours)
+            .map_err(|e| e.to_string())?;
+        self.backend
+            .write(&self.root.join(path), theirs)
+            .map_err(|e| e.to_string())?;
+        self.run_ok(&["add", "--", path, &copy])?;
         Ok(())
     }
 
@@ -1464,7 +1483,7 @@ mod tests {
 
     #[test]
     fn dot_synapse_conflict_resolved_by_deletion() {
-        // .synapse/ 밑 충돌은 항상 삭제로 해결한다 (마이그레이션 과도기)
+        // .synapse/ 밑(레거시, draw/ 제외) 충돌은 삭제로 해결한다 (마이그레이션 과도기)
         let (_tmp, a, b) = setup_two_clones();
         write(&a, ".synapse/doc.txt", "공용 상태\n");
         ws(&a).sync("init").unwrap();
@@ -1478,6 +1497,34 @@ mod tests {
         assert_eq!(st.state, SyncState::Synced);
         // .synapse/ 충돌은 삭제로 해소되어 파일이 사라진다
         assert!(!b.join(".synapse/doc.txt").exists());
+        assert_eq!(ws(&b).status().state, SyncState::Synced);
+    }
+
+    #[test]
+    fn draw_sidecar_conflict_keeps_both() {
+        // `.synapse/draw/`는 살아 있는 PDF 주석 데이터(pdf-draw 사이드카) —
+        // 삭제 규칙의 예외로, 충돌 시 양쪽을 보존해야 한다
+        // (원본=theirs, ours는 conflict 사본, 아무것도 삭제되지 않는다).
+        let (_tmp, a, b) = setup_two_clones();
+        let sidecar = ".synapse/draw/doc.pdf.draw.json";
+        write(&a, sidecar, r#"{"strokes":[]}"#);
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+
+        write(&a, sidecar, r#"{"strokes":["A"]}"#);
+        ws(&a).sync("a").unwrap();
+        write(&b, sidecar, r#"{"strokes":["B"]}"#);
+        let st = ws(&b).sync("b").unwrap();
+
+        assert_eq!(st.state, SyncState::Synced);
+        // 원본은 theirs(A) 그대로 — 삭제되지 않았다
+        assert!(b.join(sidecar).exists(), "주석 사이드카가 삭제됨");
+        assert_eq!(read(&b, sidecar), r#"{"strokes":["A"]}"#);
+        // ours(B)는 conflict 사본으로 보존 — 양쪽 모두 유효한 JSON
+        assert_eq!(
+            read(&b, ".synapse/draw/doc.pdf.draw (conflict).json"),
+            r#"{"strokes":["B"]}"#
+        );
         assert_eq!(ws(&b).status().state, SyncState::Synced);
     }
 
