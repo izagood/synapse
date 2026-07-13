@@ -175,7 +175,40 @@ function mockRetrieve(question: string): RetrievalResult {
 
 let recent: string[] = [];
 const MAX_RECENT = 10;
-let mockDocSeq = 0;
+
+/**
+ * Rust `synapse_core::docid::strip_doc_id`의 미러: frontmatter의 `synapse_id`
+ * 줄을 지연 제거한다. 없으면 null(=변경 없음).
+ */
+function stripDocId(text: string): string | null {
+  const block = text.match(/^---\r?\n([\s\S]*?\r?\n)---\r?\n/);
+  if (!block) return null;
+  const eol = block[0].includes("\r\n") ? "\r\n" : "\n";
+  const lines = block[1].split(/\r?\n/).filter((_, i, arr) => i < arr.length - 1 || arr[i] !== "");
+  const idx = lines.findIndex((l) => l.trimStart().startsWith("synapse_id:"));
+  if (idx === -1) return null;
+  lines.splice(idx, 1);
+  const rest = text.slice(block[0].length);
+  const hasOtherKeys = lines.some((l) => l.trim() !== "");
+  if (!hasOtherKeys) return rest;
+  return `---${eol}${lines.join(eol)}${eol}---${eol}${rest}`;
+}
+
+/**
+ * 목 전용 근사 3-way 병합. 실제 병합은 Rust CRDT(`merge_three_way`)이지만
+ * 브라우저 목엔 CRDT가 없으므로, 디스크에만 있고(base·content에 없는) 줄을
+ * 에디터 내용 뒤에 붙여 양쪽 편집이 모두 남도록 한다(발산 흡수 데모/테스트용).
+ */
+function mockThreeWayMerge(base: string, disk: string, content: string): string {
+  const baseLines = new Set(base.split("\n"));
+  const contentLines = new Set(content.split("\n"));
+  const diskOnly = disk
+    .split("\n")
+    .filter((l) => l !== "" && !baseLines.has(l) && !contentLines.has(l));
+  if (diskOnly.length === 0) return content;
+  const sep = content.endsWith("\n") ? "" : "\n";
+  return `${content}${sep}${diskOnly.join("\n")}\n`;
+}
 
 const session = {
   lastWorkspace: null as string | null,
@@ -249,6 +282,9 @@ export const mockIpc: SynapseIpc = {
     if (path !== MOCK_ROOT) throw new Error(`not a directory: ${path}`);
     return buildMockTree();
   },
+  async migrateWorkspace() {
+    return false; // 목 환경에는 정리할 레거시 `.synapse/`가 없다
+  },
   async searchWorkspace(_root, query) {
     return mockSearch(query);
   },
@@ -282,19 +318,17 @@ export const mockIpc: SynapseIpc = {
     files.delete(`${pdfPath}.draw.json`); // 점진 이전: 레거시 사이드카 제거
     sync.dirty = true;
   },
-  async saveDoc(root, path, content, _base) {
-    void _base;
+  async saveDoc(root, path, content, base) {
     assertInside(root, path);
-    // Rust save_doc을 흉내: synapse_id가 없으면 frontmatter에 주입한다
-    let final = content;
-    if (!/^---\r?\n[\s\S]*?synapse_id:/m.test(content)) {
-      mockDocSeq += 1;
-      const id = `mock-doc-${String(mockDocSeq).padStart(8, "0")}`;
-      const fm = content.match(/^---\r?\n[\s\S]*?\r?\n---/);
-      final = fm
-        ? content.replace(/^---\r?\n/, `---\nsynapse_id: ${id}\n`)
-        : `---\nsynapse_id: ${id}\n---\n\n${content}`;
-    }
+    // 실제 백엔드(save_merge)와 같은 디스크 비교 로직: 저장 직전 디스크가
+    // base에서 갈라졌고 에디터 내용과도 다르면 3-way 병합으로 흡수하고,
+    // 아니면 그대로 쓴다. 마지막에 레거시 synapse_id를 지연 제거한다.
+    const disk = files.get(path);
+    const merged =
+      disk !== undefined && disk !== base && disk !== content
+        ? mockThreeWayMerge(base, disk, content)
+        : content;
+    const final = stripDocId(merged) ?? merged;
     files.set(path, final);
     sync.dirty = true;
     return final;

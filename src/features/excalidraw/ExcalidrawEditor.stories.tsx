@@ -36,6 +36,7 @@ function EditorWithContent({
           content,
           savedContent: content,
           externalRev: 0,
+          externalStale: false,
           loading: false,
           error: null,
         },

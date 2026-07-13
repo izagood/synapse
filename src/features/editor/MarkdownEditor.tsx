@@ -10,7 +10,6 @@ import { FindBar } from "./FindBar";
 import { useT } from "../../i18n";
 import { hasRoundtripContentLoss } from "./roundtripSafety";
 import { deferUntilCompositionEnd } from "./deferUntilCompositionEnd";
-import { applyBlockDiff } from "./applyBlockDiff";
 
 // 활성 마크다운 문서의 WYSIWYG 에디터.
 // 탭 전환/모드 전환 시 key로 리마운트되어 항상 store의 content에서 출발한다.
@@ -135,15 +134,16 @@ export function MarkdownEditor({ path }: { path: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 원격 머지/외부 편집 반영 (FR-6 라이브 머지): store의 content가 에디터 밖에서
-  // 바뀌면 새 내용을 적용하고 커서를 (범위 안으로) 복원한다. 저장 직후 돌아온
-  // 합쳐진 텍스트(synapse_id 주입 포함)도 같은 경로로 반영된다.
+  // 외부 리로드 반영: store의 content가 에디터 밖에서 바뀌면(저장 결과 반영,
+  // sync 후 깨끗한 문서 리로드 등) 새 내용을 전체 교체로 적용하고 커서를
+  // (범위 안으로) 복원한다. 라이브 머지는 없다 — 편집 중인 문서는 sync가
+  // 건드리지 않고 externalStale 배지로만 알린다(워크스페이스 store 참고).
   const externalRev = useWorkspace((s) => s.docs[path]?.externalRev ?? 0);
   const appliedRev = useRef(externalRev);
   useEffect(() => {
     if (!editor || editor.isDestroyed || externalRev === appliedRev.current) return;
 
-    // 외부 머지를 화면에 반영한다. 적용 시점에 store의 최신 내용/rev를 다시 읽어,
+    // 외부 리로드를 화면에 반영한다. 적용 시점에 store의 최신 내용/rev를 다시 읽어,
     // 조합 종료까지 연기된 사이 추가로 들어온 변경까지 한 번에 coalesce해 반영한다.
     const applyExternal = () => {
       if (!editor || editor.isDestroyed) return;
@@ -152,18 +152,15 @@ export function MarkdownEditor({ path }: { path: string }) {
       const text = liveDoc?.content ?? "";
       if (text === original.current) return;
       const split = splitFrontmatter(text);
-      // 외부 머지는 바뀐 블록만 비파괴로 적용한다(커서/스크롤·안 바뀐 블록 보존).
-      // 적용 트랜잭션은 onUpdate를 발화시키므로 그 사이 쓰기-되먹임을 막는다.
-      // 불변식: undo 가능해야 한다(addToHistory:false 금지) — applyBlockDiff은 평범한 tr.
+      // 전체 교체(setContent)로 반영한다. 적용은 emitUpdate:false라 onUpdate를
+      // 발화시키지 않으므로 쓰기-되먹임 걱정이 없다 — applyingExternal 가드는
+      // 그래도 방어적으로 유지한다.
       applyingExternal.current = true;
       try {
-        if (!applyBlockDiff(editor, split.body)) {
-          // 파싱 실패 등 → 전체 교체로 폴백(A와 동일하게 안전).
-          const { from, to } = editor.state.selection;
-          editor.commands.setContent(split.body, { emitUpdate: false });
-          const max = editor.state.doc.content.size;
-          editor.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
-        }
+        const { from, to } = editor.state.selection;
+        editor.commands.setContent(split.body, { emitUpdate: false });
+        const max = editor.state.doc.content.size;
+        editor.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
       } finally {
         applyingExternal.current = false;
       }

@@ -1,11 +1,13 @@
 pub mod bridge;
-pub mod collab;
 pub mod config_sync;
+pub mod docid;
 pub mod fs_io;
 pub mod git;
 pub mod github;
 pub mod links;
 pub mod location;
+pub mod merge;
+pub mod migrate;
 pub mod paths;
 pub mod registry;
 pub mod retrieval;
@@ -23,17 +25,19 @@ pub mod walk;
 pub mod watch;
 
 pub use bridge::{generate_token, token_matches, LiveState, OpenTab};
-pub use collab::CollabStore;
 pub use config_sync::ConfigSyncState;
+pub use docid::strip_doc_id;
 pub use fs_io::{
     atomic_write, atomic_write_bytes, create_unique_folder, create_unique_note,
-    ensure_writable_within, is_safe_file_name,
+    ensure_writable_within, is_safe_file_name, workspace_write_lock,
 };
 pub use git::{ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, SyncState, SyncStatus};
 pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, LinkGraph};
 pub use location::{
     path_to_uri, urify_tree, Location, LocationError, SshLocation, DEFAULT_SSH_PORT,
 };
+pub use merge::{merge_agent_edit, merge_three_way, save_merge};
+pub use migrate::remove_collab_dir;
 pub use paths::{ensure_within, legacy_pdf_draw_sidecar, pdf_draw_sidecar_path, rel_path_within};
 pub use registry::{recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};

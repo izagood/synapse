@@ -68,6 +68,7 @@ export const ko = {
     switchToRendered: "렌더 보기로 전환",
     switchToSource: "소스 보기로 전환",
     exportHtml: "HTML로 내보내기",
+    externalChanged: "다른 기기에서 변경됨 — 저장 시 다음 동기화에서 합쳐집니다",
   },
   quickOpen: {
     placeholder: "파일 이름 검색…",

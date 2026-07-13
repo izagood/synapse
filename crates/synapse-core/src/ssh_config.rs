@@ -73,10 +73,8 @@ fn strip_comment(line: &str) -> &str {
 /// `Keyword value` 또는 `Keyword = value` 를 (keyword, value)로 나눈다.
 fn split_keyword(line: &str) -> Option<(&str, &str)> {
     let line = line.trim();
-    let (kw, rest) = match line.find(|c: char| c.is_whitespace() || c == '=') {
-        Some(idx) => (&line[..idx], &line[idx..]),
-        None => return None,
-    };
+    let idx = line.find(|c: char| c.is_whitespace() || c == '=')?;
+    let (kw, rest) = (&line[..idx], &line[idx..]);
     // 구분자(공백/'=')를 건너뛴다.
     let rest = rest.trim_start();
     let rest = rest.strip_prefix('=').unwrap_or(rest).trim();

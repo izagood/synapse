@@ -111,6 +111,7 @@ export function TabBar() {
       >
         {tabs.map((tab) => {
           const dirty = isDirty(docs[tab.path]);
+          const externalStale = !!docs[tab.path]?.externalStale;
           return (
             <div
               key={tab.path}
@@ -132,6 +133,11 @@ export function TabBar() {
                 title={tab.path}
                 onClick={() => setActiveTab(tab.path)}
               >
+                {externalStale && (
+                  <span className="tab-external-stale" title={t("tabs.externalChanged")}>
+                    ↻
+                  </span>
+                )}
                 {tab.name}
               </button>
               <button

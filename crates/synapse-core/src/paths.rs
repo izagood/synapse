@@ -1,11 +1,14 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::collab::DATA_DIR;
 use crate::vfs::{Backend, LocalBackend};
 
 // 경로 가드 로직은 [`crate::vfs::Backend`]의 기본 제공 메서드로 옮겨졌다.
 // 아래 함수들은 로컬 파일시스템에 위임하는 얇은 래퍼다.
+
+/// 워크스페이스 안의 숨김 메타데이터 디렉토리 이름(드로잉 사이드카, git 자동
+/// 병합에서 제외되는 파일 등에 쓰인다).
+pub const DATA_DIR: &str = ".synapse";
 
 /// `candidate`가 `root`(워크스페이스 루트) 내부 경로인지 검증한다 (NFR-4).
 pub fn ensure_within(root: &Path, candidate: &Path) -> io::Result<PathBuf> {
