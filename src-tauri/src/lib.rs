@@ -74,6 +74,7 @@ pub fn run() {
             commands::set_workspace_state,
             commands::get_settings,
             commands::update_settings,
+            commands::open_external_terminal,
             commands::viewer_cache_write,
             commands::new_window,
             commands::save_image,
