@@ -15,11 +15,10 @@
 //!   어색한 중복 결과는 git 히스토리로 복구한다.
 //! - 입력 순서(mine/theirs 스왑)에도 대칭
 //!
-//! `diff_patches`/`Patch`/`fnv1a64`/`det_client`는 `collab.rs`에서 이식했다
-//! (collab.rs는 이후 단계에서 삭제될 예정이라 import하지 않고 복사한다).
-//! yrs `Options::default()` / `Options::with_client_id()`는 0.27 기준
+//! `diff_patches`/`Patch`/`fnv1a64`/`det_client`는 구 `collab.rs`(삭제됨)에서
+//! 이식했다. yrs `Options::default()` / `Options::with_client_id()`는 0.27 기준
 //! `offset_kind: OffsetKind::Bytes`가 기본값이라 `diff_patches`가 만드는
-//! 바이트 오프셋을 그대로 yrs Text API에 넘길 수 있다 (collab.rs와 동일).
+//! 바이트 오프셋을 그대로 yrs Text API에 넘길 수 있다 (구 구현과 동일).
 
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, GetString, Options, ReadTxn, StateVector, Text, Transact, Update};

@@ -272,6 +272,12 @@ fn apply_edit_request(live: &LiveState, body: &[u8]) -> Result<String, String> {
     use std::path::Path;
     use synapse_core::{merge_agent_edit, Backend, LocalBackend};
 
+    // 브리지는 커넥션당 스레드로 요청을 처리하므로, 동시 /edit 두 건이 같은
+    // 디스크 스냅샷을 읽고 각자 병합해 나중 write가 먼저 것을 덮어쓸 수 있다.
+    // read→merge→write 시퀀스를 직렬화해 lost update를 막는다
+    // (구 CRDT 스토어 workspace_lock의 유일한 잔존 역할).
+    static EDIT_LOCK: Mutex<()> = Mutex::new(());
+
     let req: EditRequest =
         serde_json::from_slice(body).map_err(|e| format!("bad request body: {e}"))?;
     let root = live.root.as_deref().ok_or("열린 워크스페이스가 없습니다")?;
@@ -284,6 +290,9 @@ fn apply_edit_request(live: &LiveState, body: &[u8]) -> Result<String, String> {
     let resolved = backend
         .ensure_writable_within(root_path, Path::new(&req.path))
         .map_err(|e| e.to_string())?;
+    let _guard = EDIT_LOCK
+        .lock()
+        .map_err(|_| "edit lock poisoned".to_string())?;
     // 파일이 없으면(에이전트가 새 노트를 만드는 경우) 빈 문자열이 현재 디스크
     // 상태다 — merge_agent_edit이 base와 비교해 알아서 처리한다.
     let disk = backend.read_to_string(&resolved).unwrap_or_default();
