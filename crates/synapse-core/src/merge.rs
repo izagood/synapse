@@ -179,6 +179,23 @@ pub fn merge_agent_edit(base: &str, disk: &str, new_content: &str) -> String {
     crate::docid::strip_doc_id(&merged).unwrap_or(merged)
 }
 
+/// 저장(`save_doc`)의 순수 로직: 저장 직전 디스크가 에디터의 기준(`base`)에서
+/// 갈라졌으면 무조건 덮어쓰지 않고 3-way 병합으로 흡수한다.
+///
+/// - `disk == None`(파일 없음): 그냥 `content`를 쓴다.
+/// - 디스크가 `base`와 같음(외부 변경 없음) 또는 `content`와 같음(이미 같은
+///   내용): 그대로 `content` — CRDT 병합을 건너뛰는 최적화(결과는 동일하다).
+/// - 그 외(디스크 발산): `merge_three_way(base, disk, content)`로 양쪽 보존.
+///
+/// 어느 경로든 마지막에 레거시 `synapse_id` frontmatter를 지연 제거한다.
+pub fn save_merge(base: &str, disk: Option<&str>, content: &str) -> String {
+    let merged = match disk {
+        Some(d) if d != base && d != content => merge_three_way(base, d, content),
+        _ => content.to_string(),
+    };
+    crate::docid::strip_doc_id(&merged).unwrap_or(merged)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,5 +318,43 @@ mod tests {
         let new_content = "---\nsynapse_id: abc123\ntitle: t\n---\n\n수정된 본문\n";
         let merged = merge_agent_edit(base, base, new_content);
         assert_eq!(merged, "---\ntitle: t\n---\n\n수정된 본문\n");
+    }
+
+    #[test]
+    fn save_merge_passthrough_when_disk_matches_base() {
+        // 외부 변경이 없으면(disk == base) 에디터 내용을 그대로 쓴다.
+        let base = "# 노트\n\n본문\n";
+        let content = "# 노트\n\n편집된 본문\n";
+        assert_eq!(save_merge(base, Some(base), content), content);
+    }
+
+    #[test]
+    fn save_merge_absorbs_diverged_disk() {
+        // 디스크가 base에서 갈라졌으면(외부 도구·브리지·sync가 그 사이 씀)
+        // 덮어쓰지 않고 3-way 병합으로 디스크 편집과 에디터 편집을 모두 보존.
+        let base = "# 노트\n\n공통 문단\n";
+        let disk = "# 노트\n\n공통 문단\n\n디스크 추가\n"; // 외부에서 끝에 추가
+        let content = "# 노트 (편집)\n\n공통 문단\n"; // 에디터에서 제목 변경
+        let merged = save_merge(base, Some(disk), content);
+        assert!(merged.contains("디스크 추가"), "디스크 편집 유실: {merged}");
+        assert!(merged.contains("(편집)"), "에디터 편집 유실: {merged}");
+    }
+
+    #[test]
+    fn save_merge_writes_content_when_file_missing() {
+        // 파일이 없으면(disk == None) 병합 없이 에디터 내용을 그대로 쓴다.
+        let content = "# 새 노트\n\n본문\n";
+        assert_eq!(save_merge("", None, content), content);
+    }
+
+    #[test]
+    fn save_merge_strips_legacy_synapse_id() {
+        // 병합/패스스루 여부와 무관하게 마지막에 synapse_id를 지연 제거한다.
+        let base = "---\nsynapse_id: x\ntitle: t\n---\n\n본문\n";
+        let content = "---\nsynapse_id: x\ntitle: t\n---\n\n수정 본문\n";
+        assert_eq!(
+            save_merge(base, Some(base), content),
+            "---\ntitle: t\n---\n\n수정 본문\n"
+        );
     }
 }

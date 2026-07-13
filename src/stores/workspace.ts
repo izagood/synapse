@@ -492,11 +492,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const snapshot = doc.content;
     const isMarkdown = tabs.find((t) => t.path === path)?.fileType === "markdown";
     try {
-      // 저장은 그냥 원자적 쓰기다(라이브 머지 없음). 마크다운만 레거시
-      // frontmatter synapse_id를 지연 제거하므로, 돌아온 텍스트가 snapshot과
-      // 다를 수 있다 — 그 경우 에디터에도 반영해야 한다. 그 외 파일은 단순 쓰기.
+      // 마크다운 저장은 base(마지막으로 본 디스크 = savedContent)를 함께 넘긴다.
+      // 저장 직전 디스크가 그 base에서 갈라졌으면(외부 도구·브리지·sync 병합)
+      // 백엔드가 3-way로 흡수해 미커밋 바이트를 파괴하지 않는다. 돌아온 텍스트가
+      // snapshot과 다를 수 있고(병합·synapse_id strip), 그 경우 에디터에도
+      // 반영해야 한다(아래 applyExternal 경로). 그 외 파일은 단순 쓰기.
       const merged = isMarkdown
-        ? await ipc.saveDoc(root, path, snapshot)
+        ? await ipc.saveDoc(root, path, snapshot, doc.savedContent)
         : (await ipc.writeFile(root, path, snapshot), snapshot);
       set((s) => {
         const current = s.docs[path];

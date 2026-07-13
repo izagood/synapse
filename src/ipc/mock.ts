@@ -194,6 +194,22 @@ function stripDocId(text: string): string | null {
   return `---${eol}${lines.join(eol)}${eol}---${eol}${rest}`;
 }
 
+/**
+ * 목 전용 근사 3-way 병합. 실제 병합은 Rust CRDT(`merge_three_way`)이지만
+ * 브라우저 목엔 CRDT가 없으므로, 디스크에만 있고(base·content에 없는) 줄을
+ * 에디터 내용 뒤에 붙여 양쪽 편집이 모두 남도록 한다(발산 흡수 데모/테스트용).
+ */
+function mockThreeWayMerge(base: string, disk: string, content: string): string {
+  const baseLines = new Set(base.split("\n"));
+  const contentLines = new Set(content.split("\n"));
+  const diskOnly = disk
+    .split("\n")
+    .filter((l) => l !== "" && !baseLines.has(l) && !contentLines.has(l));
+  if (diskOnly.length === 0) return content;
+  const sep = content.endsWith("\n") ? "" : "\n";
+  return `${content}${sep}${diskOnly.join("\n")}\n`;
+}
+
 const session = {
   lastWorkspace: null as string | null,
   states: new Map<string, WorkspaceSession>(),
@@ -266,7 +282,7 @@ export const mockIpc: SynapseIpc = {
     if (path !== MOCK_ROOT) throw new Error(`not a directory: ${path}`);
     return buildMockTree();
   },
-  async migrateWorkspace(_root) {
+  async migrateWorkspace() {
     return false; // 목 환경에는 정리할 레거시 `.synapse/`가 없다
   },
   async searchWorkspace(_root, query) {
@@ -302,10 +318,17 @@ export const mockIpc: SynapseIpc = {
     files.delete(`${pdfPath}.draw.json`); // 점진 이전: 레거시 사이드카 제거
     sync.dirty = true;
   },
-  async saveDoc(root, path, content) {
+  async saveDoc(root, path, content, base) {
     assertInside(root, path);
-    // 디스크가 단일 진실 — 그냥 원자적 쓰기. 레거시 synapse_id만 지연 제거한다.
-    const final = stripDocId(content) ?? content;
+    // 실제 백엔드(save_merge)와 같은 디스크 비교 로직: 저장 직전 디스크가
+    // base에서 갈라졌고 에디터 내용과도 다르면 3-way 병합으로 흡수하고,
+    // 아니면 그대로 쓴다. 마지막에 레거시 synapse_id를 지연 제거한다.
+    const disk = files.get(path);
+    const merged =
+      disk !== undefined && disk !== base && disk !== content
+        ? mockThreeWayMerge(base, disk, content)
+        : content;
+    const final = stripDocId(merged) ?? merged;
     files.set(path, final);
     sync.dirty = true;
     return final;

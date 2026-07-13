@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use synapse_core::{path_to_uri, urify_tree, Backend, Backlink, FileNode, LinkGraph, Location};
+use synapse_core::{path_to_uri, urify_tree, Backlink, FileNode, LinkGraph, Location};
 
 use crate::remote::{backend_for, fs_path, require_local, RemoteState};
 
@@ -56,6 +56,10 @@ pub async fn migrate_workspace(
     let backend = backend_for(&state, &root_loc)?;
     let root_path = fs_path(&root_loc);
     crate::sync::run_blocking(move || {
+        // 워킹트리를 만지므로 저장/동기화와 직렬화한다 (전역 쓰기 락).
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         synapse_core::remove_collab_dir(&*backend, &root_path).map_err(|e| e.to_string())
     })
     .await
@@ -176,15 +180,20 @@ pub async fn write_pdf_draw(
     .await
 }
 
-/// 마크다운 문서 저장: 디스크가 단일 진실이므로 그냥 원자적 쓰기다. 레거시
-/// CRDT 저장분에 남아 있는 frontmatter `synapse_id`는 지연 제거(lazy strip)해
-/// 최종 저장 텍스트에 반영하고, 그 텍스트를 돌려준다(에디터가 그대로 반영).
+/// 마크다운 문서 저장. 디스크가 단일 진실이므로 원자적 쓰기가 기본이지만,
+/// 저장 직전 디스크가 에디터가 마지막에 본 기준(`base`)에서 갈라져 있으면
+/// (외부 도구·브리지 편집·sync 병합이 그 사이에 파일을 바꿨다는 뜻)
+/// 무조건 덮어써 미커밋 바이트를 파괴하지 않는다 — `base`·디스크·에디터
+/// 내용을 stateless 3-way로 병합해 양쪽을 모두 보존한다. 레거시 CRDT 저장분에
+/// 남아 있는 frontmatter `synapse_id`는 지연 제거(lazy strip)하고, 최종 저장
+/// 텍스트를 돌려준다(에디터가 그 반환값을 반영 — 병합됐으면 병합 결과가 뜬다).
 #[tauri::command]
 pub async fn save_doc(
     state: tauri::State<'_, RemoteState>,
     root: String,
     path: String,
     content: String,
+    base: String,
 ) -> Result<String, String> {
     let root_loc = parse_loc(&root)?;
     let path_loc = parse_loc(&path)?;
@@ -192,10 +201,17 @@ pub async fn save_doc(
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
     crate::sync::run_blocking(move || {
+        // 워킹트리를 만지므로 sync의 자가 치유(reset --hard 등)와 직렬화한다.
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_writable_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
-        let final_text = synapse_core::docid::strip_doc_id(&content).unwrap_or(content);
+        // 현재 디스크 내용(없으면 None)을 읽어, base에서 갈라졌으면 3-way
+        // 병합으로 흡수하고 아니면 그대로 쓴다(+ 레거시 synapse_id 지연 제거).
+        let disk = backend.read_to_string(&resolved).ok();
+        let final_text = synapse_core::save_merge(&base, disk.as_deref(), &content);
         backend
             .write_atomic(&resolved, final_text.as_bytes())
             .map_err(|e| e.to_string())?;

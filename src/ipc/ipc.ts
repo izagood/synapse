@@ -67,8 +67,8 @@ const tauriIpc: SynapseIpc = {
     invoke<string>("read_pdf_draw", { root, pdfPath }),
   writePdfDraw: (root, pdfPath, content) =>
     invoke<void>("write_pdf_draw", { root, pdfPath, content }),
-  saveDoc: (root, path, content) =>
-    invoke<string>("save_doc", { root, path, content }),
+  saveDoc: (root, path, content, base) =>
+    invoke<string>("save_doc", { root, path, content, base }),
   createNote: (root, dir) => invoke<string>("create_note", { root, dir }),
   createFolder: (root, dir) => invoke<string>("create_folder", { root, dir }),
   backlinks: (root, path) => invoke<Backlink[]>("backlinks", { root, path }),

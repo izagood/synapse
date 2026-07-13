@@ -414,6 +414,31 @@ describe("workspace store (mock ipc)", () => {
     expect(useWorkspace.getState().docs[path].externalStale).toBe(false);
   });
 
+  it("saveDoc absorbs diverged disk via 3-way merge and reflects it in the editor", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    const base = useWorkspace.getState().docs[path].savedContent;
+
+    // 외부(다른 기기 sync 병합 등)가 저장 사이에 디스크를 base에서 갈라놓는다
+    await ipc.writeFile(MOCK_ROOT, path, `${base}\n외부-디스크-편집\n`);
+    // 에디터는 별도의 편집을 갖고 있고, 이전 sync에서 배지가 세워졌다고 가정
+    useWorkspace.getState().updateContent(path, `에디터-편집\n${base}`);
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+
+    await useWorkspace.getState().saveDoc(path);
+    const doc = useWorkspace.getState().docs[path];
+    // 덮어쓰지 않고 양쪽 편집을 모두 보존한 병합 결과가 에디터에 반영된다
+    expect(doc.content).toContain("에디터-편집");
+    expect(doc.content).toContain("외부-디스크-편집");
+    expect(doc.content).toBe(doc.savedContent); // 저장 후 깨끗
+    expect(doc.externalRev).toBe(1); // merged !== snapshot → 에디터 다시 그림
+    expect(doc.externalStale).toBe(false); // 발산을 흡수했으니 배지 해제
+    // 디스크에도 병합 결과가 쓰였다
+    expect(await ipc.readFile(MOCK_ROOT, path)).toBe(doc.content);
+  });
+
   it("flushDirty saves every dirty doc before sync", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
