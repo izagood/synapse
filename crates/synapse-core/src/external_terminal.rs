@@ -14,7 +14,10 @@ pub struct Launch {
 }
 
 fn launch(program: &str, args: &[&str]) -> Launch {
-    Launch { program: program.to_string(), args: args.iter().map(|s| s.to_string()).collect() }
+    Launch {
+        program: program.to_string(),
+        args: args.iter().map(|s| s.to_string()).collect(),
+    }
 }
 
 /// 커스텀 명령 템플릿: 공백 분할 후 각 토큰의 `{{cwd}}`를 치환한다.
@@ -28,17 +31,23 @@ fn custom_launch(custom: &str, cwd: &str) -> Result<Launch, String> {
     if !had_token {
         args.push(cwd.to_string());
     }
-    Ok(Launch { program: prog.replace("{{cwd}}", cwd), args })
+    Ok(Launch {
+        program: prog.replace("{{cwd}}", cwd),
+        args,
+    })
 }
 
-pub fn launch_command(p: Platform, choice: &str, custom: &str, cwd: &str) -> Result<Launch, String> {
+pub fn launch_command(
+    p: Platform,
+    choice: &str,
+    custom: &str,
+    cwd: &str,
+) -> Result<Launch, String> {
     match (p, choice) {
         (_, "custom") => custom_launch(custom, cwd),
         (Platform::MacOs, "iterm2") => Ok(launch("open", &["-a", "iTerm", cwd])),
         (Platform::MacOs, _) => Ok(launch("open", &["-a", "Terminal", cwd])), // 기본 terminal
-        (Platform::Windows, "cmd") => {
-            Ok(launch("cmd", &["/c", "start", "", "/D", cwd, "cmd"]))
-        }
+        (Platform::Windows, "cmd") => Ok(launch("cmd", &["/c", "start", "", "/D", cwd, "cmd"])),
         (Platform::Windows, _) => Ok(launch("wt", &["-d", cwd])), // 기본 Windows Terminal
         (Platform::Linux, _) => linux_auto_candidates(cwd)
             .into_iter()
@@ -54,7 +63,18 @@ pub fn linux_auto_candidates(cwd: &str) -> Vec<Launch> {
         launch("gnome-terminal", &["--working-directory", cwd]),
         launch("konsole", &["--workdir", cwd]),
         // xterm은 작업 디렉터리 플래그가 없어 셸을 감싼다(그냥 `cd`는 즉시 종료됨).
-        launch("xterm", &["-e", "sh", "-c", &format!("cd '{}' && exec \"${{SHELL:-sh}}\"", cwd.replace('\'', "'\\''"))]),
+        launch(
+            "xterm",
+            &[
+                "-e",
+                "sh",
+                "-c",
+                &format!(
+                    "cd '{}' && exec \"${{SHELL:-sh}}\"",
+                    cwd.replace('\'', "'\\''")
+                ),
+            ],
+        ),
     ]
 }
 
@@ -82,7 +102,13 @@ mod tests {
 
     #[test]
     fn custom_substitutes_cwd_token() {
-        let l = launch_command(Platform::Linux, "custom", "alacritty --working-directory {{cwd}}", "/ws").unwrap();
+        let l = launch_command(
+            Platform::Linux,
+            "custom",
+            "alacritty --working-directory {{cwd}}",
+            "/ws",
+        )
+        .unwrap();
         assert_eq!(l.program, "alacritty");
         assert_eq!(l.args, vec!["--working-directory", "/ws"]);
     }

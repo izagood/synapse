@@ -8,6 +8,7 @@ pub mod git;
 pub mod github;
 pub mod links;
 pub mod location;
+pub mod mcp_provision;
 pub mod merge;
 pub mod migrate;
 pub mod paths;
@@ -20,7 +21,6 @@ pub mod sftp;
 pub mod ssh;
 pub mod ssh_command;
 pub mod ssh_config;
-pub mod mcp_provision;
 pub mod tree;
 pub mod vfs;
 pub mod walk;
@@ -40,6 +40,9 @@ pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, Link
 pub use location::{
     path_to_uri, urify_tree, Location, LocationError, SshLocation, DEFAULT_SSH_PORT,
 };
+pub use mcp_provision::{
+    bridge_env, codex_config_snippet, ensure_gitignore_line, mcp_config_json, merge_mcp_config,
+};
 pub use merge::{merge_agent_edit, merge_three_way, save_merge};
 pub use migrate::remove_collab_dir;
 pub use paths::{ensure_within, legacy_pdf_draw_sidecar, pdf_draw_sidecar_path, rel_path_within};
@@ -52,8 +55,5 @@ pub use ssh::{
 };
 pub use ssh_command::{parse_ssh_command, SshCommandError, SshInvocation};
 pub use ssh_config::{resolve_host, HostConfig};
-pub use mcp_provision::{
-    bridge_env, codex_config_snippet, ensure_gitignore_line, mcp_config_json, merge_mcp_config,
-};
 pub use tree::{build_tree, FileNode, FileType, NodeKind};
 pub use vfs::{Backend, DirEntry, LocalBackend, Meta};

@@ -55,7 +55,11 @@ mod tests {
     use super::*;
 
     fn entry(port: u16, token: &str, pid: u32) -> BridgeEntry {
-        BridgeEntry { port, token: token.to_string(), pid }
+        BridgeEntry {
+            port,
+            token: token.to_string(),
+            pid,
+        }
     }
 
     #[test]
@@ -72,8 +76,8 @@ mod tests {
         upsert(&mut m, "/ws1", entry(1, "tok-a", 10));
         upsert(&mut m, "/ws2", entry(1, "tok-b", 10));
         remove_by_token(&mut m, "tok-a");
-        assert!(m.get("/ws1").is_none());
-        assert!(m.get("/ws2").is_some());
+        assert!(!m.contains_key("/ws1"));
+        assert!(m.contains_key("/ws2"));
     }
 
     #[test]
@@ -110,7 +114,7 @@ mod tests {
         upsert(&mut m, "/ws", entry(7, "tok-b", 20));
         // B가 닫힘: B 토큰 제거 → "/ws"가 통째로 사라진다.
         remove_by_token(&mut m, "tok-b");
-        assert!(m.get("/ws").is_none());
+        assert!(!m.contains_key("/ws"));
         // 생존 창 A(root "/ws", token "tok-a")를 재발행 → "/ws"가 A로 복원된다.
         upsert(&mut m, "/ws", entry(7, "tok-a", 10));
         assert_eq!(m.get("/ws"), Some(&entry(7, "tok-a", 10)));
@@ -123,7 +127,7 @@ mod tests {
         upsert(&mut m, "/ws", entry(7, "tok-only", 30));
         remove_by_token(&mut m, "tok-only");
         // 재발행할 생존자가 없으므로 맵이 비어야 한다.
-        assert!(m.get("/ws").is_none());
+        assert!(!m.contains_key("/ws"));
         assert!(m.is_empty());
     }
 
