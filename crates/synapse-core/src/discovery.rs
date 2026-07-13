@@ -104,6 +104,30 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_on_close_restores_surviving_window_same_root() {
+        // 창 A·B가 같은 root "/ws"를 열면 last-writer(B) 토큰만 남는다.
+        let mut m = BridgeMap::new();
+        upsert(&mut m, "/ws", entry(7, "tok-b", 20));
+        // B가 닫힘: B 토큰 제거 → "/ws"가 통째로 사라진다.
+        remove_by_token(&mut m, "tok-b");
+        assert!(m.get("/ws").is_none());
+        // 생존 창 A(root "/ws", token "tok-a")를 재발행 → "/ws"가 A로 복원된다.
+        upsert(&mut m, "/ws", entry(7, "tok-a", 10));
+        assert_eq!(m.get("/ws"), Some(&entry(7, "tok-a", 10)));
+    }
+
+    #[test]
+    fn reconcile_on_close_drops_root_when_no_survivor() {
+        // 단일 창만 "/ws"를 연 경우: 닫히면 생존 창이 없어 "/ws"는 사라진 채 남는다.
+        let mut m = BridgeMap::new();
+        upsert(&mut m, "/ws", entry(7, "tok-only", 30));
+        remove_by_token(&mut m, "tok-only");
+        // 재발행할 생존자가 없으므로 맵이 비어야 한다.
+        assert!(m.get("/ws").is_none());
+        assert!(m.is_empty());
+    }
+
+    #[test]
     fn parse_recovers_from_garbage() {
         assert!(parse("not json").is_empty());
         assert!(parse("").is_empty());

@@ -94,27 +94,41 @@ pub fn bridge_publish_discovery(
     save_map(&map)
 }
 
-/// 창이 닫힐 때: 이 창(토큰)이 소유한 항목을 제거한다.
+/// 창이 닫힐 때: 닫는 창의 엔트리를 제거하되, 같은 root를 아직 열어 둔 다른
+/// 살아있는 창이 있으면 그 창의 세션으로 재발행해 discovery를 복원한다.
 ///
-/// Tauri 커맨드와 `lib.rs`의 `WindowEvent::Destroyed` 핸들러가 공유하는 실제 로직.
-/// load→mutate→save 전체를 전역 락으로 직렬화한다.
-pub(crate) fn unpublish_for(inner: &BridgeInner, label: &str) -> Result<(), String> {
-    let token = inner.ensure_token(label);
+/// 배경: 창 A·B가 같은 root `/ws`를 열면 bridge.json 엔트리는 last-writer(B)
+/// 토큰만 갖는다. B가 닫힐 때 단순히 B 토큰 엔트리를 지우면 `/ws`가 통째로
+/// 사라져, A가 아직 열려 있어도 그 폴더의 에이전트가 브리지를 못 찾는다.
+/// 그래서 제거 후 생존 창들의 `(root, token)`으로 upsert해 복원한다. 생존 창이
+/// 없으면 root가 제거된 채로 남는다(정상).
+///
+/// 전체 시퀀스를 `bridge_json_lock` 안에서 수행한다(재진입 금지 — 락을 잡는
+/// 다른 함수를 이 안에서 호출하지 않는다).
+pub(crate) fn reconcile_on_close(inner: &BridgeInner, closing_label: &str) -> Result<(), String> {
+    let closing_token = inner.ensure_token(closing_label);
+    let survivors = inner.live_roots_except(closing_label);
+    let port = inner.port();
+    let pid = std::process::id();
     let _g = bridge_json_lock()
         .lock()
         .map_err(|_| "bridge.json lock poisoned".to_string())?;
     let mut map = load_map();
-    discovery::remove_by_token(&mut map, &token);
+    discovery::remove_by_token(&mut map, &closing_token);
+    // 생존 창들의 세션을 재발행 — 같은 root를 last-writer 규칙으로 복원한다.
+    for (root, token) in survivors {
+        discovery::upsert(&mut map, &root, BridgeEntry { port, token, pid });
+    }
     save_map(&map)
 }
 
-/// 창이 닫힐 때: 이 창(토큰)이 소유한 항목을 제거한다.
+/// 창이 닫힐 때: 이 창(토큰)이 소유한 항목을 제거하고 생존 창을 재발행한다.
 #[tauri::command]
 pub fn bridge_unpublish_discovery(
     state: tauri::State<'_, BridgeState>,
     window_label: String,
 ) -> Result<(), String> {
-    unpublish_for(&state.0, &window_label)
+    reconcile_on_close(&state.0, &window_label)
 }
 
 /// 앱 시작 시: 죽은 pid의 항목을 청소한다(크래시 잔재).

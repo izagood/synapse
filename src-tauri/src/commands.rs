@@ -662,11 +662,18 @@ pub fn open_external_terminal(root: String, cwd: Option<String>) -> Result<(), S
         launch_command(platform, choice, custom, &target)?
     };
 
-    std::process::Command::new(&launch.program)
+    // 런처(open/gnome-terminal 등)는 터미널에 핸드오프 후 즉시 종료하므로, 자식을
+    // detached 스레드에서 wait()해 unix defunct(좀비)를 회수한다. spawn 실패는 조용히
+    // 삼키지 않고 에러로 표면화한다.
+    let child = std::process::Command::new(&launch.program)
         .args(&launch.args)
         .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("터미널 실행 실패({}): {e}", launch.program))
+        .map_err(|e| format!("터미널 실행 실패({}): {e}", launch.program))?;
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 fn which_exists(program: &str) -> bool {

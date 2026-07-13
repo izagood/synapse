@@ -28,7 +28,9 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
                 if let Some(state) = window.try_state::<bridge::BridgeState>() {
-                    let _ = mcp::unpublish_for(&state.0, window.label());
+                    // 닫는 창의 엔트리 제거 + 같은 root를 연 생존 창 재발행.
+                    // drop_window 이전에 수행해야 생존 창 세션이 아직 남아 있다.
+                    let _ = mcp::reconcile_on_close(&state.0, window.label());
                     state.0.drop_window(window.label());
                 }
             }

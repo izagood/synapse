@@ -4851,7 +4851,6 @@ dependencies = [
 name = "synapse"
 version = "0.5.16"
 dependencies = [
- "base64 0.22.1",
  "dirs 5.0.1",
  "keyring",
  "libc",

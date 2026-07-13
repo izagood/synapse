@@ -32,7 +32,7 @@ Markdown tools.
 - Open the OS's native terminal (Terminal.app, iTerm2, Windows Terminal, or a
   custom command) directly in the workspace folder instead of an embedded
   terminal panel.
-- Let AI coding agents run in that external terminal connect back to Synapse
+- Let AI coding agents running in that external terminal connect back to Synapse
   through an MCP server that discovers the running app via a local
   `bridge.json` file — no manual port/token setup required.
 
