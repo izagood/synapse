@@ -462,6 +462,9 @@ impl GitWorkspace {
             self.heal_in_progress()?;
             self.commit_all(commit_message)?;
         }
+        // 잔재 치유는 루프 밖 한 번이면 충분하다: 루프 안의 병합은 깨끗이
+        // 완결되거나(자동 해소 포함) abort 후 곧장 반환되므로, 시도 사이에
+        // 새 잔재가 생길 수 없다.
         for _attempt in 0..3 {
             // 네트워크 구간 (락 없음): fetch 동안 저장이 막히지 않는다
             self.run_ok(&["fetch", "origin"])?;
@@ -480,10 +483,16 @@ impl GitWorkspace {
                 if upstream_exists {
                     let (_, behind) = self.ahead_behind()?;
                     if behind > 0 {
-                        let (ok, _, _) = self.run(&["merge", "--no-edit", &upstream])?;
+                        let (ok, _, merge_err) = self.run(&["merge", "--no-edit", &upstream])?;
                         if !ok && self.auto_resolve_merge().is_err() {
                             let files = self.conflicted_files()?;
                             let _ = self.run(&["merge", "--abort"]);
+                            if files.is_empty() {
+                                // merge가 시작조차 못 한 경우(미추적 파일 덮어쓰기
+                                // 등) — 빈 충돌 목록으로 오도하지 말고 git의 원인을
+                                // 그대로 알린다
+                                return Err(format!("git merge 실패: {}", merge_err.trim()));
+                            }
                             return Ok(SyncStatus {
                                 state: SyncState::Conflict,
                                 ahead: 0,
@@ -508,18 +517,112 @@ impl GitWorkspace {
     }
 
     /// 중단된 merge/rebase 잔재를 정리해 sync가 깨끗한 상태에서 시작하도록
-    /// 자가 치유한다. MERGE_HEAD가 있으면 merge --abort, rebase 진행 디렉터리가
-    /// 있으면 rebase --abort 한다.
+    /// 자가 치유한다.
+    ///
+    /// 소실 방지 불변식을 지키기 위해 **캡처 → abort → 복원** 순서로 진행한다:
+    /// abort가 워킹트리를 HEAD로 되돌리기 전에 더티 상태(미커밋 편집 포함)를
+    /// 통째로 떠 두고, abort 후 그대로 되돌린다. 직후의 commit_all이 치유 전
+    /// 디스크 상태를 일반(단일 부모) 커밋으로 보존하므로 잔재 병합이 실수로
+    /// 완결되는 일도, 사용자 바이트가 사라지는 일도 없다. abort가 끝내
+    /// 실패하면 Err — 낡은 병합을 완결해 버릴 sync로 진행하지 않는다.
     fn heal_in_progress(&self) -> GitResult<()> {
-        if self.merge_in_progress()? {
-            let _ = self.run(&["merge", "--abort"]);
+        let merge_leftover = self.merge_in_progress()?;
+        let rebase_merge_dir = self.run_ok(&["rev-parse", "--git-path", "rebase-merge"])?;
+        let rebase_apply_dir = self.run_ok(&["rev-parse", "--git-path", "rebase-apply"])?;
+        let rebase_dir_exists = || {
+            self.backend
+                .exists(&self.root.join(rebase_merge_dir.trim()))
+                || self
+                    .backend
+                    .exists(&self.root.join(rebase_apply_dir.trim()))
+        };
+        let rebase_leftover = rebase_dir_exists();
+        if !merge_leftover && !rebase_leftover {
+            return Ok(());
         }
-        let merge_dir = self.run_ok(&["rev-parse", "--git-path", "rebase-merge"])?;
-        let apply_dir = self.run_ok(&["rev-parse", "--git-path", "rebase-apply"])?;
-        if self.backend.exists(&self.root.join(merge_dir.trim()))
-            || self.backend.exists(&self.root.join(apply_dir.trim()))
-        {
-            let _ = self.run(&["rebase", "--abort"]);
+        // 1) 캡처: abort가 워킹트리를 되돌리기 전, 지금 이 순간의 디스크 상태
+        let captured = self.capture_dirty_state()?;
+        // 2) abort (결과 확인). 더티 트리에서 abort가 거부되면 캡처를 믿고
+        //    reset --hard로 밀어낸다 — 모든 더티 바이트가 캡처돼 있어 안전하다.
+        if merge_leftover {
+            let (ok, _, _) = self.run(&["merge", "--abort"])?;
+            if !ok {
+                self.run_ok(&["reset", "--hard", "HEAD"])?;
+                if self.merge_in_progress()? {
+                    let _ = self.run(&["merge", "--abort"]);
+                }
+            }
+            if self.merge_in_progress()? {
+                return Err("남은 병합 상태를 정리하지 못했습니다".to_string());
+            }
+        }
+        if rebase_leftover {
+            let (ok, _, _) = self.run(&["rebase", "--abort"])?;
+            if !ok {
+                self.run_ok(&["reset", "--hard", "HEAD"])?;
+                let _ = self.run(&["rebase", "--abort"]);
+            }
+            if rebase_dir_exists() {
+                return Err("남은 rebase 상태를 정리하지 못했습니다".to_string());
+            }
+        }
+        // 3) 복원: 치유 전 디스크 상태 그대로 (직후 commit_all이 이걸 커밋한다)
+        self.restore_dirty_state(&captured)?;
+        Ok(())
+    }
+
+    /// 워킹트리의 더티 상태를 통째로 떠 둔다: 경로마다 현재 바이트(파일이
+    /// 있으면) 또는 삭제 표시(워킹트리에서 지워졌으면). heal의 abort가
+    /// 워킹트리를 HEAD로 되돌려도 이 스냅샷을 복원하면 한 바이트도 잃지 않는다.
+    fn capture_dirty_state(&self) -> GitResult<Vec<(String, Option<Vec<u8>>)>> {
+        // -z: 경로 인용/이스케이프 없이 NUL 구분 — 공백·비ASCII 경로 안전
+        let (ok, out, err) = self.run_bytes(&["status", "--porcelain", "-z"])?;
+        if !ok {
+            return Err(format!("git status 실패: {}", err.trim()));
+        }
+        let out = String::from_utf8_lossy(&out).into_owned();
+        let mut fields = out.split('\0').filter(|s| !s.is_empty());
+        let mut captured = Vec::new();
+        while let Some(entry) = fields.next() {
+            if entry.len() < 4 {
+                continue; // "XY 경로" 최소 길이 미달 — 형식 밖 항목은 무시
+            }
+            let (status, path) = entry.split_at(3);
+            // rename/copy는 다음 필드가 원래 경로 — 새 경로만 캡처하면 충분하다
+            if status.starts_with('R') || status.starts_with('C') {
+                let _ = fields.next();
+            }
+            if path.ends_with('/') {
+                continue; // 미추적 디렉터리 — abort가 건드리지 않는다
+            }
+            let abs = self.root.join(path);
+            let content = if self.backend.exists(&abs) {
+                Some(self.backend.read(&abs).map_err(|e| e.to_string())?)
+            } else {
+                None // 워킹트리에서 삭제됨 — 복원 시 다시 삭제해 상태를 보존
+            };
+            captured.push((path.to_string(), content));
+        }
+        Ok(captured)
+    }
+
+    /// `capture_dirty_state` 스냅샷을 워킹트리에 그대로 되돌린다.
+    fn restore_dirty_state(&self, captured: &[(String, Option<Vec<u8>>)]) -> GitResult<()> {
+        for (path, content) in captured {
+            let abs = self.root.join(path);
+            match content {
+                Some(bytes) => {
+                    if let Some(parent) = abs.parent() {
+                        let _ = self.backend.create_dir_all(parent);
+                    }
+                    self.backend.write(&abs, bytes).map_err(|e| e.to_string())?;
+                }
+                None => {
+                    if self.backend.exists(&abs) {
+                        self.backend.remove_file(&abs).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1120,6 +1223,109 @@ mod tests {
         assert!(merged.contains("(A)"), "A 편집 유실: {merged}");
         assert!(merged.contains("B 추가 문단"), "B 편집 유실: {merged}");
         assert_eq!(ws(&b).status().state, SyncState::Synced);
+    }
+
+    #[test]
+    fn heal_preserves_uncommitted_edits_over_conflicted_leftover_merge() {
+        // 충돌로 중단된 merge 잔재 + 그 충돌 파일에 대한 미커밋 사용자 편집.
+        // heal이 편집을 캡처해 두었다가 abort 후 복원해 커밋으로 보존해야 한다
+        // (abort가 파일을 HEAD로 되돌리며 편집을 파괴하면 안 된다).
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "note.md", "# 제목\n\n공통 본문\n");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+
+        // 같은 제목 줄을 다르게 편집해 진짜 git 충돌을 만든다
+        write(&a, "note.md", "# 제목 A\n\n공통 본문\n");
+        ws(&a).sync("a").unwrap();
+        write(&b, "note.md", "# 제목 B\n\n공통 본문\n");
+        assert!(git_raw(&b, &["add", "-A"]));
+        assert!(git_raw(&b, &["commit", "-m", "B"]));
+        assert!(git_raw(&b, &["fetch", "origin"]));
+        assert!(!git_raw(&b, &["merge", "origin/main"]), "충돌 없이 병합됨");
+        assert!(b.join(".git/MERGE_HEAD").exists(), "잔재 MERGE_HEAD가 없다");
+
+        // 사용자가 충돌 파일을 직접 고쳐 저장 (미커밋) — 절대 잃으면 안 되는 편집
+        write(
+            &b,
+            "note.md",
+            "# 제목 B\n\n공통 본문\n\nUSER-PRECIOUS-EDIT\n",
+        );
+
+        let st = ws(&b).sync("recover").unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        // 편집이 디스크에 살아 있고
+        let merged = read(&b, "note.md");
+        assert!(
+            merged.contains("USER-PRECIOUS-EDIT"),
+            "미커밋 편집 유실: {merged}"
+        );
+        // HEAD에서 닿는 커밋에 담겨 있다
+        let hits = ws(&b)
+            .run_ok(&["log", "--format=%H", "-S", "USER-PRECIOUS-EDIT"])
+            .unwrap();
+        assert!(!hits.trim().is_empty(), "편집이 어떤 커밋에도 없다");
+    }
+
+    #[test]
+    fn heal_discards_stale_merge_but_keeps_dirty_edits() {
+        // 깨끗한(--no-commit) merge 잔재 + 병합이 만진 파일의 unstaged 편집.
+        // 이때 merge --abort는 더티 트리를 거부하지만(Entry not uptodate),
+        // heal이 캡처→reset→복원으로 잔재를 버리고, 편집은 낡은 병합의 완결이
+        // 아니라 일반(단일 부모) 커밋으로 보존해야 한다.
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "note.md", "# 제목\n\n공통 본문\n");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+
+        write(&a, "note.md", "# 제목 (A)\n\n공통 본문\n");
+        ws(&a).sync("a").unwrap();
+        write(&b, "note.md", "# 제목\n\n공통 본문\n\nB 추가 문단\n");
+        assert!(git_raw(&b, &["add", "-A"]));
+        assert!(git_raw(&b, &["commit", "-m", "B"]));
+        assert!(git_raw(&b, &["fetch", "origin"]));
+        assert!(git_raw(
+            &b,
+            &["merge", "--no-commit", "--no-ff", "origin/main"]
+        ));
+        assert!(b.join(".git/MERGE_HEAD").exists(), "잔재 MERGE_HEAD가 없다");
+
+        // 병합이 만진 파일에 대한 unstaged 편집 → merge --abort가 거부하는 상황
+        write(
+            &b,
+            "note.md",
+            "# 제목 (A)\n\n공통 본문\n\nB 추가 문단\n\nDIRTY-EDIT\n",
+        );
+
+        let st = ws(&b).sync("recover").unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        assert!(
+            !b.join(".git/MERGE_HEAD").exists(),
+            "MERGE_HEAD 잔재가 남음"
+        );
+        let merged = read(&b, "note.md");
+        assert!(
+            merged.contains("DIRTY-EDIT"),
+            "unstaged 편집 유실: {merged}"
+        );
+        // 치유 커밋(편집을 최초로 담은 커밋)은 낡은 병합을 완결한 두 부모
+        // 커밋이 아니라 일반 단일 부모 커밋이어야 한다
+        let hits = ws(&b)
+            .run_ok(&["log", "--format=%H", "-S", "DIRTY-EDIT"])
+            .unwrap();
+        let healing = hits
+            .split_whitespace()
+            .last()
+            .expect("편집이 어떤 커밋에도 없다")
+            .to_string();
+        let parents = ws(&b)
+            .run_ok(&["log", "--format=%P", "-n", "1", &healing])
+            .unwrap();
+        assert_eq!(
+            parents.split_whitespace().count(),
+            1,
+            "치유 커밋이 병합 커밋이다 (부모: {parents})"
+        );
     }
 
     #[test]
