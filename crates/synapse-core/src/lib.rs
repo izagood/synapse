@@ -19,7 +19,7 @@ pub mod sftp;
 pub mod ssh;
 pub mod ssh_command;
 pub mod ssh_config;
-pub mod terminal;
+pub mod mcp_provision;
 pub mod tree;
 pub mod vfs;
 pub mod walk;
@@ -50,7 +50,7 @@ pub use ssh::{
 };
 pub use ssh_command::{parse_ssh_command, SshCommandError, SshInvocation};
 pub use ssh_config::{resolve_host, HostConfig};
-pub use terminal::{
+pub use mcp_provision::{
     bridge_env, codex_config_snippet, ensure_gitignore_line, mcp_config_json, merge_mcp_config,
 };
 pub use tree::{build_tree, FileNode, FileType, NodeKind};
