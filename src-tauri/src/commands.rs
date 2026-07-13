@@ -156,38 +156,30 @@ pub async fn write_pdf_draw(
     .await
 }
 
-/// 마크다운 문서 저장 (FR-6): frontmatter의 `synapse_id`를 보장하고 base→content
-/// 변경을 CRDT에 기록한 뒤, 합쳐진 최종 텍스트를 .md에 쓰고 돌려준다.
-/// 그 사이 원격 머지나 외부 편집이 있었다면 돌려준 텍스트에 합쳐져 있다.
+/// 마크다운 문서 저장: 디스크가 단일 진실이므로 그냥 원자적 쓰기다. 레거시
+/// CRDT 저장분에 남아 있는 frontmatter `synapse_id`는 지연 제거(lazy strip)해
+/// 최종 저장 텍스트에 반영하고, 그 텍스트를 돌려준다(에디터가 그대로 반영).
 #[tauri::command]
 pub async fn save_doc(
     state: tauri::State<'_, RemoteState>,
     root: String,
     path: String,
     content: String,
-    base: String,
 ) -> Result<String, String> {
     let root_loc = parse_loc(&root)?;
     let path_loc = parse_loc(&path)?;
     let backend = backend_for(&state, &root_loc)?;
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
-    // 디스크 I/O와 락 대기(동기화의 로컬 구간과 경합)를 메인 스레드 밖에서
     crate::sync::run_blocking(move || {
-        use synapse_core::collab;
-
         let resolved = backend
             .ensure_writable_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
-        let _guard = collab::workspace_lock()
-            .lock()
-            .map_err(|_| "workspace lock poisoned".to_string())?;
-        // actor-id는 설치본 식별자라 원격 워크스페이스에서도 로컬 config에서 읽는다.
-        let actor = collab::load_or_create_actor_id(&config_dir()?).map_err(|e| e.to_string())?;
-        let store = synapse_core::CollabStore::new(backend, root_path, actor);
-        store
-            .save_doc_file(&resolved, &content, &base)
-            .map_err(|e| e.to_string())
+        let final_text = synapse_core::docid::strip_doc_id(&content).unwrap_or(content);
+        backend
+            .write_atomic(&resolved, final_text.as_bytes())
+            .map_err(|e| e.to_string())?;
+        Ok(final_text)
     })
     .await
 }

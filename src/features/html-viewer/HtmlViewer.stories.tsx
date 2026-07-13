@@ -19,6 +19,7 @@ function ViewerWithContent({ theme }: { theme: "light" | "dark" }) {
           content: SAMPLE_HTML,
           savedContent: SAMPLE_HTML,
           externalRev: 0,
+          externalStale: false,
           loading: false,
           error: null,
         },

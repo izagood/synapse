@@ -37,6 +37,7 @@ describe("ContentPane drawio routing", () => {
           content: SAMPLE_DRAWIO_XML,
           savedContent: SAMPLE_DRAWIO_XML,
           externalRev: 0,
+          externalStale: false,
           loading: false,
           error: null,
         },

@@ -314,11 +314,11 @@ export interface SynapseIpc {
    */
   writePdfDraw(root: string, pdfPath: string, content: string): Promise<void>;
   /**
-   * 마크다운 문서 저장 (FR-6 협업): base(에디터가 마지막으로 본 텍스트) 대비
-   * content의 변경을 CRDT에 기록하고, 원격 머지·외부 편집까지 합쳐진 최종
-   * 텍스트를 디스크에 쓴 뒤 돌려준다. frontmatter에 synapse_id가 보장된다.
+   * 마크다운 문서 저장: 디스크가 단일 진실이므로 그냥 원자적 쓰기다. 레거시
+   * frontmatter `synapse_id`가 남아 있으면 지연 제거하고, 최종 저장 텍스트를
+   * 돌려준다(strip으로 바뀌었을 수 있어 에디터가 이 반환값을 반영해야 한다).
    */
-  saveDoc(root: string, path: string, content: string, base: string): Promise<string>;
+  saveDoc(root: string, path: string, content: string): Promise<string>;
   /** dir 안에 "새 노트.md" 계열의 겹치지 않는 빈 노트 생성, 생성된 경로 반환 */
   createNote(root: string, dir: string): Promise<string>;
   /** dir 안에 "새 폴더" 계열의 겹치지 않는 빈 폴더 생성, 생성된 폴더 URI 반환 */

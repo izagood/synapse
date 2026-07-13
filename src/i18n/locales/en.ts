@@ -73,6 +73,7 @@ export const en: LocaleShape<KoMessages> = {
     switchToRendered: "Switch to rendered view",
     switchToSource: "Switch to source view",
     exportHtml: "Export to HTML",
+    externalChanged: "Changed elsewhere — will merge on next sync after you save",
   },
   quickOpen: {
     placeholder: "Search files…",

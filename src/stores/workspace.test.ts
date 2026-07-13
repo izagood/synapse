@@ -194,9 +194,8 @@ describe("workspace store (mock ipc)", () => {
 
       await vi.advanceTimersByTimeAsync(1500);
       expect(isDirty(useWorkspace.getState().docs[path])).toBe(false);
-      // 마크다운 저장은 CRDT 경로 — synapse_id가 주입된 채로 저장된다
-      expect(await ipc.readFile(MOCK_ROOT, path)).toContain("# 수정됨");
-      expect(await ipc.readFile(MOCK_ROOT, path)).toContain("synapse_id:");
+      // 저장 = 그냥 원자적 쓰기 (라이브 머지·synapse_id 주입 없음)
+      expect(await ipc.readFile(MOCK_ROOT, path)).toBe("# 수정됨");
     } finally {
       vi.useRealTimers();
     }
@@ -358,18 +357,47 @@ describe("workspace store (mock ipc)", () => {
     await useWorkspace.getState().deleteEntry({ path: s.activePath!, kind: "file" });
   });
 
-  it("markdown saveDoc injects synapse_id and bumps externalRev", async () => {
+  it("markdown saveDoc is a plain write when there is no legacy synapse_id", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     const path = useWorkspace.getState().activePath!;
     useWorkspace.getState().updateContent(path, "# 협업 문서");
 
     await useWorkspace.getState().saveDoc(path);
     const doc = useWorkspace.getState().docs[path];
-    // 저장 결과(id 주입)가 에디터 content에 반영되고 rev가 올라 에디터가 다시 그린다
-    expect(doc.content).toContain("synapse_id:");
+    // 저장 = 그냥 원자적 쓰기 — 내용이 바뀌지 않았으니 rev도 그대로다
+    expect(doc.content).toBe("# 협업 문서");
+    expect(await ipc.readFile(MOCK_ROOT, path)).toBe("# 협업 문서");
+    expect(doc.externalRev).toBe(0);
+    expect(isDirty(doc)).toBe(false);
+  });
+
+  it("markdown saveDoc strips a legacy synapse_id and bumps externalRev", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace
+      .getState()
+      .updateContent(path, "---\nsynapse_id: legacy-id-0001\n---\n\n# 협업 문서");
+
+    await useWorkspace.getState().saveDoc(path);
+    const doc = useWorkspace.getState().docs[path];
+    // strip된 결과(id 제거)가 에디터 content에 반영되고 rev가 올라 에디터가 다시 그린다
+    expect(doc.content).not.toContain("synapse_id");
     expect(doc.content).toContain("# 협업 문서");
     expect(doc.externalRev).toBe(1);
     expect(isDirty(doc)).toBe(false);
+  });
+
+  it("saveDoc clears externalStale on success", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중 내용");
+    // 이전 sync에서 배지가 세워졌다고 가정(실제로는 reloadAfterSync가 세운다)
+    useWorkspace.setState((s) => ({
+      docs: { ...s.docs, [path]: { ...s.docs[path], externalStale: true } },
+    }));
+
+    await useWorkspace.getState().saveDoc(path);
+    expect(useWorkspace.getState().docs[path].externalStale).toBe(false);
   });
 
   it("flushDirty saves every dirty doc before sync", async () => {
@@ -397,6 +425,22 @@ describe("workspace store (mock ipc)", () => {
     expect(doc.content).toBe("# 원격에서 합쳐진 내용");
     expect(doc.savedContent).toBe("# 원격에서 합쳐진 내용");
     expect(doc.externalRev).toBe(1);
+    expect(doc.externalStale).toBe(false);
+  });
+
+  it("reloadAfterSync marks dirty docs externalStale without touching content (라이브 머지 없음)", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "# 편집 중인 내용");
+    // 그 사이 git sync가 디스크를 바꿔 놓은 상황을 모사 — 편집 중이라 자동 반영은 안 된다
+    await ipc.writeFile(MOCK_ROOT, path, "# 원격에서 합쳐진 내용");
+
+    await useWorkspace.getState().reloadAfterSync();
+    const doc = useWorkspace.getState().docs[path];
+    // 라이브 머지가 없으니 편집 중이던 내용은 그대로다 — 배지만 세운다
+    expect(doc.content).toBe("# 편집 중인 내용");
+    expect(doc.externalStale).toBe(true);
+    expect(isDirty(doc)).toBe(true);
   });
 
   it("surfaces errors for an invalid folder", async () => {
