@@ -261,3 +261,74 @@ describe("FileTree 파일 매니저에서 보기", () => {
     expect(host.querySelector(".context-menu")).toBeNull();
   });
 });
+
+describe("FileTree 외부 터미널에서 열기", () => {
+  const AI_DIR: FileNode = {
+    path: "/tmp/notes/AI",
+    name: "AI",
+    kind: "dir",
+    fileType: "other",
+    children: [],
+  };
+  const TREE_WITH_DIR: FileNode = {
+    ...TREE,
+    children: [README, AI_DIR],
+  };
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    useWorkspace.setState({
+      tree: TREE_WITH_DIR,
+      expandedDirs: {},
+      activePath: null,
+      root: TREE.path,
+    });
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    host.remove();
+    vi.restoreAllMocks();
+  });
+
+  it("파일 메뉴에서는 부모 폴더를 cwd로 열고 메뉴를 닫는다", () => {
+    const openExternalTerminal = vi.spyOn(ipc, "openExternalTerminal").mockResolvedValue();
+    render();
+    openMenu(); // README.md 우클릭
+
+    const btn = [...host.querySelectorAll(".context-menu button")].find(
+      (b) => b.textContent === "외부 터미널에서 열기",
+    ) as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    act(() => {
+      btn.click();
+    });
+
+    expect(openExternalTerminal).toHaveBeenCalledWith(TREE.path, TREE.path);
+    expect(host.querySelector(".context-menu")).toBeNull();
+  });
+
+  it("폴더 메뉴에서는 그 폴더 자체를 cwd로 연다", () => {
+    const openExternalTerminal = vi.spyOn(ipc, "openExternalTerminal").mockResolvedValue();
+    render();
+    const dirRow = host.querySelector(".tree-dir") as HTMLElement;
+    act(() => {
+      dirRow.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+    });
+
+    const btn = [...host.querySelectorAll(".context-menu button")].find(
+      (b) => b.textContent === "외부 터미널에서 열기",
+    ) as HTMLButtonElement;
+    act(() => {
+      btn.click();
+    });
+
+    expect(openExternalTerminal).toHaveBeenCalledWith(TREE.path, AI_DIR.path);
+  });
+});

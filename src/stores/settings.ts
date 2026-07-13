@@ -15,6 +15,8 @@ function normalizeSettings(settings: Settings): Settings {
       // 과거 설정에는 canvasTheme가 없다 → 기본 light(캔버스는 밝게)로 보정한다
       canvasTheme: settings.appearance.canvasTheme ?? "light",
     },
+    // terminal 섹션이 없던 과거 설정 보정
+    terminal: settings.terminal ?? DEFAULT_SETTINGS.terminal,
   };
 }
 
@@ -57,6 +59,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
       sync: { ...get().settings.sync, ...patch.sync },
       htmlViewer: { ...get().settings.htmlViewer, ...patch.htmlViewer },
       files: { ...get().settings.files, ...patch.files },
+      terminal: { ...get().settings.terminal, ...patch.terminal },
     });
     set({ settings: merged });
     await ipc.updateSettings(merged);

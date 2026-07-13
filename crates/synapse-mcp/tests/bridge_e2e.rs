@@ -300,9 +300,19 @@ fn sidecar_edit_note_writes_through_bridge() {
 #[test]
 fn sidecar_without_bridge_env_reports_error_not_crash() {
     // 브리지 env 없이 실행하면 도구 호출이 isError 결과로 안내해야 한다(크래시 X).
+    //
+    // 사이드카는 env가 없으면 `dirs::config_dir()/synapse/bridge.json` 폴백을
+    // 읽는다. 테스트 실행 머신의 실제 bridge.json에 이 저장소 루트가 등록돼
+    // 있으면 cwd(=crates/synapse-mcp)가 자손으로 매칭돼 "브리지 없음" 전제가
+    // 깨진다. config 디렉터리를 빈 임시 디렉터리로 격리해 결정성을 보장한다.
+    // (`dirs::config_dir()`는 macOS에서 `$HOME/Library/Application Support`,
+    // 리눅스에서 `$XDG_CONFIG_HOME`→없으면 `$HOME/.config`를 본다 — 둘 다 설정.)
+    let empty_config = tempfile::tempdir().unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_synapse-mcp"))
         .env_remove("SYNAPSE_BRIDGE_PORT")
         .env_remove("SYNAPSE_BRIDGE_TOKEN")
+        .env("HOME", empty_config.path())
+        .env("XDG_CONFIG_HOME", empty_config.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

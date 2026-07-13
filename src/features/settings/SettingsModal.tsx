@@ -12,8 +12,20 @@ import type {
   ThemeSetting,
 } from "../../ipc/types";
 import { PRESET_PALETTES, effectiveBaseTheme } from "../theme/theme";
-import { shortcutLabel } from "../../shared/platform";
+import { detectDesktopPlatform, shortcutLabel, type DesktopPlatform } from "../../shared/platform";
 import { shortcutById } from "../../shared/shortcuts";
+
+// Rust external_terminal::launch_command가 인식하는 external 값들 — i18n 키
+// `settings.terminalOption.<값>`과 1:1 대응하도록 유니온으로 고정한다.
+type TerminalOption = "terminal" | "iterm2" | "wt" | "cmd" | "auto" | "custom";
+
+// 플랫폼별 외부 터미널 선택지. 순서 = 우선순위이자 select 표시 순서.
+// custom은 모든 플랫폼에서 항상 마지막(직접 지정한 커스텀 명령).
+function terminalOptions(platform: DesktopPlatform): TerminalOption[] {
+  if (platform === "macos") return ["terminal", "iterm2", "custom"];
+  if (platform === "windows") return ["wt", "cmd", "custom"];
+  return ["auto", "custom"];
+}
 
 // 숫자 설정 입력: 지우는 동안 빈칸을 허용하고(즉시 기본값으로 되돌리지 않음),
 // 유효한 숫자만 커밋하며 포커스를 벗어날 때 범위를 보정한다
@@ -475,6 +487,45 @@ export function SettingsModal() {
             <p className="setting-warning error">
               {t("settings.scriptWarning")}
             </p>
+          )}
+        </section>
+
+        <section>
+          <h3>{t("settings.terminal")}</h3>
+          <label className="setting-row">
+            <span>{t("settings.terminalExternal")}</span>
+            <select
+              value={settings.terminal.external}
+              onChange={(e) =>
+                void update({
+                  terminal: { ...settings.terminal, external: e.target.value },
+                })
+              }
+            >
+              {terminalOptions(detectDesktopPlatform()).map((opt) => (
+                <option key={opt} value={opt}>
+                  {t(`settings.terminalOption.${opt}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {settings.terminal.external === "custom" && (
+            <>
+              <label className="setting-row">
+                <span>{t("settings.terminalCustomCommand")}</span>
+                <input
+                  value={settings.terminal.customCommand}
+                  onChange={(e) =>
+                    void update({
+                      terminal: { ...settings.terminal, customCommand: e.target.value },
+                    })
+                  }
+                  placeholder="alacritty --working-directory {{cwd}}"
+                  spellCheck={false}
+                />
+              </label>
+              <p className="setting-hint">{t("settings.terminalCustomCommandHint")}</p>
+            </>
           )}
         </section>
 

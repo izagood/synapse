@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
+import { ipc } from "../../ipc/ipc";
 import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
 import { ContentPane } from "./ContentPane";
@@ -9,8 +10,6 @@ import { ActivityBar } from "./ActivityBar";
 import { CreateMenu } from "./CreateMenu";
 import { createTargetDir } from "./fileTreeUtils";
 import { SyncBar } from "../sync/SyncBar";
-import { TerminalDock } from "../terminal/TerminalDock";
-import { useTerminal } from "../../stores/terminal";
 import { GraphView } from "../graph/GraphView";
 import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
@@ -44,8 +43,6 @@ export function WorkspaceView() {
   const [graph, setGraph] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const terminalVisible = useTerminal((s) => s.visible);
-  const toggleTerminal = useTerminal((s) => s.toggle);
   const historyPath = useHistoryUi((s) => s.path);
   const closeHistory = useHistoryUi((s) => s.close);
   const dragging = useRef(false);
@@ -105,20 +102,10 @@ export function WorkspaceView() {
         setSidebarVisible((v) => !v);
       } else if (isShortcut(e, "view.toggleTerminal")) {
         e.preventDefault();
-        toggleTerminal();
+        const { root: r } = useWorkspace.getState();
+        if (r) void ipc.openExternalTerminal(r).catch(() => undefined);
       } else if (isShortcut(e, "tab.close")) {
-        // 포커스가 터미널 도크 안이면 노트가 아니라 활성 터미널을 닫는다(VS Code 동작).
-        const term = useTerminal.getState();
-        if (
-          term.visible &&
-          term.activeId &&
-          document.activeElement?.closest(".terminal-dock")
-        ) {
-          e.preventDefault();
-          term.closeTerminal(term.activeId);
-          return;
-        }
-        // 그 외에는 현재 노트 탭을 닫는다. 탭이 없으면 가로채지 않고 OS 기본
+        // 현재 노트 탭을 닫는다. 탭이 없으면 가로채지 않고 OS 기본
         // 동작(창/앱 닫기)에 맡겨, 마지막 노트까지 닫혔을 때만 앱이 닫힌다.
         const { activePath, closeTab } = useWorkspace.getState();
         if (activePath) {
@@ -129,7 +116,7 @@ export function WorkspaceView() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir, toggleTerminal]);
+  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir]);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -180,8 +167,6 @@ export function WorkspaceView() {
           onQuickOpen={() => setQuickOpen(true)}
           onSearch={() => setSearch(true)}
           onGraph={() => setGraph(true)}
-          terminalVisible={terminalVisible}
-          onToggleTerminal={toggleTerminal}
         />
         {sidebarVisible && (
           <>
@@ -226,8 +211,6 @@ export function WorkspaceView() {
           <div className="content-pane">
             <ContentPane />
           </div>
-          {/* 항상 마운트(터미널 있으면). 숨김은 Dock 내부에서 CSS로 처리 → 토글해도 세션 유지 */}
-          <TerminalDock />
         </main>
       </div>
       <SyncBar />
