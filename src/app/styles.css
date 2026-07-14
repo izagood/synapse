@@ -668,6 +668,131 @@ body.resizing-sidebar {
   overflow-y: auto;
 }
 
+/* 내장 터미널 도크 — .content(메인) 하단에 붙는 다중·영속 터미널 (VS Code식) */
+.terminal-dock {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border-top: 1px solid var(--border);
+  background: #1e1e1e;
+  min-height: 0;
+}
+
+/* 숨김은 언마운트가 아니라 display:none — 토글해도 xterm·PTY 세션이 살아 있다 */
+.terminal-dock.hidden {
+  display: none;
+}
+
+/* 상단 높이 조절 핸들 (사이드바 리사이즈와 동일 패턴, 세로) */
+.terminal-resize-handle {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 5;
+  /* 핸들을 잡고 드래그할 때 (탭바와 6px 겹침) 텍스트가 선택되지 않게 한다.
+     WebKit(Tauri)에서는 mousedown 시점에 선택이 시작되므로 동적 body 클래스만으론
+     늦다 — 핸들 자체에 정적으로 선택 금지를 둔다. touch-action도 사이드바와 맞춘다. */
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.terminal-tabbar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.terminal-tabs {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  border-right: 1px solid var(--border);
+  color: var(--fg-dim);
+  white-space: nowrap;
+  font-size: 0.8rem;
+  cursor: pointer;
+  position: relative;
+}
+
+.terminal-tab.active {
+  background: #1e1e1e;
+  color: var(--fg);
+}
+
+.terminal-tab.active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+}
+
+.terminal-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--fg-dim);
+  opacity: 0.6;
+}
+.terminal-tab-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+  opacity: 1;
+}
+
+.terminal-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: var(--fg-dim);
+}
+.terminal-new:hover {
+  color: var(--fg);
+}
+
+.terminal-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+/* 각 터미널 인스턴스 컨테이너와 그 안의 xterm host가 본문을 꽉 채운다 */
+.terminal-instance,
+.terminal-host {
+  height: 100%;
+  width: 100%;
+}
+
+.terminal-host .xterm,
+.terminal-host .xterm-viewport {
+  height: 100%;
+}
+
 .tab-bar {
   display: flex;
   align-items: stretch;
