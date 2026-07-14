@@ -29,10 +29,11 @@ Markdown tools.
 - Manage all app settings globally instead of writing app config into each
   workspace.
 - Use Quick Open, tabs, themes, and update checks.
-- Open the OS's native terminal (Terminal.app, iTerm2, Windows Terminal, or a
-  custom command) directly in the workspace folder instead of an embedded
-  terminal panel.
-- Let AI coding agents running in that external terminal connect back to Synapse
+- Use the built-in terminal panel (VS Code-style, with an IME stabilization
+  layer so CJK input works inside the WebKit webview), or open the OS's native
+  terminal (Terminal.app, iTerm2, Windows Terminal, or a custom command)
+  directly in the workspace folder.
+- Let AI coding agents running in either terminal connect back to Synapse
   through an MCP server that discovers the running app via a local
   `bridge.json` file — no manual port/token setup required.
 
@@ -154,7 +155,7 @@ Synapse has one global settings screen. Current settings include:
 | `Ctrl/Cmd+S` | Save the active file |
 | `Ctrl/Cmd+P` | Quick Open |
 | `Ctrl/Cmd+B` | Toggle the sidebar |
-| `Ctrl/Cmd+J` | Open the external terminal in the workspace folder |
+| `Ctrl/Cmd+J` | Toggle the built-in terminal panel |
 
 ## Development
 
