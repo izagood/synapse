@@ -41,6 +41,9 @@ export function buildEditorUrl(opts: EmbedUrlOptions): string {
     offline: "1", // 클라우드/스토리지 기능 비활성
     stealth: "1", // 외부 네트워크 요청 차단 (오프라인 보장)
     dark: "0", // OS 다크 모드를 따라가 검정 캔버스가 되는 것을 막고 라이트로 고정
+    // MathJax 로드 차단 — 번들에 math4/ 가 없어, 릴리스(tauri 프로토콜)에서는
+    // SPA fallback 이 누락 경로에 index.html 을 돌려줘 JS SyntaxError 가 난다.
+    math: "0",
   });
   if (opts.lang) params.set("lang", opts.lang);
   return `${opts.basePath}?${params.toString()}`;
