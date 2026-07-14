@@ -1,27 +1,47 @@
-// WebKit(WKWebView/WebKitGTK)에서 xterm.js IME 조합이 깨지는 문제의 우회 레이어.
+// WebKit(WKWebView/WebKitGTK)에서 xterm.js 한글(CJK) IME 입력이 깨지는 문제의 우회 레이어.
 //
-// 원인: xterm은 키/IME 입력을 hidden textarea로 받는데, 커서 추적을 위해 이
-// textarea를 매 입력마다 이동시키고 value를 초기화한다. Chromium은 그래도 조합
-// 컨텍스트를 유지하지만 WebKit은 그때마다 조합을 리셋해 한글이 자모로 분해된다
-// (xterm.js #5894, #5887, #1939 — Electron/Chrome 호스트는 정상, WKWebView만 깨짐).
+// 실기기 계측(2026-07-14, macOS WKWebView + 한글 2벌식)으로 확인한 실제 메커니즘:
 //
-// 전략: 조합 중(compositionstart~end)에만 xterm의 textarea 간섭을 동기적으로 차단한다.
-//  1) value 리셋 차단 — 인스턴스 accessor로 프로토타입 setter를 감싸 빈 문자열 대입 무시
-//  2) 위치 이동 차단 — style 접근자를 Proxy로 감싸 위치/크기 속성 쓰기 무시
-//  3) keyCode 229 가드 — 조합이 만든 keydown을 xterm 키 파이프라인에서 제외
-// 조합 텍스트는 xterm CompositionHelper의 compositionend 경로로만 PTY에 전달된다.
+// 1) xterm의 hidden textarea는 `opacity:0`(+오프스크린)인데, WebKit은 완전히
+//    보이지 않는 편집 요소에 입력기(IME)를 붙이지 않는다. Chromium은 붙여 주기
+//    때문에 VS Code(Electron)에서는 같은 코드가 정상 동작한다.
+// 2) 가시성을 확보해 IME가 붙어도, macOS 한글 IM은 WebKit에서 DOM composition
+//    이벤트(compositionstart/update/end)를 쓰지 않고 **insertText 치환 흐름**으로
+//    조합을 전달한다:
+//      beforeinput insertText            "ㅎ"   ← 새 음절 시작
+//      beforeinput insertReplacementText "하"   ← 조합 중 음절 치환
+//      beforeinput insertReplacementText "한"
+//      beforeinput insertText            "ㄱ"   ← 다음 음절 시작 = 앞 음절("한") 확정
+//    xterm은 composition 이벤트 전제로 설계되어 insertText만 PTY로 전달한다.
+//    → 첫 자모("ㅎ")만 새어 나가고 완성 음절("한","글")은 전송되지 않는다.
+//    이것이 "한글 자모 분해·유실"의 정체다 (xterm.js #5894·#5887·#1939 계열).
 //
-// xterm 코드는 수정하지 않으며, 실패 시 원본 동작으로 폴백한다(터미널 자체는 유지).
+// 우회 전략 (xterm 코드는 수정하지 않는다):
+//  A. 가시성 확보 — textarea에 최소 불투명도를 줘 WebKit이 IME를 붙이게 한다.
+//  B. insertText 어댑터 — beforeinput/input을 문서 캡처 단계에서 가로채(xterm보다
+//     먼저) 조합 중 음절을 pending 버퍼에 유지하고, 음절 확정 시점(다음 insertText
+//     시작·일반 keydown·blur)에만 term.input()으로 완성 음절을 PTY에 흘려보낸다.
+//     비ASCII insertText/insertReplacementText는 stopPropagation으로 xterm의
+//     자체 전달(_inputEvent)을 차단해 자모 유출을 막는다.
+//  C. keyCode 229 가드 — IME가 만든 keydown을 xterm 키 파이프라인에서 제외한다.
+//  D. DOM composition 이벤트를 실제로 쓰는 IME(일부 일본어 IM 등)는 건드리지
+//     않는다(isComposing인 이벤트는 xterm CompositionHelper에 위임). 그 경로의
+//     기존 방어(조합 중 value 리셋 무시·textarea 이동 차단)도 유지한다.
+//
+// 한계(수용): pending 음절은 다음 경계에서 흘러가므로 마지막 음절의 터미널 에코가
+// 한 이벤트만큼 늦다. 실패 시 원본 xterm 동작으로 폴백한다(터미널 자체는 유지).
 
 /** attachImeStabilizer가 필요로 하는 xterm Terminal의 최소 표면 (테스트 용이성). */
 export interface ImeStabilizerTarget {
   textarea: HTMLTextAreaElement | undefined;
   attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void;
+  /** 사용자 입력으로 PTY에 데이터를 흘려보낸다 (onData 경유 — 기존 배선 재사용). */
+  input(data: string, wasUserInput?: boolean): void;
 }
 
 /**
- * 조합 중 문자를 낱자로 커밋시키는 WebKit의 keydown(keyCode 229 또는 isComposing)을
- * xterm 키 파이프라인에서 제외할지 판정한다. 순수 함수 — 단위 테스트 대상.
+ * 조합이 만든 keydown(keyCode 229 또는 isComposing)을 xterm 키 파이프라인에서
+ * 제외할지 판정한다. 순수 함수 — 단위 테스트 대상.
  */
 export function shouldBypassXtermKey(event: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean {
   return event.isComposing || event.keyCode === 229;
@@ -35,7 +55,12 @@ export function isWebKitEngine(userAgent: string): boolean {
   return /AppleWebKit/i.test(userAgent) && !/Chrome|Chromium|Edg\//i.test(userAgent);
 }
 
-/** 조합 중 이동을 막을 위치/크기 계열 스타일 속성 (camelCase·kebab-case 모두). */
+/** IME 조합 텍스트(비ASCII) 판정 — ASCII는 keydown/keypress 경로가 이미 처리한다. */
+export function isImeText(data: string): boolean {
+  return [...data].some((ch) => ch.charCodeAt(0) > 0x7f);
+}
+
+/** 조합 중 이동을 막을 위치/크기 계열 스타일 속성 (DOM composition 경로 방어용). */
 const FROZEN_STYLE_PROPS = new Set([
   "left",
   "top",
@@ -54,10 +79,12 @@ interface StabilizerOptions {
   force?: boolean;
   /** UA 주입 (테스트용). 기본값은 navigator.userAgent. */
   userAgent?: string;
+  /** 이벤트 리스너를 붙일 문서 (테스트용). 기본값은 전역 document. */
+  doc?: Document;
 }
 
 /**
- * xterm Terminal(term.open 이후)에 IME 안정화를 부착한다. 해제 함수를 반환한다.
+ * xterm Terminal(term.open 이후)에 IME 어댑터를 부착한다. 해제 함수를 반환한다.
  * WebKit이 아니거나 textarea가 없으면 no-op 해제 함수를 반환한다.
  */
 export function attachImeStabilizer(
@@ -68,15 +95,80 @@ export function attachImeStabilizer(
   if (!options.force && !isWebKitEngine(ua)) return () => {};
   const textarea = term.textarea;
   if (!textarea) return () => {};
+  const doc = options.doc ?? textarea.ownerDocument;
 
-  let composing = false;
+  // ---- (A) 가시성 확보 — WebKit이 IME를 붙이도록 완전 투명을 피한다 ----------
+  // 시각적으로는 여전히 식별 불가 수준이며, 위치·크기는 xterm이 커서에 맞춘다.
+  try {
+    textarea.style.opacity = "0.05";
+  } catch {
+    /* 스타일 접근이 막힌 환경이면 이 단계만 포기 */
+  }
 
-  // ---- (3) keyCode 229 가드 -------------------------------------------------
-  // false 반환 시 xterm은 이벤트를 무시하고 브라우저 기본 동작(조합 진행)만 남는다.
+  // ---- (C) keyCode 229 가드 -------------------------------------------------
   term.attachCustomKeyEventHandler((ev) => !shouldBypassXtermKey(ev));
 
-  // ---- (1) 조합 중 value 리셋 차단 -------------------------------------------
-  // 프로토타입 체인에서 value descriptor를 찾아 인스턴스 accessor로 감싼다.
+  // ---- (B) insertText 어댑터 ------------------------------------------------
+  // 문서 캡처 단계 리스너는 xterm의 textarea(at-target) 리스너보다 먼저 실행된다.
+  let pending = "";
+  const flushPending = () => {
+    if (!pending) return;
+    const data = pending;
+    pending = "";
+    try {
+      term.input(data, true);
+    } catch {
+      /* 세션 종료 직후 등 — 입력 유실보다 예외 전파가 더 해롭다 */
+    }
+  };
+
+  const onKeydownCapture = (e: Event) => {
+    const ev = e as KeyboardEvent;
+    if (ev.target !== textarea) return;
+    // 일반 키(스페이스·엔터·백스페이스·영문 등)가 xterm에 닿기 전에, 조합 중이던
+    // 음절을 먼저 PTY로 흘려보내야 순서가 맞는다 ("한글 " ≠ "한 글").
+    if (ev.keyCode !== 229 && !ev.isComposing) flushPending();
+  };
+
+  const onBeforeInputCapture = (e: Event) => {
+    const ev = e as InputEvent;
+    if (ev.target !== textarea || ev.isComposing) return;
+    const data = ev.data ?? "";
+    if (ev.inputType === "insertText" && data && isImeText(data)) {
+      // 새 음절 시작 = 직전 음절 확정. xterm의 자체 전달은 차단한다(자모 유출 방지).
+      e.stopPropagation();
+      flushPending();
+      pending = data;
+    } else if (ev.inputType === "insertReplacementText" && data) {
+      // 조합 중 음절 치환 — pending만 갱신한다.
+      e.stopPropagation();
+      pending = data;
+    }
+  };
+
+  const onInputCapture = (e: Event) => {
+    const ev = e as InputEvent;
+    if (ev.target !== textarea || ev.isComposing) return;
+    const data = ev.data ?? "";
+    // beforeinput에서 처리한 이벤트의 input 단계도 xterm에게서 숨긴다.
+    if (
+      (ev.inputType === "insertText" && data && isImeText(data)) ||
+      (ev.inputType === "insertReplacementText" && data)
+    ) {
+      e.stopPropagation();
+      if (ev.inputType === "insertReplacementText") pending = data;
+    }
+  };
+
+  const onBlur = () => flushPending();
+
+  doc.addEventListener("keydown", onKeydownCapture, true);
+  doc.addEventListener("beforeinput", onBeforeInputCapture, true);
+  doc.addEventListener("input", onInputCapture, true);
+  textarea.addEventListener("blur", onBlur);
+
+  // ---- (D) DOM composition 경로 방어 (조합 이벤트를 쓰는 IME용, 기존 유지) ----
+  let composing = false;
   let valuePatched = false;
   try {
     const desc = findValueDescriptor(textarea);
@@ -88,20 +180,16 @@ export function attachImeStabilizer(
           return get.call(this);
         },
         set(v: string) {
-          // xterm은 입력 처리 후 textarea.value = "" 로 리셋한다 — 조합 중엔 무시.
-          if (composing && v === "") return;
+          if (composing && v === "") return; // 조합 중 xterm의 value 리셋 무시
           set.call(this, v);
         },
       });
       valuePatched = true;
     }
   } catch {
-    // accessor 재정의가 막힌 환경이면 이 방어선만 포기한다.
+    /* accessor 재정의가 막힌 환경이면 이 방어선만 포기 */
   }
 
-  // ---- (2) 조합 중 위치 이동 차단 --------------------------------------------
-  // style 접근자를 Proxy로 감싼다. Observer 되돌리기는 비동기라 WebKit이 이미
-  // 조합을 리셋한 뒤일 수 있으므로, 쓰기 자체를 동기적으로 무시해야 한다.
   let stylePatched = false;
   try {
     const realStyle = textarea.style;
@@ -110,7 +198,6 @@ export function attachImeStabilizer(
         const v = Reflect.get(target, prop, target);
         if (typeof v === "function") {
           return (...args: unknown[]) => {
-            // setProperty("left", ...) 계열도 조합 중엔 무시.
             if (
               composing &&
               (prop === "setProperty" || prop === "removeProperty") &&
@@ -137,16 +224,14 @@ export function attachImeStabilizer(
     });
     stylePatched = true;
   } catch {
-    // Proxy/defineProperty가 막힌 환경이면 이 방어선만 포기한다.
+    /* Proxy/defineProperty가 막힌 환경이면 이 방어선만 포기 */
   }
 
   const onCompositionStart = () => {
     composing = true;
   };
   const onCompositionEnd = () => {
-    // xterm의 compositionend 처리(setTimeout 0에서 최종 문자열 전송 후 리셋)가
-    // 끝난 다음에 방어를 풀어야 한다. 리스너 등록 순서상 xterm이 먼저 받지만,
-    // 실제 전송·리셋은 태스크 큐에서 일어나므로 한 틱 뒤에 해제한다.
+    // xterm의 compositionend 처리(setTimeout 0)가 끝난 다음에 방어를 푼다.
     setTimeout(() => {
       composing = false;
     }, 0);
@@ -155,7 +240,12 @@ export function attachImeStabilizer(
   textarea.addEventListener("compositionend", onCompositionEnd);
 
   return () => {
+    flushPending();
     composing = false;
+    doc.removeEventListener("keydown", onKeydownCapture, true);
+    doc.removeEventListener("beforeinput", onBeforeInputCapture, true);
+    doc.removeEventListener("input", onInputCapture, true);
+    textarea.removeEventListener("blur", onBlur);
     textarea.removeEventListener("compositionstart", onCompositionStart);
     textarea.removeEventListener("compositionend", onCompositionEnd);
     if (valuePatched) delete (textarea as { value?: unknown }).value;
