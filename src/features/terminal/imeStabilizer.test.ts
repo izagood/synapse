@@ -211,6 +211,60 @@ describe("attachImeStabilizer — insertText 어댑터 (실기기 계측 시퀀�
   });
 });
 
+describe("attachImeStabilizer — 조합 프리뷰", () => {
+  const previewOf = () => document.querySelector(".xterm-ime-preview") as HTMLElement | null;
+
+  it("조합 중 pending 음절을 커서 위치 오버레이로 보여준다", () => {
+    const { term, textarea } = makeTarget();
+    textarea.style.left = "120px";
+    textarea.style.top = "40px";
+    attach(term);
+
+    fireInput(textarea, "beforeinput", "insertText", "ㅎ");
+    const p = previewOf();
+    expect(p?.textContent).toBe("ㅎ");
+    expect(p?.style.display).toBe("block");
+    expect(p?.style.left).toBe("120px");
+    expect(p?.style.top).toBe("40px");
+
+    fireInput(textarea, "beforeinput", "insertReplacementText", "한");
+    expect(previewOf()?.textContent).toBe("한");
+  });
+
+  it("음절이 확정(flush)되면 프리뷰를 숨긴다", () => {
+    const { term, textarea, sent } = makeTarget();
+    attach(term);
+    fireInput(textarea, "beforeinput", "insertText", "ㅎ");
+    fireInput(textarea, "beforeinput", "insertReplacementText", "한");
+    fireKeydown(textarea, 13);
+    expect(sent).toEqual(["한"]);
+    expect(previewOf()?.style.display).toBe("none");
+    expect(previewOf()?.textContent).toBe("");
+  });
+
+  it("프리뷰는 터미널 옵션의 서체·색을 따른다", () => {
+    const { term, textarea } = makeTarget();
+    term.options = {
+      fontSize: 13,
+      fontFamily: "Menlo",
+      theme: { background: "#1e1e1e", foreground: "#d4d4d4" },
+    };
+    attach(term);
+    fireInput(textarea, "beforeinput", "insertText", "ㅎ");
+    const p = previewOf();
+    expect(p?.style.fontSize).toBe("13px");
+    expect(p?.style.fontFamily).toBe("Menlo");
+  });
+
+  it("해제하면 프리뷰 엘리먼트를 제거한다", () => {
+    const { term, textarea } = makeTarget();
+    const detach = attach(term);
+    fireInput(textarea, "beforeinput", "insertText", "ㅎ");
+    detach();
+    expect(previewOf()).toBeNull();
+  });
+});
+
 describe("attachImeStabilizer — DOM composition 경로 방어 (기존 유지)", () => {
   it("조합 중 value 리셋(빈 문자열 대입)을 무시한다", () => {
     const { term, textarea } = makeTarget();
