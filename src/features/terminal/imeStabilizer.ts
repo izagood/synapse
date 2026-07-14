@@ -37,6 +37,12 @@ export interface ImeStabilizerTarget {
   attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void;
   /** 사용자 입력으로 PTY에 데이터를 흘려보낸다 (onData 경유 — 기존 배선 재사용). */
   input(data: string, wasUserInput?: boolean): void;
+  /** 조합 프리뷰 스타일을 터미널과 맞추기 위한 옵션 (xterm Terminal.options 부분집합). */
+  options?: {
+    fontSize?: number;
+    fontFamily?: string;
+    theme?: { background?: string; foreground?: string };
+  };
 }
 
 /**
@@ -110,11 +116,55 @@ export function attachImeStabilizer(
 
   // ---- (B) insertText 어댑터 ------------------------------------------------
   // 문서 캡처 단계 리스너는 xterm의 textarea(at-target) 리스너보다 먼저 실행된다.
+  // ---- 조합 프리뷰 ----------------------------------------------------------
+  // pending 음절은 확정 전까지 PTY로 가지 않아 화면에 보이지 않는다. xterm이
+  // textarea를 항상 커서 셀에 동기화해 두므로(_syncTextArea), 같은 좌표에
+  // 터미널과 같은 서체의 오버레이를 띄워 조합 중 음절을 보여준다.
+  const preview = doc.createElement("span");
+  preview.className = "xterm-ime-preview";
+  {
+    const opt = term.options ?? {};
+    Object.assign(preview.style, {
+      position: "absolute",
+      display: "none",
+      zIndex: "10",
+      pointerEvents: "none",
+      whiteSpace: "pre",
+      fontFamily: opt.fontFamily ?? "monospace",
+      fontSize: `${opt.fontSize ?? 14}px`,
+      color: opt.theme?.foreground ?? "#ffffff",
+      background: opt.theme?.background ?? "#000000",
+      textDecoration: "underline",
+    });
+  }
+  textarea.parentElement?.appendChild(preview);
+  let previewTimer: ReturnType<typeof setTimeout> | undefined;
+  const updatePreview = () => {
+    if (!pending) {
+      preview.style.display = "none";
+      preview.textContent = "";
+      return;
+    }
+    preview.textContent = pending;
+    // textarea의 인라인 스타일(커서 셀 좌표·크기)을 그대로 복사한다.
+    preview.style.left = textarea.style.left;
+    preview.style.top = textarea.style.top;
+    preview.style.height = textarea.style.height;
+    preview.style.lineHeight = textarea.style.lineHeight;
+    preview.style.display = "block";
+  };
+  const schedulePreviewResync = () => {
+    // 직전 음절 flush의 PTY 에코로 커서가 이동한 뒤 좌표를 한 번 더 맞춘다.
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(updatePreview, 80);
+  };
+
   let pending = "";
   const flushPending = () => {
     if (!pending) return;
     const data = pending;
     pending = "";
+    updatePreview();
     try {
       term.input(data, true);
     } catch {
@@ -139,10 +189,13 @@ export function attachImeStabilizer(
       e.stopPropagation();
       flushPending();
       pending = data;
+      updatePreview();
+      schedulePreviewResync();
     } else if (ev.inputType === "insertReplacementText" && data) {
       // 조합 중 음절 치환 — pending만 갱신한다.
       e.stopPropagation();
       pending = data;
+      updatePreview();
     }
   };
 
@@ -156,7 +209,10 @@ export function attachImeStabilizer(
       (ev.inputType === "insertReplacementText" && data)
     ) {
       e.stopPropagation();
-      if (ev.inputType === "insertReplacementText") pending = data;
+      if (ev.inputType === "insertReplacementText") {
+        pending = data;
+        updatePreview();
+      }
     }
   };
 
@@ -241,6 +297,8 @@ export function attachImeStabilizer(
 
   return () => {
     flushPending();
+    clearTimeout(previewTimer);
+    preview.remove();
     composing = false;
     doc.removeEventListener("keydown", onKeydownCapture, true);
     doc.removeEventListener("beforeinput", onBeforeInputCapture, true);
