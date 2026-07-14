@@ -106,7 +106,7 @@ export function attachImeStabilizer(
   try {
     const realStyle = textarea.style;
     const styleProxy = new Proxy(realStyle, {
-      get(target, prop, _receiver) {
+      get(target, prop) {
         const v = Reflect.get(target, prop, target);
         if (typeof v === "function") {
           return (...args: unknown[]) => {
