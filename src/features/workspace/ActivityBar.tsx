@@ -22,6 +22,8 @@ interface ActivityBarProps {
   onQuickOpen: () => void;
   onSearch: () => void;
   onGraph: () => void;
+  terminalVisible: boolean;
+  onToggleTerminal: () => void;
 }
 
 // VS Code 액티비티 바: 상단 내비게이션 / 하단 폴더·설정
@@ -31,6 +33,8 @@ export function ActivityBar({
   onQuickOpen,
   onSearch,
   onGraph,
+  terminalVisible,
+  onToggleTerminal,
 }: ActivityBarProps) {
   const openFolder = useWorkspace((s) => s.openFolder);
   const closeWorkspace = useWorkspace((s) => s.closeWorkspace);
@@ -63,10 +67,8 @@ export function ActivityBar({
           <GraphIcon size={18} />
         </button>
         <button
-          onClick={() => {
-            const { root } = useWorkspace.getState();
-            if (root) void ipc.openExternalTerminal(root).catch(() => undefined);
-          }}
+          className={terminalVisible ? "active" : ""}
+          onClick={onToggleTerminal}
           title={t("activity.terminal", { shortcut: terminalShortcut })}
         >
           <TerminalIcon size={18} />

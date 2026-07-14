@@ -18,6 +18,7 @@ import type {
   FileNode,
   ParsedRemoteTarget,
   PollResult,
+  PtyDataPayload,
   RemoteConnection,
   RemoteDirEntry,
   RetrievalResult,
@@ -113,6 +114,21 @@ const tauriIpc: SynapseIpc = {
 
   openExternalTerminal: (root, cwd) =>
     invoke<void>("open_external_terminal", { root, cwd }),
+
+  ptyOpen: (root, cols, rows) =>
+    invoke<string>("pty_open", {
+      windowLabel: getCurrentWindow().label,
+      root,
+      shell: null,
+      cols,
+      rows,
+    }),
+  ptyWrite: (id, data) => invoke<void>("pty_write", { id, data }),
+  ptyResize: (id, cols, rows) => invoke<void>("pty_resize", { id, cols, rows }),
+  ptyKill: (id) => invoke<void>("pty_kill", { id }),
+  onPtyData: (handler) =>
+    listen<PtyDataPayload>("pty:data", (e) => handler(e.payload)),
+  onPtyExit: (handler) => listen<string>("pty:exit", (e) => handler(e.payload)),
 
   githubLoginStart: () => invoke<DeviceCode>("github_login_start"),
   githubLoginPoll: () => invoke<PollResult>("github_login_poll"),

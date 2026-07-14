@@ -6,6 +6,7 @@ mod dock;
 mod mcp;
 mod remote;
 mod sync;
+mod terminal;
 mod watcher;
 
 pub fn run() {
@@ -33,6 +34,10 @@ pub fn run() {
                     let _ = mcp::reconcile_on_close(&state.0, window.label());
                     state.0.drop_window(window.label());
                 }
+                // 그 윈도우가 연 내장 터미널 PTY도 함께 정리한다(좀비 방지).
+                if let Some(pty) = window.try_state::<terminal::PtyState>() {
+                    pty.drop_window(window.label());
+                }
             }
         })
         .plugin(tauri_plugin_dialog::init())
@@ -45,6 +50,7 @@ pub fn run() {
         .manage(remote::RemoteState::default())
         .manage(watcher::WatcherState::default())
         .manage(bridge_state)
+        .manage(terminal::PtyState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_workspace,
             commands::migrate_workspace,
@@ -72,6 +78,10 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::open_external_terminal,
+            terminal::pty_open,
+            terminal::pty_write,
+            terminal::pty_resize,
+            terminal::pty_kill,
             commands::viewer_cache_write,
             commands::new_window,
             commands::save_image,
