@@ -10,8 +10,8 @@ import { openWorkspacePath } from "./openPath";
 import { displayWorkspacePath, isRemoteWorkspace } from "./recentDisplay";
 
 /**
- * 시작 화면: 둥근 카드 안에 2컬럼 — 왼쪽은 "시작하기"(폴더 열기·SSH·클론)와
- * "경로로 열기", 오른쪽은 "최근 폴더" 목록. 카드 하단에 업데이트 알림 바.
+ * 시작 화면: 단일 배경 위 중앙 2컬럼 — 왼쪽은 "시작하기"(폴더 열기·SSH·클론)와
+ * "경로로 열기", 오른쪽은 "최근 폴더" 목록. 하단에 업데이트 알림 바.
  */
 export function StartScreen() {
   const { recent, loading, error, openFolder, openRemote, clearRecent } = useWorkspace();

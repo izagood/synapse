@@ -146,7 +146,7 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-panel);
+  background: var(--bg);
   padding: 24px;
 }
 
@@ -154,9 +154,6 @@ select {
   width: min(880px, 94vw);
   max-height: 92vh;
   overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 16px;
   padding: 44px 48px 32px;
   display: flex;
   flex-direction: column;
