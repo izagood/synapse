@@ -22,6 +22,7 @@
     ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; frame-src 'self' asset: http://asset.localhost data: about: blob:; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost",
+      "dangerousDisableAssetCspModification": ["style-src"],
       "assetProtocol": {
         "enable": true,
         "scope": []

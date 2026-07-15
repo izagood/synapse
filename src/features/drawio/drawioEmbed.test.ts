@@ -30,6 +30,14 @@ describe("buildEditorUrl", () => {
     expect(withLang.get("dark")).toBe("0");
   });
 
+  it("disables MathJax with explicit math=0 (bundle has no math4/)", () => {
+    // 번들에 math4/ 가 없는데 릴리스(tauri 프로토콜)는 누락 경로에 SPA fallback 으로
+    // index.html 을 돌려줘, drawio 의 MathJax 로더가 HTML 을 JS 로 실행하다
+    // SyntaxError 를 냈다. math=0 으로 로드 자체를 차단한다.
+    const q = new URL(buildEditorUrl({ basePath: "a" }), "http://x/").searchParams;
+    expect(q.get("math")).toBe("0");
+  });
+
   it("adds lang only when requested", () => {
     const plain = new URL(buildEditorUrl({ basePath: "a" }), "http://x/").searchParams;
     expect(plain.get("lang")).toBeNull();
