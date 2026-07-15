@@ -18,7 +18,21 @@ import {
   placeLabels,
   type LabelCandidate,
 } from "./layout";
-import { applyZoom, wheelZoomFactor, type ZoomView as View } from "./zoom";
+import {
+  applyZoom,
+  gestureZoomFactor,
+  wheelZoomFactor,
+  type ZoomView as View,
+} from "./zoom";
+
+// WebKit(맥 Safari/WKWebView) 전용 핀치 이벤트 — lib.dom에 타입이 없다.
+interface WebKitGestureEvent extends Event {
+  readonly scale: number;
+  readonly clientX: number;
+  readonly clientY: number;
+}
+
+const GESTURE_EVENTS = ["gesturestart", "gesturechange", "gestureend"] as const;
 
 const WIDTH = 900;
 const HEIGHT = 600;
@@ -48,6 +62,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<View>({ k: 1, tx: 0, ty: 0 });
 
   const svgRef = useRef<SVGSVGElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   // 드래그 팬 상태 — 클릭과 구분하려고 이동 여부(panned)를 기억한다.
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(
     null,
@@ -187,6 +202,49 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     return () => el.removeEventListener("wheel", handler);
   }, [loading, isEmpty]);
 
+  // 맥 WKWebView의 트랙패드 핀치는 wheel이 아니라 WebKit 고유 GestureEvent로
+  // 온다(실측: 핀치 시 wheel+ctrlKey 0건). svg에서 직접 받아 그래프를 줌하고,
+  // 백드롭에서 전파를 끊는다 — excalidraw가 document 레벨에서 핀치를 청취하므로
+  // 끊지 않으면 모달 뒤에 열려 있는 드로잉 노트가 대신 줌된다.
+  useEffect(() => {
+    const backdrop = backdropRef.current;
+    if (!backdrop) return;
+    const svg = svgRef.current;
+
+    let prevScale = 0;
+    const onGesture = (e: Event) => {
+      const g = e as WebKitGestureEvent;
+      e.preventDefault();
+      if (e.type === "gesturestart") {
+        prevScale = g.scale > 0 ? g.scale : 1;
+        return;
+      }
+      if (e.type === "gestureend") {
+        prevScale = 0;
+        return;
+      }
+      if (!svg || !prevScale || !svg.contains(e.target as Node)) return;
+      const rect = svg.getBoundingClientRect();
+      const x = ((g.clientX - rect.left) / rect.width) * WIDTH;
+      const y = ((g.clientY - rect.top) / rect.height) * HEIGHT;
+      zoomAt(x, y, gestureZoomFactor(g.scale, prevScale));
+      prevScale = g.scale;
+    };
+    // 백드롭(모달 전체) 단일 지점: svg 위 핀치는 줌으로 처리하고, 헤더·여백
+    // 위 핀치도 여기서 소비돼 뒤 노트로 새지 않는다.
+    const stop = (e: Event) => e.stopPropagation();
+    for (const type of GESTURE_EVENTS) {
+      backdrop.addEventListener(type, onGesture);
+      backdrop.addEventListener(type, stop);
+    }
+    return () => {
+      for (const type of GESTURE_EVENTS) {
+        backdrop.removeEventListener(type, onGesture);
+        backdrop.removeEventListener(type, stop);
+      }
+    };
+  }, [loading, isEmpty]);
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     panned.current = false;
@@ -222,7 +280,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" ref={backdropRef} onClick={onClose}>
       <div className="modal graph-modal" onClick={(e) => e.stopPropagation()}>
         <div className="graph-header">
           <h2>{t("graph.title")}</h2>
