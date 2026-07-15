@@ -36,6 +36,7 @@ export const ko = {
       parentDir: "상위 디렉터리",
       openThisFolder: "이 폴더 열기",
       emptyDir: "하위 폴더가 없습니다",
+      pathLabel: "원격 경로 — Enter로 이동",
       loadingDir: "불러오는 중…",
     },
   },

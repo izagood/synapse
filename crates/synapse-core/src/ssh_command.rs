@@ -90,10 +90,6 @@ pub fn parse_ssh_command(input: &str) -> Result<SshInvocation, SshCommandError> 
     let mut host: Option<String> = None;
 
     while let Some(tok) = it.next() {
-        if host.is_some() {
-            // 호스트를 이미 잡았으면 나머지는 원격 커맨드 — 무시.
-            break;
-        }
         if let Some(rest) = tok.strip_prefix('-') {
             if rest.is_empty() {
                 continue; // 외톨이 "-"
@@ -112,6 +108,12 @@ pub fn parse_ssh_command(input: &str) -> Result<SshInvocation, SshCommandError> 
             }
             // 인자 없는 플래그(-v, -A, -4 등)는 그냥 스킵.
             continue;
+        }
+        if host.is_some() {
+            // 호스트 뒤 첫 비옵션 토큰부터는 원격 커맨드 — 이후 전부 무시.
+            // (OpenSSH처럼 `ssh host -p 2222` 의 호스트 뒤 옵션은 계속 파싱한다 —
+            //  GUI placeholder가 안내하는 형식이기도 하다.)
+            break;
         }
         // 위치 인자 = 호스트(또는 user@host / 별칭).
         host = Some(tok);
@@ -294,6 +296,24 @@ mod tests {
         let inv = parse("ssh jaebin@example.com ls -la /tmp");
         assert_eq!(inv.host, "example.com");
         // -la /tmp 는 원격 커맨드 — 우리 옵션으로 새지 않는다.
+        assert_eq!(inv.identity_file, None);
+    }
+
+    #[test]
+    fn parses_options_after_host_like_openssh() {
+        // GUI placeholder가 안내하는 형식 그대로: ssh user@host -p 22 -i ~/.ssh/key
+        let inv = parse("ssh jaebin@127.0.0.1 -p 2222 -i ~/.ssh/key");
+        assert_eq!(inv.user.as_deref(), Some("jaebin"));
+        assert_eq!(inv.host, "127.0.0.1");
+        assert_eq!(inv.port, Some(2222));
+        assert_eq!(inv.identity_file.as_deref(), Some("~/.ssh/key"));
+    }
+
+    #[test]
+    fn post_host_options_stop_at_remote_command() {
+        // 호스트 뒤 옵션은 파싱하되, 첫 비옵션 토큰(원격 커맨드)부터는 무시.
+        let inv = parse("ssh example.com -p 2222 ls -la");
+        assert_eq!(inv.port, Some(2222));
         assert_eq!(inv.identity_file, None);
     }
 
