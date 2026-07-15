@@ -425,16 +425,16 @@ pub fn build_graph_cached(root: &Path, cache: &mut LinkScanCache) -> io::Result<
             continue;
         };
         let (mtime, len) = (meta.modified().ok(), meta.len());
-        let cached_ok = cache.entries.get(source).is_some_and(|e| {
-            mtime.is_some_and(|t| e.mtime == t) && e.len == len
-        });
+        let cached_ok = cache
+            .entries
+            .get(source)
+            .is_some_and(|e| mtime.is_some_and(|t| e.mtime == t) && e.len == len);
         if !cached_ok {
             let body = match fs::read_to_string(source) {
                 Ok(b) => b,
                 Err(_) => continue,
             };
-            let links: Vec<OutLink> =
-                extract_links(&body).into_iter().map(|(l, _)| l).collect();
+            let links: Vec<OutLink> = extract_links(&body).into_iter().map(|(l, _)| l).collect();
             // mtime을 못 읽는 파일도 링크는 처리한다 — epoch 키는 다음 호출의
             // Some(t) 비교와 절대 일치하지 않으므로 항상 재파싱된다.
             let mtime = mtime.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
