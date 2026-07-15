@@ -15,19 +15,29 @@ Markdown tools.
 ## Features
 
 - Open any local folder as a workspace.
+- Open remote folders over SSH/SFTP (`ssh://` URIs or SSH config hosts).
 - Keep notes as standard Markdown files.
 - Edit Markdown with a Tiptap/ProseMirror WYSIWYG editor.
 - Switch to raw Markdown source mode when needed.
 - Preserve YAML frontmatter while editing.
 - Paste or drop images into Markdown notes.
+- Render code highlighting and Mermaid diagrams in code blocks.
+- Search across the workspace (full-text) and inside a document.
+- See backlinks and an interactive note graph.
 - Open `.html` files in a sanitized, sandboxed viewer.
+- Import HTML as Markdown and export notes as standalone HTML.
+- View PDFs and draw annotations on top of them (stored as sidecar files,
+  original PDFs untouched).
+- Edit draw.io diagrams and Excalidraw whiteboards in place.
 - Sign in with GitHub Device Flow.
 - Publish a local workspace to a GitHub repository.
 - Clone an existing GitHub repository from the start screen.
 - Sync with GitHub using the system `git` CLI.
 - Resolve sync conflicts with keep-local, keep-remote, or keep-both actions.
+- Browse and restore past versions of a note from git history.
 - Manage all app settings globally instead of writing app config into each
-  workspace.
+  workspace, and optionally sync settings between machines through a
+  personal git repository.
 - Use Quick Open, tabs, themes, and update checks.
 - Use the built-in terminal panel (VS Code-style, with an IME stabilization
   layer so CJK input works inside the WebKit webview), or open the OS's native
@@ -245,14 +255,15 @@ Important frontend areas:
 
 ## Roadmap
 
-Planned post-MVP work includes:
+The MVP is complete and development continues feature by feature. Planned
+work includes:
 
-- Full-text search.
-- Wiki links and backlinks.
-- File history.
-- HTML to Markdown import and Markdown to HTML export.
-- More advanced conflict review.
-- AI-assisted note workflows.
+- Wiki-link rendering and click navigation inside the editor.
+- Save-triggered (event-based) sync in addition to interval sync.
+- Searchable settings screen.
+- Linux release packaging (AppImage/.deb).
+- AI-assisted note workflows (agent panel).
+- Mobile/web clients sharing GitHub as the backend.
 - Plugin support.
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) and the plan documents in
