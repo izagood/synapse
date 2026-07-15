@@ -243,6 +243,8 @@ pub fn link_candidates(
             let Some(ib) = infos.get(b) else { continue };
             let mut score = 0u32;
             let mut reasons = Vec::new();
+            // 기존 auto-links 항목 여부를 먼저 판단 (score 체크 전에)
+            let existing = ia.auto_targets.contains(b);
 
             if let Some(sb) = stem(b) {
                 let sb = sb.to_lowercase();
@@ -265,15 +267,20 @@ pub fn link_candidates(
                 score += common * 10;
                 reasons.push(format!("공통 이웃 노트 {common}개"));
             }
-            if score == 0 {
+            // 점수 0이면서 기존 항목이 아니면 스킵
+            if score == 0 && !existing {
                 continue;
+            }
+            // 기존 항목이면서 휴리스틱 점수가 0인 경우 근거 추가
+            if score == 0 && existing {
+                reasons.push("기존 auto-links 항목".to_string());
             }
             out.push(LinkCandidate {
                 from: a.display().to_string(),
                 to: b.display().to_string(),
                 score,
                 reasons,
-                existing: ia.auto_targets.contains(b),
+                existing,
             });
         }
     }
@@ -548,5 +555,36 @@ mod tests {
         };
         let json = serde_json::to_string(&c).unwrap();
         assert!(json.contains("\"from\"") && json.contains("\"existing\""));
+    }
+
+    #[test]
+    fn existing_auto_links_with_zero_score_preserved() {
+        // 기존 auto-links 항목이 휴리스틱 점수 0이어도 후보로 유지되는지 검증
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // target: 제목도 짧고, 키워드도 겹치지 않을 예정
+        write(&root.join("target.md"), "# x");
+        // from: auto-links 블록에만 target 링크가 있고,
+        // 본문에는 제목 언급도, 키워드 중복도, 공통 이웃도 없는 무관한 텍스트
+        write(
+            &root.join("from.md"),
+            &format!(
+                "무관한 텍스트만 있음\n\n{}\n## 관련 노트\n- [[target]]\n{}\n",
+                AUTO_LINKS_START, AUTO_LINKS_END
+            ),
+        );
+
+        let cands = link_candidates(root, &[], 50).unwrap();
+        let existing_cand = cands
+            .iter()
+            .find(|c| c.from.ends_with("from.md") && c.to.ends_with("target.md"))
+            .expect("기존 auto-links 쌍이 후보에 포함되어야 함");
+
+        assert_eq!(existing_cand.score, 0, "휴리스틱 점수가 0이어야 함");
+        assert!(existing_cand.existing, "existing=true여야 함");
+        assert!(
+            existing_cand.reasons.iter().any(|r| r.contains("기존 auto-links 항목")),
+            "reasons에 '기존 auto-links 항목' 근거가 있어야 함"
+        );
     }
 }
