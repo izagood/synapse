@@ -1,6 +1,6 @@
 [package]
 name = "synapse"
-version = "0.5.26"
+version = "0.5.27"
 edition = "2021"
 description = "Synapse — Notion-style note app that saves plain Markdown, synced via GitHub"
 authors = ["Jaebin Lee"]
