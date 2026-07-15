@@ -7,9 +7,9 @@ export function detectDesktopPlatform(userAgent = navigator.userAgent): DesktopP
 }
 
 export function shortcutLabel(keys: string[], platform = detectDesktopPlatform()): string {
-  const mod = platform === "macos" ? "⌘" : "Ctrl";
-  const shift = platform === "macos" ? "⇧" : "Shift";
-  return keys.map((key) => (key === "Mod" ? mod : key === "Shift" ? shift : key)).join(
-    platform === "macos" ? "" : "+",
-  );
+  const mac = platform === "macos";
+  const tokens: Record<string, string> = mac
+    ? { Mod: "⌘", Shift: "⇧", Alt: "⌥", Ctrl: "⌃" }
+    : { Mod: "Ctrl", Shift: "Shift", Alt: "Alt", Ctrl: "Ctrl" };
+  return keys.map((key) => tokens[key] ?? key).join(mac ? "" : "+");
 }

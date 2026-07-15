@@ -17,4 +17,11 @@ describe("platform helpers", () => {
     expect(shortcutLabel(["Shift", "Mod", "A"], "windows")).toBe("Shift+Ctrl+A");
     expect(shortcutLabel(["Mod", ","], "linux")).toBe("Ctrl+,");
   });
+
+  it("renders Alt/Ctrl tokens (mac ⌥/⌃, elsewhere verbatim)", () => {
+    expect(shortcutLabel(["Mod", "Alt", "T"], "macos")).toBe("⌘⌥T");
+    expect(shortcutLabel(["Ctrl", "Tab"], "macos")).toBe("⌃Tab");
+    expect(shortcutLabel(["Ctrl", "Shift", "Tab"], "windows")).toBe("Ctrl+Shift+Tab");
+    expect(shortcutLabel(["Mod", "Alt", "T"], "linux")).toBe("Ctrl+Alt+T");
+  });
 });

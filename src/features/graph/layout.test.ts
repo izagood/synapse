@@ -100,6 +100,34 @@ describe("layoutGraph", () => {
     );
   });
 
+  it("does not pile nodes onto a rectangular boundary", () => {
+    // 노드가 많아 반발력이 강해도, 반복별 사각 클램프가 없으므로
+    // 경계선 위에 노드가 일렬로 들러붙지 않아야 한다(fit-to-viewport).
+    const many: LinkGraph = {
+      nodes: Array.from({ length: 60 }, (_, i) => ({
+        path: `${ROOT}/n${i}.md`,
+        name: `n${i}.md`,
+      })),
+      edges: Array.from({ length: 30 }, (_, i) => ({
+        source: `${ROOT}/n${i}.md`,
+        target: `${ROOT}/n${(i + 1) % 60}.md`,
+      })),
+    };
+    const layout = layoutGraph(many, { width: 400, height: 300 });
+    // 과거 클램프 경계(pad=24)에 정확히 붙은 노드가 없어야 한다.
+    const onWall = layout.nodes.filter(
+      (n) => n.x === 24 || n.x === 376 || n.y === 24 || n.y === 276,
+    );
+    expect(onWall).toHaveLength(0);
+    // fit 패딩(40) 안쪽에 모두 담겨야 한다.
+    for (const n of layout.nodes) {
+      expect(n.x).toBeGreaterThanOrEqual(39.9);
+      expect(n.x).toBeLessThanOrEqual(360.1);
+      expect(n.y).toBeGreaterThanOrEqual(39.9);
+      expect(n.y).toBeLessThanOrEqual(260.1);
+    }
+  });
+
   it("handles an empty graph", () => {
     const layout = layoutGraph({ nodes: [], edges: [] });
     expect(layout.nodes).toEqual([]);

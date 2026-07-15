@@ -608,4 +608,78 @@ describe("workspace store (mock ipc)", () => {
       expect(useWorkspace.getState().expandedDirs).toEqual({});
     });
   });
+
+  describe("탭 이동·재열기 (커맨드 시스템)", () => {
+    async function openThree(): Promise<string[]> {
+      await useWorkspace.getState().openFile(findNode("README.md"));
+      await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
+      await useWorkspace.getState().openFile(findNode("summary.html"));
+      return useWorkspace.getState().tabs.map((t) => t.path);
+    }
+
+    it("nextTab/prevTab은 순환한다", async () => {
+      const [a, b, c] = await openThree();
+      expect(useWorkspace.getState().activePath).toBe(c);
+      useWorkspace.getState().nextTab();
+      expect(useWorkspace.getState().activePath).toBe(a); // 마지막→처음 순환
+      useWorkspace.getState().prevTab();
+      expect(useWorkspace.getState().activePath).toBe(c);
+      useWorkspace.getState().setActiveTab(a);
+      useWorkspace.getState().nextTab();
+      expect(useWorkspace.getState().activePath).toBe(b);
+    });
+
+    it("탭이 1개 이하면 nextTab/prevTab은 no-op", async () => {
+      await useWorkspace.getState().openFile(findNode("README.md"));
+      const before = useWorkspace.getState().activePath;
+      useWorkspace.getState().nextTab();
+      useWorkspace.getState().prevTab();
+      expect(useWorkspace.getState().activePath).toBe(before);
+    });
+
+    it("goToTab: 1-based, 9는 마지막, 범위 밖 no-op", async () => {
+      const [a, , c] = await openThree();
+      useWorkspace.getState().goToTab(1);
+      expect(useWorkspace.getState().activePath).toBe(a);
+      useWorkspace.getState().goToTab(9);
+      expect(useWorkspace.getState().activePath).toBe(c);
+      useWorkspace.getState().goToTab(5); // 탭 3개 — no-op
+      expect(useWorkspace.getState().activePath).toBe(c);
+    });
+
+    it("closeTab은 recentlyClosed에 push하고 reopenClosedTab이 복원한다", async () => {
+      const [, b] = await openThree();
+      await useWorkspace.getState().closeTab(b);
+      expect(useWorkspace.getState().recentlyClosed).toContain(b);
+      await useWorkspace.getState().reopenClosedTab();
+      const s = useWorkspace.getState();
+      expect(s.tabs.some((t) => t.path === b)).toBe(true);
+      expect(s.activePath).toBe(b);
+      expect(s.recentlyClosed).not.toContain(b);
+    });
+
+    it("recentlyClosed는 중복 제거하고 최대 10개만 유지한다", async () => {
+      const [a] = await openThree();
+      for (let i = 0; i < 12; i++) {
+        await useWorkspace.getState().openFile(findNode("README.md"));
+        await useWorkspace.getState().closeTab(a);
+      }
+      const stack = useWorkspace.getState().recentlyClosed;
+      expect(stack.filter((p) => p === a)).toHaveLength(1);
+      expect(stack.length).toBeLessThanOrEqual(10);
+    });
+
+    it("트리에서 사라진 파일은 건너뛰고 다음 항목을 연다", async () => {
+      const [a, b] = await openThree();
+      await useWorkspace.getState().closeTab(a);
+      await useWorkspace.getState().closeTab(b);
+      // 마지막에 닫힌 b가 트리에서 사라졌다고 시뮬레이션
+      useWorkspace.setState((s) => ({
+        recentlyClosed: [...s.recentlyClosed.slice(0, -1), `${MOCK_ROOT}/ghost.md`],
+      }));
+      await useWorkspace.getState().reopenClosedTab();
+      expect(useWorkspace.getState().tabs.some((t) => t.path === a)).toBe(true);
+      expect(useWorkspace.getState().recentlyClosed).toHaveLength(0);
+    });
+  });
 });

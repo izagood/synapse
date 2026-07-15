@@ -124,6 +124,15 @@ interface WorkspaceState {
   closeOtherTabs(path: string): Promise<void>;
   closeTabsToRight(path: string): Promise<void>;
   closeAllTabs(): Promise<void>;
+  /** 최근 닫은 탭 경로 스택 (최신이 마지막, 최대 10) — 재열기(⌘⇧T)용 */
+  recentlyClosed: string[];
+  /** 닫은 탭 다시 열기. 트리에서 사라진 파일은 건너뛰고 다음 항목을 시도한다 */
+  reopenClosedTab(): Promise<void>;
+  /** 활성 탭 기준 다음/이전 탭으로 순환 이동 */
+  nextTab(): void;
+  prevTab(): void;
+  /** n번째(1-based) 탭으로. 9는 항상 마지막 탭(VS Code 관례). 범위 밖 no-op */
+  goToTab(n: number): void;
   updateContent(path: string, content: string): void;
   saveDoc(path: string): Promise<void>;
   saveActive(): Promise<void>;
@@ -187,6 +196,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   sourceMode: false,
   autoFocusEditor: true,
   expandedDirs: {},
+  recentlyClosed: [],
 
   async init() {
     try {
@@ -242,6 +252,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         activePath: null,
         docs: {},
         expandedDirs: {},
+        recentlyClosed: [], // 다른 워크스페이스의 경로는 재열기 대상이 아니다
         loading: false,
       });
       await restoreSession(target, tree, get());
@@ -315,6 +326,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       activePath: null,
       docs: {},
       expandedDirs: {},
+      recentlyClosed: [],
       error: null,
     });
   },
@@ -446,8 +458,51 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         const idx = s.tabs.findIndex((t) => t.path === path);
         activePath = tabs[Math.min(idx, tabs.length - 1)]?.path ?? null;
       }
-      return { tabs, docs, activePath };
+      // 재열기(⌘⇧T)용 스택 — 중복은 제거 후 최신으로, 최대 10개 유지.
+      // closeTabDiscard(삭제된 파일 정리)는 파일이 이미 없으므로 push하지 않는다.
+      const recentlyClosed = [...s.recentlyClosed.filter((p) => p !== path), path].slice(-10);
+      return { tabs, docs, activePath, recentlyClosed };
     });
+  },
+
+  async reopenClosedTab() {
+    const { tree } = get();
+    if (!tree) return;
+    const existing = collectFilePaths(tree);
+    for (;;) {
+      const stack = get().recentlyClosed;
+      const path = stack[stack.length - 1];
+      if (!path) return;
+      set({ recentlyClosed: stack.slice(0, -1) });
+      if (existing.has(path)) {
+        const name = basename(path);
+        await get().openFile({ path, name, kind: "file", fileType: fileTypeOf(name) });
+        return;
+      }
+      // 트리에서 사라진 파일은 버리고 다음 항목 시도
+    }
+  },
+
+  nextTab() {
+    const { tabs, activePath } = get();
+    if (tabs.length < 2) return;
+    const idx = tabs.findIndex((t) => t.path === activePath);
+    get().setActiveTab(tabs[(idx + 1) % tabs.length].path);
+  },
+
+  prevTab() {
+    const { tabs, activePath } = get();
+    if (tabs.length < 2) return;
+    const idx = tabs.findIndex((t) => t.path === activePath);
+    get().setActiveTab(tabs[(idx - 1 + tabs.length) % tabs.length].path);
+  },
+
+  goToTab(n) {
+    const { tabs } = get();
+    if (n < 1 || n > 9) return;
+    // VS Code 관례: 9는 항상 마지막 탭
+    const tab = tabs[n === 9 ? tabs.length - 1 : n - 1];
+    if (tab) get().setActiveTab(tab.path);
   },
 
   async closeOtherTabs(path) {

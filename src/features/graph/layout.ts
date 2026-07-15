@@ -141,17 +141,42 @@ export function layoutGraph(graph: LinkGraph, opts: LayoutOptions = {}): GraphLa
       dispY[i] += (cy - ys[i]) * gravity;
     }
 
-    // 이동량 제한 + 적용 + 경계 클램프
+    // 이동량 제한 + 적용
     const maxMove = k * cooling;
     for (let i = 0; i < n; i += 1) {
       const len = Math.sqrt(dispX[i] * dispX[i] + dispY[i] * dispY[i]) || 1;
       const limited = Math.min(len, maxMove);
       xs[i] += (dispX[i] / len) * limited;
       ys[i] += (dispY[i] / len) * limited;
-      const pad = 24;
-      xs[i] = Math.max(pad, Math.min(width - pad, xs[i]));
-      ys[i] = Math.max(pad, Math.min(height - pad, ys[i]));
     }
+  }
+
+  // 시뮬레이션이 끝난 뒤 한 번만 전체 bounding box를 뷰포트에 맞춘다.
+  // 반복마다 좌표를 사각형으로 클램프하면 반발력에 밀린 노드가 경계에
+  // 일렬로 들러붙어 그래프가 네모 상자에 갇힌 윤곽으로 굳는다 — 대신
+  // 자유롭게 퍼진 모양을 그대로 축소·중앙 정렬해 담는다(확대는 하지
+  // 않아 노트가 적을 때 부자연스럽게 벌어지지 않는다).
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < n; i += 1) {
+    if (xs[i] < minX) minX = xs[i];
+    if (xs[i] > maxX) maxX = xs[i];
+    if (ys[i] < minY) minY = ys[i];
+    if (ys[i] > maxY) maxY = ys[i];
+  }
+  const pad = 40;
+  const scale = Math.min(
+    1,
+    (width - pad * 2) / Math.max(maxX - minX, 1),
+    (height - pad * 2) / Math.max(maxY - minY, 1),
+  );
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+  for (let i = 0; i < n; i += 1) {
+    xs[i] = cx + (xs[i] - midX) * scale;
+    ys[i] = cy + (ys[i] - midY) * scale;
   }
 
   const nodes: PositionedNode[] = graph.nodes.map((node, i) => ({

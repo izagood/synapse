@@ -11,12 +11,24 @@ export const CATEGORY_ORDER: ShortcutCategory[] = [
   "editor",
 ];
 
-/** 현재 플랫폼에서 유효한 단축키만 남긴다 (platforms 미지정=전체) */
+/**
+ * 현재 플랫폼에서 유효한 단축키만 남긴다 (platforms 미지정=전체).
+ * cheatsheetMerge:"hidden" 항목(tab.goTo2~9)은 치트시트에 표시하지 않는다 —
+ * 대표 항목(goTo1)이 mergedKeyLabel 로 ⌘1…9 범위를 표시한다.
+ */
 export function visibleShortcuts(
   defs: ShortcutDef[],
   platform: DesktopPlatform,
 ): ShortcutDef[] {
-  return defs.filter((d) => !d.platforms || d.platforms.includes(platform));
+  return defs.filter(
+    (d) => (!d.platforms || d.platforms.includes(platform)) && d.cheatsheetMerge !== "hidden",
+  );
+}
+
+/** 키 라벨 — cheatsheetMerge:"first" 항목은 ⌘1…9 처럼 범위로 표시 */
+export function mergedKeyLabel(def: ShortcutDef, platform: DesktopPlatform): string {
+  const label = shortcutLabel(def.keys, platform);
+  return def.cheatsheetMerge === "first" ? `${label}…9` : label;
 }
 
 /**
