@@ -175,8 +175,12 @@ mod tests {
         let config = tempfile::tempdir().unwrap();
         let ws = tempfile::tempdir().unwrap();
         record_opened(config.path(), ws.path()).unwrap();
-        set_workspace_state(config.path(), ws.path(), serde_json::json!({"openTabs": ["a.md"]}))
-            .unwrap();
+        set_workspace_state(
+            config.path(),
+            ws.path(),
+            serde_json::json!({"openTabs": ["a.md"]}),
+        )
+        .unwrap();
 
         clear_recent(config.path()).unwrap();
 
