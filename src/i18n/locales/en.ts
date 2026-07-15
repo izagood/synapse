@@ -41,6 +41,7 @@ export const en: LocaleShape<KoMessages> = {
       parentDir: "Parent directory",
       openThisFolder: "Open this folder",
       emptyDir: "No subfolders here",
+      pathLabel: "Remote path — press Enter to navigate",
       loadingDir: "Loading…",
     },
   },

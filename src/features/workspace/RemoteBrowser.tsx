@@ -33,6 +33,25 @@ export function RemoteBrowser({
 
   const { base, path } = splitRemoteUri(currentUri);
 
+  // 경로 직접 입력: 폴더 클릭/상위 이동으로 currentUri가 바뀌면 입력값도 따라간다.
+  const [pathInput, setPathInput] = useState(path);
+  useEffect(() => {
+    setPathInput(path);
+  }, [path]);
+
+  const commitPath = () => {
+    const trimmed = pathInput.trim();
+    if (!trimmed) {
+      setPathInput(path);
+      return;
+    }
+    const absolute = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    // 루트가 아닌 한 끝의 슬래시는 정규화한다 — 상위 이동(posixDirname) 계산이 어긋나지 않게.
+    const normalized =
+      absolute.length > 1 ? absolute.replace(/\/+$/, "") : absolute;
+    setCurrentUri(joinRemoteUri(base, normalized));
+  };
+
   useEffect(() => {
     let cancelled = false;
     setListing(true);
@@ -66,9 +85,19 @@ export function RemoteBrowser({
   return (
     <div className="remote-connect">
       <h2>{t("start.remote.browseTitle")}</h2>
-      <div className="remote-browser-path" title={currentUri}>
-        {path}
-      </div>
+      <input
+        className="remote-browser-path"
+        value={pathInput}
+        onChange={(e) => setPathInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitPath();
+          else if (e.key === "Escape") setPathInput(path);
+        }}
+        aria-label={t("start.remote.pathLabel")}
+        title={currentUri}
+        spellCheck={false}
+        disabled={loading}
+      />
 
       <div className="remote-browser-list">
         <button
