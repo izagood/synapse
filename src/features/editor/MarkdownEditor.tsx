@@ -9,6 +9,7 @@ import { insertImages, isImageFile } from "./images";
 import { FindBar } from "./FindBar";
 import { useT } from "../../i18n";
 import { hasRoundtripContentLoss } from "./roundtripSafety";
+import { preserveFormatting } from "./preserveFormatting";
 import { deferUntilCompositionEnd } from "./deferUntilCompositionEnd";
 
 // 활성 마크다운 문서의 WYSIWYG 에디터.
@@ -110,6 +111,12 @@ export function MarkdownEditor({ path }: { path: string }) {
         // 정규화된 내용이 디스크에 쓰이지 않게 한다
         updateContent(path, original.current);
         return;
+      }
+      // 편집한 블록만 재직렬화하고, 손대지 않은 블록은 원본 바이트를 되살린다.
+      // baseline(=원본 본문의 재직렬화본)을 "편집 안 됨"의 기준으로 삼는다.
+      if (baseline.current !== null) {
+        const originalBody = splitFrontmatter(original.current).body;
+        markdown = preserveFormatting(originalBody, baseline.current, markdown);
       }
       if (keepNlRef.current && !markdown.endsWith("\n")) markdown += "\n";
       updateContent(path, joinFrontmatter(fmRef.current, markdown));
