@@ -46,6 +46,7 @@ describe("StartScreen i18n", () => {
     expect(host.textContent).toContain("폴더 열기");
     expect(host.textContent).toContain("경로로 열기");
     expect(host.textContent).toContain("최근 폴더");
+    expect(host.textContent).toContain("시작하기");
 
     act(() => {
       useSettings.setState({
@@ -59,5 +60,41 @@ describe("StartScreen i18n", () => {
     expect(host.textContent).toContain("Open Folder");
     expect(host.textContent).toContain("Open by Path");
     expect(host.textContent).toContain("Recent Folders");
+    expect(host.textContent).toContain("Getting Started");
+  });
+
+  it("shows the brand tagline in both languages", () => {
+    render();
+    expect(host.textContent).toContain("AI-native notes, plain Markdown");
+  });
+
+  it("marks remote recents with an SSH badge and scheme-less path", () => {
+    act(() => {
+      useWorkspace.setState({
+        recent: ["/tmp/notes", "ssh://me@host/srv/plans"],
+      });
+    });
+    render();
+
+    expect(host.textContent).toContain("SSH");
+    expect(host.textContent).toContain("me@host/srv/plans");
+    // 로컬 항목은 배지 없이 경로 그대로
+    expect(host.textContent).toContain("/tmp/notes");
+    expect(host.querySelectorAll(".recent-badge")).toHaveLength(1);
+  });
+
+  it("clears the recent list via 모두 지우기", async () => {
+    render();
+    expect(host.textContent).toContain("/tmp/notes");
+
+    const clear = host.querySelector<HTMLButtonElement>(".start-clear-recent");
+    expect(clear).not.toBeNull();
+    await act(async () => {
+      clear!.click();
+    });
+
+    expect(useWorkspace.getState().recent).toEqual([]);
+    expect(host.querySelector(".start-clear-recent")).toBeNull();
+    expect(host.textContent).not.toContain("/tmp/notes");
   });
 });

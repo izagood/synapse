@@ -75,7 +75,8 @@ export default function App() {
       {root ? <WorkspaceView /> : <StartScreen />}
       <SettingsModal />
       <ShortcutCheatsheet />
-      <UpdateToast />
+      {/* 시작 화면에서는 StartUpdateBar(카드 푸터)가 업데이트를 알린다 */}
+      {root && <UpdateToast />}
     </>
   );
 }

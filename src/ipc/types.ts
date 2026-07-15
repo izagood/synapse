@@ -379,6 +379,8 @@ export interface SynapseIpc {
   recentWorkspaces(): Promise<string[]>;
   /** 폴더 열람 기록, 갱신된 최근 목록 반환 */
   recordWorkspaceOpened(path: string): Promise<string[]>;
+  /** 최근 연 폴더 목록을 전부 비운다 (시작 화면 "모두 지우기") */
+  clearRecentWorkspaces(): Promise<void>;
   /** 앱 재시작 시 복원할 워크스페이스 (명시적으로 닫았거나 폴더가 없으면 null) */
   getLastWorkspace(): Promise<string | null>;
   clearLastWorkspace(): Promise<void>;

@@ -504,6 +504,9 @@ export const mockIpc: SynapseIpc = {
     session.lastWorkspace = path;
     return [...recent];
   },
+  async clearRecentWorkspaces() {
+    recent = [];
+  },
   async getLastWorkspace() {
     return session.lastWorkspace;
   },

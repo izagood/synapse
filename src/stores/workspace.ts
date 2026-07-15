@@ -103,6 +103,8 @@ interface WorkspaceState {
   ): Promise<{ home: string } | RemoteConnectError>;
   refreshTree(): Promise<void>;
   closeWorkspace(): void;
+  /** 시작 화면의 최근 폴더 목록을 전부 비운다 */
+  clearRecent(): Promise<void>;
 
   /**
    * 파일을 탭으로 연다. `opts.focusEditor`가 false면 에디터가 자동 포커스를
@@ -299,6 +301,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (!root) return;
     try {
       set({ tree: await ipc.listWorkspace(root) });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  async clearRecent() {
+    try {
+      await ipc.clearRecentWorkspaces();
+      set({ recent: [] });
     } catch (e) {
       set({ error: String(e) });
     }

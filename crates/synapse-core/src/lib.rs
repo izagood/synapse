@@ -46,7 +46,7 @@ pub use mcp_provision::{
 pub use merge::{merge_agent_edit, merge_three_way, save_merge};
 pub use migrate::remove_collab_dir;
 pub use paths::{ensure_within, legacy_pdf_draw_sidecar, pdf_draw_sidecar_path, rel_path_within};
-pub use registry::{recent_workspaces, record_opened};
+pub use registry::{clear_recent, recent_workspaces, record_opened};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};
 pub use search::{search_workspace, SearchHit, SearchMatch, SearchOptions};
 pub use sftp::SftpBackend;

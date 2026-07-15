@@ -89,6 +89,7 @@ const tauriIpc: SynapseIpc = {
   recentWorkspaces: () => invoke<string[]>("recent_workspaces"),
   recordWorkspaceOpened: (path) =>
     invoke<string[]>("record_workspace_opened", { path }),
+  clearRecentWorkspaces: () => invoke<void>("clear_recent_workspaces"),
   getLastWorkspace: () => invoke<string | null>("get_last_workspace"),
   clearLastWorkspace: () => invoke<void>("clear_last_workspace"),
   async getWorkspaceState(root) {

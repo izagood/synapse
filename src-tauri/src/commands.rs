@@ -298,6 +298,11 @@ pub fn record_workspace_opened(path: String) -> Result<Vec<String>, String> {
     synapse_core::record_opened(&config_dir()?, Path::new(&path)).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn clear_recent_workspaces() -> Result<(), String> {
+    synapse_core::clear_recent(&config_dir()?).map_err(|e| e.to_string())
+}
+
 /// 뷰어용 HTML을 앱 캐시에 쓰고 asset protocol로 접근 가능하게 한다 (FR-3).
 /// 사용자 폴더를 오염시키지 않기 위해 워크스페이스가 아닌 설정 캐시 디렉토리를 쓴다.
 #[tauri::command]

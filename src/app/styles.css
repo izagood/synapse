@@ -146,22 +146,36 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--bg-panel);
+  padding: 24px;
 }
 
 .start-card {
-  width: min(480px, 90vw);
-  text-align: center;
+  width: min(880px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 44px 48px 32px;
+  display: flex;
+  flex-direction: column;
+}
+
+.start-header {
+  margin-bottom: 36px;
 }
 
 .logo {
-  font-size: 2.6rem;
+  font-size: 2.4rem;
   margin: 0;
   letter-spacing: -0.02em;
 }
 
 .tagline {
   color: var(--fg-dim);
-  margin: 8px 0 32px;
+  margin: 6px 0 0;
+  font-size: 1.05rem;
 }
 
 .primary-btn {
@@ -172,54 +186,92 @@ select {
   font-weight: 600;
 }
 
-.recent {
-  margin-top: 36px;
-  text-align: left;
+.start-columns {
+  display: grid;
+  grid-template-columns: 5fr 6fr;
+  gap: 48px;
+  align-items: start;
 }
 
-.recent h2,
-.clone-form h2,
-.open-path h2 {
-  font-size: 0.8rem;
-  color: var(--fg-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+@media (max-width: 720px) {
+  .start-columns {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
 }
 
-.recent ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.recent-item {
+.start-col {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.start-section-title,
+.open-path h2 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg-dim);
+  margin: 0 0 4px;
+}
+
+/* ---- 시작하기 액션 버튼 (폴더 열기 / SSH / GitHub 클론) ---- */
+.start-action {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   width: 100%;
-  padding: 8px 12px;
-  border-radius: 6px;
-  text-align: left;
-}
-
-.recent-item:hover {
-  background: var(--bg-hover);
-}
-
-.recent-name {
+  padding: 12px 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
   font-weight: 600;
 }
 
-.recent-path {
-  font-size: 0.82rem;
-  color: var(--fg-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.start-action:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
 
-.clone-form,
+.start-action-icon {
+  flex: none;
+}
+
+/* 대비가 강한 중립색 채움 — 모든 테마에서 전경/배경을 뒤집어 쓴다 */
+.start-action-primary {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
+}
+
+.start-action-primary:hover:not(:disabled) {
+  background: var(--fg);
+  opacity: 0.88;
+}
+
+/* ChevronIcon은 오른쪽(▸)이 기본 방향 — 접힘은 아래, 펼침은 위를 가리킨다 */
+.start-action-chevron {
+  position: absolute;
+  right: 14px;
+  color: var(--fg-dim);
+  transform: rotate(90deg);
+}
+
+.start-action-chevron.is-open {
+  transform: rotate(-90deg);
+}
+
+/* ---- 접이식 섹션 (SSH / GitHub 클론) ---- */
+.start-collapsible {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .open-path {
-  margin-top: 28px;
+  margin-top: 18px;
   text-align: left;
 }
 
@@ -253,24 +305,165 @@ select {
   background: var(--bg-hover);
 }
 
-/* ===================== 원격 연결 (SSH) ===================== */
-.remote-open-btn {
-  margin-left: 8px;
-  padding: 10px 28px;
-  border-radius: 8px;
+.start-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
   background: var(--bg-panel);
-  color: var(--fg);
-  font-weight: 600;
 }
 
-.remote-open-btn:hover:not(:disabled) {
+.start-panel input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 8px 10px;
+}
+
+.start-panel .clone-row input {
+  background: var(--bg);
+}
+
+/* 패널 안의 기본 동작 버튼(연결 등)도 시작 화면의 중립 강조색을 따른다 */
+.start-panel .primary-btn {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.start-panel .clone-row button {
+  background: var(--bg);
+}
+
+.start-panel .clone-row button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
-.remote-connect {
-  margin-top: 28px;
+/* ---- 최근 폴더 ---- */
+.start-recent-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.start-clear-recent {
+  font-size: 0.82rem;
+  color: var(--accent);
+}
+
+.start-clear-recent:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recent-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 8px;
+  border-radius: 8px;
   text-align: left;
+}
+
+.recent-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.recent-icon {
+  flex: none;
+  color: var(--fg-dim);
+}
+
+.recent-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.recent-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-name {
+  font-weight: 600;
+}
+
+.recent-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.recent-path {
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start-recent-empty {
+  color: var(--fg-faint);
+  font-size: 0.9rem;
+  margin: 8px 0 0;
+}
+
+/* ---- 카드 하단 업데이트 알림 바 ---- */
+.start-update-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 36px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.start-update-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.start-update-install {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.start-update-install:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.start-update-later {
+  color: var(--fg-dim);
+}
+
+.start-update-later:hover:not(:disabled) {
+  color: var(--fg);
+}
+
+/* ===================== 원격 연결 (SSH) ===================== */
+/* 원격 디렉터리 브라우저(RemoteBrowser)의 컬럼 래퍼 — start-panel 안에 얹힌다 */
+.remote-connect {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -278,19 +471,9 @@ select {
 
 .remote-connect h2 {
   font-size: 0.8rem;
+  font-weight: 600;
   color: var(--fg-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin: 0 0 4px;
-}
-
-.remote-connect input {
-  width: 100%;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--fg);
-  padding: 8px 10px;
+  margin: 0;
 }
 
 .remote-command {
