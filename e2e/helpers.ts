@@ -1,11 +1,11 @@
 import { expect, type Page } from "@playwright/test";
 
 // mock 워크스페이스를 열고 파일 트리가 보일 때까지 기다린다. StartScreen 의
-// 기본 버튼(.primary-btn)은 mock 의 pickFolder() 가 MOCK_ROOT 를 돌려줘 곧장
-// 워크스페이스를 연다. (언어와 무관하게 클래스 셀렉터로 누른다.)
+// 기본 버튼(.start-action-primary)은 mock 의 pickFolder() 가 MOCK_ROOT 를 돌려줘
+// 곧장 워크스페이스를 연다. (언어와 무관하게 클래스 셀렉터로 누른다.)
 export async function openMockWorkspace(page: Page): Promise<void> {
   await page.goto("/");
-  await page.locator(".primary-btn").first().click();
+  await page.locator(".start-action-primary").first().click();
   await expect(page.locator(".tree-row").first()).toBeVisible();
 }
 

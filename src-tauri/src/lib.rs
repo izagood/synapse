@@ -71,6 +71,7 @@ pub fn run() {
             commands::retrieve_notes,
             commands::recent_workspaces,
             commands::record_workspace_opened,
+            commands::clear_recent_workspaces,
             commands::get_last_workspace,
             commands::clear_last_workspace,
             commands::get_workspace_state,

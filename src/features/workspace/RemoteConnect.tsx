@@ -3,6 +3,7 @@ import { useWorkspace } from "../../stores/workspace";
 import { useT } from "../../i18n";
 import type { RemoteConnectError } from "../../ipc/types";
 import { RemoteBrowser } from "./RemoteBrowser";
+import { ChevronIcon, ServerIcon } from "../../shared/Icons";
 
 /**
  * 원격 SSH 폴더 열기 (시작 화면).
@@ -62,86 +63,92 @@ export function RemoteConnect() {
     setOpen(false);
   };
 
-  if (!open) {
-    return (
-      <button
-        className="remote-open-btn"
-        onClick={() => setOpen(true)}
-        disabled={loading}
-      >
-        {t("start.openRemote")}
-      </button>
-    );
-  }
-
-  // 접속됨 → 디렉터리 브라우저로 폴더 선택.
-  if (homeUri) {
-    return <RemoteBrowser homeUri={homeUri} onCancel={reset} />;
-  }
-
+  // 접이식 섹션: 닫힘 = 액션 버튼 한 줄, 열림 = 버튼 아래 연결 폼
+  // (접속 성공 후에는 디렉터리 브라우저)이 펼쳐진다.
   return (
-    <div className="remote-connect">
-      <h2>{t("start.remote.title")}</h2>
-      <input
-        className="remote-command"
-        value={command}
-        onChange={(e) => setCommand(e.target.value)}
-        placeholder={t("start.remote.commandPlaceholder")}
-        spellCheck={false}
-        autoCapitalize="off"
-        autoCorrect="off"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && canConnect) void connect(false);
-        }}
-      />
-      <p className="remote-command-hint">{t("start.remote.commandHint")}</p>
+    <div className="start-collapsible">
+      <button
+        className="start-action"
+        onClick={() => (open ? reset() : setOpen(true))}
+        disabled={loading}
+        aria-expanded={open}
+      >
+        <ServerIcon className="start-action-icon" />
+        <span className="start-action-label">{t("start.openRemote")}</span>
+        <ChevronIcon className={`start-action-chevron${open ? " is-open" : ""}`} />
+      </button>
 
-      {needsPassword && (
-        <>
-          <p className="remote-command-hint">{t("start.remote.passwordNeeded")}</p>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={t("start.remote.password")}
-          />
-          <input
-            type="password"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-            placeholder={t("start.remote.passphrase")}
-          />
-        </>
-      )}
+      {open && (
+        <div className="start-panel">
+          {homeUri ? (
+            // 접속됨 → 디렉터리 브라우저로 폴더 선택.
+            <RemoteBrowser homeUri={homeUri} onCancel={reset} />
+          ) : (
+            <>
+              <input
+                className="remote-command"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                placeholder={t("start.remote.commandPlaceholder")}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && canConnect) void connect(false);
+                }}
+              />
+              <p className="remote-command-hint">{t("start.remote.commandHint")}</p>
 
-      {pending?.kind === "unknownHostKey" && (
-        <div className="host-key-prompt">
-          <p>{t("start.remote.unknownHostKey")}</p>
-          <code>{pending.fingerprint}</code>
-          <button onClick={() => void connect(true)} disabled={loading}>
-            {t("start.remote.trustAndConnect")}
-          </button>
+              {needsPassword && (
+                <>
+                  <p className="remote-command-hint">{t("start.remote.passwordNeeded")}</p>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={t("start.remote.password")}
+                  />
+                  <input
+                    type="password"
+                    value={passphrase}
+                    onChange={(e) => setPassphrase(e.target.value)}
+                    placeholder={t("start.remote.passphrase")}
+                  />
+                </>
+              )}
+
+              {pending?.kind === "unknownHostKey" && (
+                <div className="host-key-prompt">
+                  <p>{t("start.remote.unknownHostKey")}</p>
+                  <code>{pending.fingerprint}</code>
+                  <button onClick={() => void connect(true)} disabled={loading}>
+                    {t("start.remote.trustAndConnect")}
+                  </button>
+                </div>
+              )}
+              {pending?.kind === "hostKeyMismatch" && (
+                <p className="error">
+                  {t("start.remote.hostKeyMismatch", { fingerprint: pending.fingerprint })}
+                </p>
+              )}
+              {error && <p className="error">{error}</p>}
+
+              <div className="remote-actions">
+                <button
+                  className="primary-btn"
+                  onClick={() => void connect(false)}
+                  disabled={!canConnect}
+                >
+                  {loading ? t("start.remote.connecting") : t("start.remote.connect")}
+                </button>
+                <button onClick={reset} disabled={loading}>
+                  {t("start.remote.cancel")}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
-      {pending?.kind === "hostKeyMismatch" && (
-        <p className="error">
-          {t("start.remote.hostKeyMismatch", { fingerprint: pending.fingerprint })}
-        </p>
-      )}
-      {error && <p className="error">{error}</p>}
-
-      <div className="remote-actions">
-        <button
-          className="primary-btn"
-          onClick={() => void connect(false)}
-          disabled={!canConnect}
-        >
-          {loading ? t("start.remote.connecting") : t("start.remote.connect")}
-        </button>
-        <button onClick={reset} disabled={loading}>
-          {t("start.remote.cancel")}
-        </button>
-      </div>
     </div>
   );
 }

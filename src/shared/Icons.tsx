@@ -227,6 +227,16 @@ export const StopIcon = (p: IconProps) => (
   </Svg>
 );
 
+// 원격(SSH) 워크스페이스용 서버 아이콘
+export const ServerIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="2.5" width="12" height="4.6" rx="1" />
+    <rect x="2" y="8.9" width="12" height="4.6" rx="1" />
+    <circle cx="4.6" cy="4.8" r="0.5" fill="currentColor" stroke="none" />
+    <circle cx="4.6" cy="11.2" r="0.5" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 export const GitHubIcon = (p: IconProps) => (
   <Svg {...p}>
     <path
