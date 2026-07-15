@@ -1,3 +1,4 @@
+pub mod autolink;
 pub mod bridge;
 pub mod config_sync;
 pub mod discovery;
@@ -26,6 +27,7 @@ pub mod vfs;
 pub mod walk;
 pub mod watch;
 
+pub use autolink::{rewrite_auto_links, RewriteOutcome, AUTO_LINKS_START, AUTO_LINKS_END};
 pub use bridge::{generate_token, token_matches, LiveState, OpenTab};
 pub use config_sync::ConfigSyncState;
 pub use discovery::{find_for_cwd, remove_by_token, upsert, BridgeEntry, BridgeMap};
