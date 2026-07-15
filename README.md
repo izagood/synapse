@@ -46,10 +46,8 @@ Markdown tools.
 - Let AI coding agents running in either terminal connect back to Synapse
   through an MCP server that discovers the running app via a local
   `bridge.json` file — no manual port/token setup required.
-  - `link_candidates` — Compute note-to-note link suggestions using heuristics
-    (title mentions, keyword overlap, common neighbors in the link graph).
-  - `apply_links` — Apply confirmed links to each note's auto-links block as
-    wikilinks (declarative, idempotent, document body untouched).
+- Compute note-to-note link suggestions and apply them declaratively to the
+  auto-links block (document body untouched, idempotent).
 
 ## Screenshots
 
