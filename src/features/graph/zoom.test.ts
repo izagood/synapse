@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyZoom, wheelZoomFactor } from "./zoom";
+import { applyZoom, gestureZoomFactor, wheelZoomFactor } from "./zoom";
 
 describe("wheelZoomFactor", () => {
   it("트랙패드 미세 델타(±3px)에는 완만한 배율을 준다", () => {
@@ -40,6 +40,30 @@ describe("wheelZoomFactor", () => {
     const zoomIn = wheelZoomFactor({ deltaY: -30, deltaMode: 0, ctrlKey: false });
     const zoomOut = wheelZoomFactor({ deltaY: 30, deltaMode: 0, ctrlKey: false });
     expect(zoomIn * zoomOut).toBeCloseTo(1, 10);
+  });
+});
+
+describe("gestureZoomFactor", () => {
+  it("누적 scale을 직전 scale과의 비(증분 배율)로 바꾼다", () => {
+    expect(gestureZoomFactor(2, 1)).toBe(2);
+    expect(gestureZoomFactor(1.5, 2)).toBe(0.75);
+  });
+
+  it("증분을 연쇄 적용하면 최종 누적 scale과 일치한다", () => {
+    // 실측 WKWebView 핀치 시퀀스 형태: gesturestart scale≈1 → 누적 증가
+    const seq = [1.0009, 1.028, 1.106, 1.284, 1.541, 2.17];
+    let k = 1;
+    for (let i = 1; i < seq.length; i++) {
+      k *= gestureZoomFactor(seq[i], seq[i - 1]);
+    }
+    expect(k).toBeCloseTo(2.17 / 1.0009, 9);
+  });
+
+  it("유효하지 않은 scale(0·음수·NaN)은 1(변화 없음)을 준다", () => {
+    expect(gestureZoomFactor(0, 1)).toBe(1);
+    expect(gestureZoomFactor(1.2, 0)).toBe(1);
+    expect(gestureZoomFactor(-1, 1)).toBe(1);
+    expect(gestureZoomFactor(Number.NaN, 1)).toBe(1);
   });
 });
 
