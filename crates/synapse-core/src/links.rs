@@ -321,14 +321,73 @@ fn stem(path: &Path) -> Option<String> {
     path.file_stem().map(|s| s.to_string_lossy().into_owned())
 }
 
-/// 링크 그래프의 노드 한 개(= 워크스페이스의 `.md` 노트 하나). (FR-6.2)
+/// 본문의 인라인 해시태그를 추출한다 (소문자 정규화·파일 내 중복 제거·등장 순).
+///
+/// 규칙 (옵시디언 태그 문법 근사):
+/// - `#` 뒤에 태그 문자(유니코드 글자·숫자·`-`·`_`·`/`)가 1자 이상.
+/// - `#` 앞은 행 시작·공백·여는 괄호류여야 한다 — 헤딩(`# 제목`)은 뒤가
+///   공백이라, URL 조각(`…/#anchor`)은 앞이 `/`라 자연히 제외된다.
+/// - 숫자로만 된 토큰(`#123`)은 이슈 번호로 보고 제외한다.
+/// - 코드 펜스(``` / ~~~) 내부는 건너뛴다. 인라인 코드 내부는 허용(알려진 한계).
+pub fn extract_tags(content: &str) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut in_fence = false;
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        let chars: Vec<char> = line.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] != '#' {
+                i += 1;
+                continue;
+            }
+            let boundary_ok =
+                i == 0 || chars[i - 1].is_whitespace() || matches!(chars[i - 1], '(' | '[' | '{');
+            let mut j = i + 1;
+            while j < chars.len() && is_tag_char(chars[j]) {
+                j += 1;
+            }
+            if boundary_ok && j > i + 1 {
+                let tag: String = chars[i + 1..j].iter().collect::<String>().to_lowercase();
+                if !tag.chars().all(|c| c.is_ascii_digit()) && seen.insert(tag.clone()) {
+                    tags.push(tag);
+                }
+            }
+            i = j.max(i + 1);
+        }
+    }
+    tags
+}
+
+fn is_tag_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '-' | '_' | '/')
+}
+
+/// 그래프 노드 종류 — 노트 파일이거나, 본문에서 추출한 해시태그 허브.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeKind {
+    Note,
+    Tag,
+}
+
+/// 링크 그래프의 노드 한 개 — `.md` 노트이거나 태그 허브. (FR-6.2)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphNode {
-    /// 노트의 절대 경로 (안정적 식별자)
+    /// 노트 절대 경로, 태그 노드는 "#<tag>" (안정적 식별자)
     pub path: String,
-    /// 표시용 파일명
+    /// 표시용 이름 (태그 노드는 "#<tag>")
     pub name: String,
+    pub kind: NodeKind,
 }
 
 /// 링크 그래프의 방향성 엣지 하나: `source` 노트가 `target` 노트를 링크한다.
@@ -379,6 +438,7 @@ struct ScanEntry {
     mtime: std::time::SystemTime,
     len: u64,
     links: Vec<OutLink>,
+    tags: Vec<String>,
 }
 
 impl LinkScanCache {
@@ -406,7 +466,7 @@ pub fn build_graph_cached(root: &Path, cache: &mut LinkScanCache) -> io::Result<
     // 사라진 파일의 캐시 항목 정리 (무한 성장 방지)
     cache.entries.retain(|p, _| node_set.contains(p));
 
-    let nodes: Vec<GraphNode> = md_files
+    let mut nodes: Vec<GraphNode> = md_files
         .iter()
         .map(|p| GraphNode {
             path: p.display().to_string(),
@@ -414,6 +474,7 @@ pub fn build_graph_cached(root: &Path, cache: &mut LinkScanCache) -> io::Result<
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
+            kind: NodeKind::Note,
         })
         .collect();
 
@@ -435,12 +496,19 @@ pub fn build_graph_cached(root: &Path, cache: &mut LinkScanCache) -> io::Result<
                 Err(_) => continue,
             };
             let links: Vec<OutLink> = extract_links(&body).into_iter().map(|(l, _)| l).collect();
+            let tags = extract_tags(&body);
             // mtime을 못 읽는 파일도 링크는 처리한다 — epoch 키는 다음 호출의
             // Some(t) 비교와 절대 일치하지 않으므로 항상 재파싱된다.
             let mtime = mtime.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            cache
-                .entries
-                .insert(source.clone(), ScanEntry { mtime, len, links });
+            cache.entries.insert(
+                source.clone(),
+                ScanEntry {
+                    mtime,
+                    len,
+                    links,
+                    tags,
+                },
+            );
         }
         let links = &cache.entries[source].links;
 
@@ -462,6 +530,30 @@ pub fn build_graph_cached(root: &Path, cache: &mut LinkScanCache) -> io::Result<
             }
         }
     }
+    // 태그 허브: 각 노트의 인라인 태그를 노드로 승격하고 노트→태그 엣지를 잇는다.
+    // extract_tags가 파일 내 중복을 제거하므로 (source, tag) 엣지는 이미 유일하다.
+    let mut tag_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for source in &md_files {
+        let Some(entry) = cache.entries.get(source) else {
+            continue;
+        };
+        for tag in &entry.tags {
+            let id = format!("#{tag}");
+            tag_ids.insert(id.clone());
+            edges.push(GraphEdge {
+                source: source.display().to_string(),
+                target: id,
+            });
+        }
+    }
+    for id in tag_ids {
+        nodes.push(GraphNode {
+            path: id.clone(),
+            name: id,
+            kind: NodeKind::Tag,
+        });
+    }
+
     edges.sort_by(|a, b| (&a.source, &a.target).cmp(&(&b.source, &b.target)));
 
     Ok(LinkGraph { nodes, edges })
@@ -758,6 +850,7 @@ mod tests {
             nodes: vec![GraphNode {
                 path: "/v/a.md".to_string(),
                 name: "a.md".to_string(),
+                kind: NodeKind::Note,
             }],
             edges: vec![GraphEdge {
                 source: "/v/a.md".to_string(),
@@ -852,5 +945,35 @@ mod tests {
         write(&root.join("b.md"), "새 대상");
         let after = build_graph_cached(root, &mut cache).unwrap();
         assert_eq!(after.edges.len(), 1);
+    }
+
+    #[test]
+    fn extract_tags_inline() {
+        let body = "노트 정리 #AI #machine-learning 참고\n\
+                    # 마크다운 헤딩은 태그가 아니다\n\
+                    이슈 #123 은 숫자라 제외\n\
+                    ```\n#펜스-내부-제외\n```\n\
+                    괄호(#nested) http://x.com/#anchor #AI";
+        assert_eq!(extract_tags(body), vec!["ai", "machine-learning", "nested"]);
+    }
+
+    #[test]
+    fn build_graph_promotes_tags_to_nodes() {
+        let tmp = tempfile::tempdir().unwrap();
+        write(&tmp.path().join("a.md"), "#AI 관련 [[b]]");
+        write(&tmp.path().join("b.md"), "#ai 후속");
+        let g = build_graph(tmp.path()).unwrap();
+
+        let tag: Vec<_> = g.nodes.iter().filter(|n| n.kind == NodeKind::Tag).collect();
+        assert_eq!(tag.len(), 1, "#AI/#ai 는 같은 태그 노드 하나");
+        assert_eq!(tag[0].path, "#ai");
+        assert_eq!(tag[0].name, "#ai");
+        assert!(g
+            .nodes
+            .iter()
+            .all(|n| n.kind == NodeKind::Tag || n.kind == NodeKind::Note));
+        // 노트→태그 엣지 2개 (a→#ai, b→#ai)
+        let tag_edges: Vec<_> = g.edges.iter().filter(|e| e.target == "#ai").collect();
+        assert_eq!(tag_edges.len(), 2);
     }
 }
