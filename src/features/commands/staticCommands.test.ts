@@ -46,6 +46,7 @@ describe("정적 커맨드", () => {
       "file.newDrawing",
       "file.newDiagram",
       "view.toggleTerminal",
+      "view.toggleBacklinks",
       "window.new",
       "settings.toggle",
       "help.cheatsheet",
@@ -83,6 +84,19 @@ describe("정적 커맨드", () => {
   it("탭이 없으면 tab.close는 disabled (OS 창 닫기에 맡김)", async () => {
     await useWorkspace.getState().closeAllTabs();
     expect(getCommand("tab.close")!.enabled!()).toBe(false);
+  });
+
+  it("view.toggleBacklinks는 editor.showBacklinks 설정을 뒤집는다", async () => {
+    const { useSettings } = await import("../../stores/settings");
+    const { DEFAULT_SETTINGS } = await import("../../ipc/types");
+    useSettings.setState({ settings: structuredClone(DEFAULT_SETTINGS) });
+    expect(useSettings.getState().settings.editor.showBacklinks).toBe(false);
+
+    await getCommand("view.toggleBacklinks")!.run();
+    expect(useSettings.getState().settings.editor.showBacklinks).toBe(true);
+
+    await getCommand("view.toggleBacklinks")!.run();
+    expect(useSettings.getState().settings.editor.showBacklinks).toBe(false);
   });
 
   it("tab.reopen은 닫은 탭이 없으면 disabled, 있으면 복원한다", async () => {
