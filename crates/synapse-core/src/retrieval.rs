@@ -81,7 +81,7 @@ impl Default for RetrievalOptions {
 }
 
 /// 영어 불용어(소문자). 한국어 조사는 토큰 분리상 따로 떼기 어려워 길이로만 거른다.
-const STOPWORDS: &[&str] = &[
+pub(crate) const STOPWORDS: &[&str] = &[
     "the", "and", "for", "are", "was", "were", "with", "that", "this", "from", "what", "which",
     "how", "why", "who", "when", "where", "about", "into", "your", "you", "our", "can", "could",
     "would", "should", "does", "did", "has", "have", "had", "will", "shall", "not", "but", "all",

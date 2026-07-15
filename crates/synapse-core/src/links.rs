@@ -283,7 +283,7 @@ fn hex_val(b: u8) -> Option<u8> {
 
 /// 워크스페이스의 모든 `.md` 파일 절대 경로를 정렬된 순서로 모은다
 /// (순회 정책은 walk 모듈 공통: 숨김·심볼릭 링크 제외, 읽기 실패 건너뜀).
-fn collect_markdown(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn collect_markdown(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     crate::walk::walk_files(dir, &mut |path, _name| {
         if is_markdown(path) {
@@ -296,7 +296,7 @@ fn collect_markdown(dir: &Path) -> Vec<PathBuf> {
 
 /// 위키링크 해석용 인덱스: basename(소문자) → 절대 경로. 충돌 시 정렬 순서상
 /// 먼저 만난 파일이 이긴다(결정적).
-fn stem_index(md_files: &[PathBuf]) -> HashMap<String, PathBuf> {
+pub(crate) fn stem_index(md_files: &[PathBuf]) -> HashMap<String, PathBuf> {
     let mut by_stem: HashMap<String, PathBuf> = HashMap::new();
     for f in md_files {
         if let Some(s) = stem(f) {
@@ -306,7 +306,7 @@ fn stem_index(md_files: &[PathBuf]) -> HashMap<String, PathBuf> {
     by_stem
 }
 
-fn is_markdown(path: &Path) -> bool {
+pub(crate) fn is_markdown(path: &Path) -> bool {
     matches!(
         path.extension()
             .and_then(|e| e.to_str())
@@ -317,7 +317,7 @@ fn is_markdown(path: &Path) -> bool {
 }
 
 /// 확장자를 뗀 파일명(basename) — 위키링크 해석용.
-fn stem(path: &Path) -> Option<String> {
+pub(crate) fn stem(path: &Path) -> Option<String> {
     path.file_stem().map(|s| s.to_string_lossy().into_owned())
 }
 

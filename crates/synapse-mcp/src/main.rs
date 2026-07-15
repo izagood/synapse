@@ -18,10 +18,13 @@
 //! 직접 수행한다(앱은 라이브 상태만 제공).
 
 use std::io::{BufRead, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
-use synapse_core::{search_workspace, Backend, LiveState, LocalBackend, SearchOptions};
+use synapse_core::{
+    apply_auto_links, link_candidates, search_workspace, ApplyLink, Backend, LiveState,
+    LocalBackend, RejectedLink, SearchOptions,
+};
 
 /// 브리지 접속 컨텍스트(환경변수 우선, 없으면 bridge.json에서 cwd로 발견해 1회 읽음).
 struct Ctx {
@@ -229,6 +232,47 @@ fn tool_defs() -> Value {
                 "required": ["path", "content"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "link_candidates",
+            "description": "워크스페이스 노트 간 자동 연결 후보를 휴리스틱으로 계산한다(제목 언급·키워드 중복·공통 이웃). 결과는 JSON 배열: {from,to,score,reasons,existing}. existing=true는 이미 auto-links 블록에 있는 연결이며, apply_links는 파일별 전량 교체이므로 유지할 후보도 최종 목록에 포함해야 한다.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "이 노트들(절대 경로)이 from인 후보만 계산(증분). 생략하면 전체." },
+                    "limit": { "type": "number", "description": "최대 후보 수(기본 50)" }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "apply_links",
+            "description": "확정한 노트 연결을 각 from 노트 하단의 auto-links 마커 블록에 wikilink로 기록한다. 선언적: 전달한 links가 각 from 파일 블록의 전체 내용이 된다. 블록을 비우고 싶은(links에 항목이 없는) from 노트는 links에 빈 목록을 넣을 수 없으므로 clear에 그 절대 경로를 넣는다(= 블록 제거). 같은 from이 links와 clear 양쪽에 있으면 links가 우선한다. 마커 밖 본문은 절대 바꾸지 않으며 사용자 편집과 안전하게 병합된다.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "links": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "from": { "type": "string", "description": "링크를 담을 노트의 절대 경로" },
+                                "to": { "type": "string", "description": "링크 대상 노트의 절대 경로" },
+                                "label": { "type": "string", "description": "선택: 연결 이유 한 줄(— 뒤에 표시)" }
+                            },
+                            "required": ["from", "to"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "clear": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "auto-links 블록을 비울 노트의 절대 경로 목록"
+                    }
+                },
+                "required": ["links"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -274,6 +318,37 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
                 })
             }
         }
+        "link_candidates" => ctx
+            .fetch_live()
+            .and_then(|live| link_candidates_tool(&live, &args)),
+        "apply_links" => ctx.fetch_live().and_then(|live| {
+            let plans = plan_apply_links(&live, &args)?;
+
+            // 파일별 쓰기 결과 누적: (PlannedEdit, Result)
+            // 루프에서 실패해도 다음 파일을 계속 처리하는 best-effort 의미론.
+            let mut results: Vec<(PlannedEdit, Result<(), String>)> = Vec::new();
+
+            for p in plans {
+                let edit_result = if let Some(err) = p.plan_error.clone() {
+                    // plan 단계(read_note/apply_auto_links) 자체가 실패한 파일 —
+                    // 쓰기를 시도하지 않고 바로 실패로 기록한다.
+                    Err(err)
+                } else if p.new_content != p.base {
+                    // 변경이 있으면 post_edit 시도, 실패해도 Err로 기록하고 계속.
+                    match ctx.post_edit(&p.path, &p.new_content, &p.base) {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(e),
+                    }
+                } else {
+                    // 변경 없음
+                    Ok(())
+                };
+                results.push((p, edit_result));
+            }
+
+            let formatted = format_apply_result(&results);
+            Ok(formatted)
+        }),
         other => Err(format!("알 수 없는 도구: {other}")),
     };
 
@@ -353,6 +428,201 @@ fn search_notes(live: &LiveState, query: &str) -> Result<String, String> {
         }
     }
     Ok(out)
+}
+
+/// 워크스페이스 루트를 얻는다(원격 제외) — 기존 read_note/search_notes와 동일 규약.
+fn local_root(live: &LiveState) -> Result<String, String> {
+    let root = live
+        .root
+        .as_deref()
+        .ok_or_else(|| "열린 워크스페이스가 없습니다.".to_string())?;
+    if root.starts_with("ssh://") {
+        return Err("원격(SSH) 워크스페이스는 아직 MCP에서 지원하지 않습니다.".to_string());
+    }
+    Ok(root.to_string())
+}
+
+fn link_candidates_tool(live: &LiveState, args: &Value) -> Result<String, String> {
+    let root = local_root(live)?;
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+    let paths: Vec<PathBuf> = args
+        .get("paths")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    let cands = link_candidates(Path::new(&root), &paths, limit)
+        .map_err(|e| format!("후보 계산 실패: {e}"))?;
+    serde_json::to_string_pretty(&cands).map_err(|e| format!("직렬화 실패: {e}"))
+}
+
+/// apply_links 한 파일 분량의 쓰기 계획(테스트 가능한 순수 계획 단계).
+struct PlannedEdit {
+    path: String,
+    base: String,
+    new_content: String,
+    applied: usize,
+    rejected: Vec<RejectedLink>,
+    warnings: Vec<String>,
+    /// 이 파일의 plan 단계(read_note/apply_auto_links) 자체가 실패한 사유.
+    /// Some이면 이 파일은 쓰기를 시도하지 않고 그대로 실패 항목으로 보고된다.
+    /// (요청 자체가 잘못된 경우(links 배열 부재/형식 오류)는 여기 담기지
+    /// 않고 plan_apply_links가 즉시 Err를 반환한다 — 배치 전체 요청 오류.)
+    plan_error: Option<String>,
+}
+
+/// links 인자를 from별로 묶어(입력 순서 보존) 각 파일의 재작성 내용을 계산한다.
+/// 디스크에 쓰지 않는다 — 쓰기는 호출자가 post_edit으로 수행.
+///
+/// from별 read_note/apply_auto_links 실패는 배치 전체를 중단시키지 않고
+/// 해당 파일의 `plan_error`로 격하한다(best-effort). 반면 `links` 인자 자체가
+/// 없거나 각 항목 형식이 틀린 요청 레벨 오류는 그대로 Err로 전파한다.
+fn plan_apply_links(live: &LiveState, args: &Value) -> Result<Vec<PlannedEdit>, String> {
+    let root = local_root(live)?;
+    let links = args
+        .get("links")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "links 배열 인자가 필요합니다".to_string())?;
+
+    // from별 그룹(입력 순서 보존)
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: std::collections::HashMap<String, Vec<ApplyLink>> =
+        std::collections::HashMap::new();
+    for l in links {
+        let from = l
+            .get("from")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "각 링크에 from이 필요합니다".to_string())?
+            .to_string();
+        let link: ApplyLink =
+            serde_json::from_value(l.clone()).map_err(|e| format!("링크 항목 해석 실패: {e}"))?;
+        if !groups.contains_key(&from) {
+            order.push(from.clone());
+        }
+        groups.entry(from).or_default().push(link);
+    }
+
+    // clear: 블록을 비울 노트 목록. 같은 from이 links에도 있으면 links가
+    // 우선하고(경고), clear만 있으면 빈 링크 그룹으로 합류시켜 블록을 제거한다.
+    let clear: Vec<String> = args
+        .get("clear")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut clear_overridden: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for from in clear {
+        if groups.contains_key(&from) {
+            clear_overridden.insert(
+                from.clone(),
+                "clear 지정을 무시했습니다(같은 from에 links가 있어 links가 우선)".to_string(),
+            );
+            continue;
+        }
+        order.push(from.clone());
+        groups.insert(from, Vec::new());
+    }
+
+    let mut plans = Vec::new();
+    for from in order {
+        let base = match read_note(live, &from) {
+            Ok(b) => b,
+            Err(e) => {
+                plans.push(PlannedEdit {
+                    path: from,
+                    base: String::new(),
+                    new_content: String::new(),
+                    applied: 0,
+                    rejected: Vec::new(),
+                    warnings: Vec::new(),
+                    plan_error: Some(e),
+                });
+                continue;
+            }
+        };
+        let outcome =
+            match apply_auto_links(Path::new(&root), Path::new(&from), &base, &groups[&from]) {
+                Ok(o) => o,
+                Err(e) => {
+                    plans.push(PlannedEdit {
+                        path: from,
+                        base,
+                        new_content: String::new(),
+                        applied: 0,
+                        rejected: Vec::new(),
+                        warnings: Vec::new(),
+                        plan_error: Some(e),
+                    });
+                    continue;
+                }
+            };
+        let mut warnings = outcome.warnings;
+        if let Some(w) = clear_overridden.remove(&from) {
+            warnings.push(w);
+        }
+        plans.push(PlannedEdit {
+            path: from,
+            base,
+            new_content: outcome.content,
+            applied: outcome.applied,
+            rejected: outcome.rejected,
+            warnings,
+            plan_error: None,
+        });
+    }
+    Ok(plans)
+}
+
+/// apply_links 결과를 서식화한다(테스트 가능한 순수 함수).
+/// 성공/실패 파일을 모두 보고하고, 실패가 있으면 상단에 요약 줄을 넣는다.
+/// best-effort 의미론: 일부 파일 쓰기 실패해도 성공한 파일 보고는 유지된다.
+fn format_apply_result(results: &[(PlannedEdit, Result<(), String>)]) -> String {
+    let mut out = String::from("# apply_links 결과\n");
+
+    // 실패 존재 여부 확인 — 하나라도 실패하면 요약 줄을 넣는다.
+    let has_failure = results.iter().any(|(_, res)| res.is_err());
+
+    if has_failure {
+        out.push_str("일부 파일 적용 실패 — 재작성은 멱등이므로 실패 파일만 재시도하면 된다\n");
+    }
+
+    for (p, result) in results {
+        out.push_str(&format!("\n## {}\n", p.path));
+
+        match result {
+            Ok(()) => {
+                // 성공: 변경 있음 또는 변경 없음 구분. rejected/warnings는 변경
+                // 여부와 무관하게 항상 보고한다(예: 전량 거부로 무변경이어도
+                // 거부 사유는 사용자가 알아야 한다).
+                if p.new_content == p.base {
+                    out.push_str("- 변경 없음\n");
+                } else {
+                    out.push_str(&format!("- 적용 {}건\n", p.applied));
+                }
+                for r in &p.rejected {
+                    out.push_str(&format!("- 거부: {} — {}\n", r.to, r.reason));
+                }
+                for w in &p.warnings {
+                    out.push_str(&format!("- 경고: {}\n", w));
+                }
+            }
+            Err(e) => {
+                // 실패: 브리지 쓰기 오류 등을 기록
+                out.push_str(&format!("- 실패: {}\n", e));
+            }
+        }
+    }
+
+    out
 }
 
 // ----- JSON-RPC / MCP 프레이밍 헬퍼 -----
@@ -450,7 +720,7 @@ mod tests {
     fn tool_defs_list_tools_with_object_schemas() {
         let defs = tool_defs();
         let arr = defs.as_array().unwrap();
-        assert_eq!(arr.len(), 5);
+        assert_eq!(arr.len(), 7);
         let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_current_note"));
         assert!(names.contains(&"read_note"));
@@ -551,5 +821,287 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("브리지"));
+    }
+
+    #[test]
+    fn tool_defs_include_autolink_tools() {
+        let defs = tool_defs();
+        let arr = defs.as_array().unwrap();
+        assert_eq!(arr.len(), 7);
+        let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"link_candidates"));
+        assert!(names.contains(&"apply_links"));
+    }
+
+    #[test]
+    fn link_candidates_tool_returns_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("cilium.md"), "# Cilium").unwrap();
+        std::fs::write(root.join("k8s.md"), "cilium 언급").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let out = link_candidates_tool(&live, &json!({})).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v.as_array().unwrap().iter().any(|c| {
+            c["from"].as_str().unwrap().ends_with("k8s.md")
+                && c["to"].as_str().unwrap().ends_with("cilium.md")
+        }));
+    }
+
+    #[test]
+    fn plan_apply_links_groups_by_from_and_rewrites() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("from.md"), "본문\n").unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let args = json!({ "links": [
+            { "from": root.join("from.md").display().to_string(),
+              "to": root.join("b.md").display().to_string(),
+              "label": "설명" }
+        ]});
+        let plans = plan_apply_links(&live, &args).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].base, "본문\n");
+        assert!(plans[0].new_content.contains("- [[b]] — 설명"));
+        assert_eq!(plans[0].applied, 1);
+    }
+
+    #[test]
+    fn plan_apply_links_requires_links_array() {
+        let live = LiveState {
+            root: Some("/ws".to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        assert!(plan_apply_links(&live, &json!({})).is_err());
+    }
+
+    #[test]
+    fn plan_apply_links_clear_empties_block() {
+        // I2: clear에 지정된 노트는 links에 항목이 없어도 블록이 제거돼야 한다.
+        use synapse_core::{AUTO_LINKS_END, AUTO_LINKS_START};
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let base = format!(
+            "본문\n\n{s}\n## 관련 노트\n- [[b]]\n{e}\n",
+            s = AUTO_LINKS_START,
+            e = AUTO_LINKS_END
+        );
+        std::fs::write(root.join("from.md"), &base).unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let args = json!({
+            "links": [],
+            "clear": [ root.join("from.md").display().to_string() ]
+        });
+        let plans = plan_apply_links(&live, &args).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert!(
+            !plans[0].new_content.contains(AUTO_LINKS_START),
+            "clear로 지정된 노트는 블록이 제거돼야 함: {}",
+            plans[0].new_content
+        );
+    }
+
+    #[test]
+    fn plan_apply_links_links_take_priority_over_clear_for_same_from() {
+        // 같은 from이 links와 clear 양쪽에 있으면 links가 우선한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("from.md"), "본문\n").unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let from_path = root.join("from.md").display().to_string();
+        let args = json!({
+            "links": [ { "from": from_path, "to": root.join("b.md").display().to_string() } ],
+            "clear": [ from_path ]
+        });
+        let plans = plan_apply_links(&live, &args).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert!(
+            plans[0].new_content.contains("- [[b]]"),
+            "links가 우선해 블록이 채워져야 함"
+        );
+        assert!(
+            plans[0].warnings.iter().any(|w| w.contains("clear")),
+            "무시된 clear에 대한 경고가 있어야 함: {:?}",
+            plans[0].warnings
+        );
+    }
+
+    #[test]
+    fn plan_apply_links_isolates_per_file_failure() {
+        // I3: 존재하지 않는 from 하나가 있어도 나머지 정상 from은 계속 계획돼야 한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("ok.md"), "본문\n").unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let args = json!({ "links": [
+            { "from": root.join("없는파일.md").display().to_string(),
+              "to": root.join("b.md").display().to_string() },
+            { "from": root.join("ok.md").display().to_string(),
+              "to": root.join("b.md").display().to_string() }
+        ]});
+        let plans = plan_apply_links(&live, &args).expect("배치 전체가 중단되면 안 됨");
+        assert_eq!(plans.len(), 2);
+
+        let failed = plans
+            .iter()
+            .find(|p| p.path.ends_with("없는파일.md"))
+            .expect("실패 파일도 결과에 포함돼야 함");
+        assert!(failed.plan_error.is_some(), "실패 사유가 담겨야 함");
+
+        let ok = plans
+            .iter()
+            .find(|p| p.path.ends_with("ok.md"))
+            .expect("정상 파일 계획은 유지돼야 함");
+        assert!(ok.plan_error.is_none());
+        assert!(ok.new_content.contains("- [[b]]"));
+    }
+
+    #[test]
+    fn format_apply_result_success_and_failure_preserves_both() {
+        // 성공 + 실패 혼합: 성공 파일의 보고가 유지되고 실패 파일에 "실패:"가 붙는지 검증.
+        let results = vec![
+            (
+                PlannedEdit {
+                    path: "/ws/a.md".to_string(),
+                    base: "본문\n".to_string(),
+                    new_content: "본문\n## auto-links\n- [[b]]\n".to_string(),
+                    applied: 1,
+                    rejected: vec![],
+                    warnings: vec![],
+                    plan_error: None,
+                },
+                Ok(()),
+            ),
+            (
+                PlannedEdit {
+                    path: "/ws/b.md".to_string(),
+                    base: "b 본문\n".to_string(),
+                    new_content: "b 본문\n## auto-links\n- [[c]]\n".to_string(),
+                    applied: 1,
+                    rejected: vec![],
+                    warnings: vec![],
+                    plan_error: None,
+                },
+                Err("브리지 쓰기 실패".to_string()),
+            ),
+        ];
+
+        let out = format_apply_result(&results);
+
+        // a.md의 성공 보고가 유지되어야 한다.
+        assert!(out.contains("/ws/a.md"));
+        assert!(out.contains("- 적용 1건"));
+
+        // b.md의 실패 보고
+        assert!(out.contains("/ws/b.md"));
+        assert!(out.contains("- 실패: 브리지 쓰기 실패"));
+
+        // 상단 요약 줄 (실패가 있으므로 있어야 함)
+        assert!(out.contains("일부 파일 적용 실패"));
+    }
+
+    #[test]
+    fn format_apply_result_shows_rejected_and_warnings_on_no_change() {
+        // I4: content==base(변경 없음)이어도 rejected/warnings는 항상 보고돼야 한다.
+        let results = vec![(
+            PlannedEdit {
+                path: "/ws/x.md".to_string(),
+                base: "본문\n".to_string(),
+                new_content: "본문\n".to_string(),
+                applied: 0,
+                rejected: vec![RejectedLink {
+                    to: "/ws/없음.md".to_string(),
+                    reason: "대상 노트가 존재하지 않습니다".to_string(),
+                }],
+                warnings: vec!["유효한 링크가 없어 기존 블록을 유지했습니다".to_string()],
+                plan_error: None,
+            },
+            Ok(()),
+        )];
+
+        let out = format_apply_result(&results);
+        assert!(out.contains("- 변경 없음"));
+        assert!(
+            out.contains("거부: /ws/없음.md — 대상 노트가 존재하지 않습니다"),
+            "변경 없음이어도 거부 사유가 나와야 함: {}",
+            out
+        );
+        assert!(
+            out.contains("경고: 유효한 링크가 없어 기존 블록을 유지했습니다"),
+            "변경 없음이어도 경고가 나와야 함: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn format_apply_result_marks_no_change() {
+        // 변경 없음 케이스: "- 변경 없음"으로 표기되는지 검증.
+        let results = vec![(
+            PlannedEdit {
+                path: "/ws/x.md".to_string(),
+                base: "동일\n".to_string(),
+                new_content: "동일\n".to_string(),
+                applied: 0,
+                rejected: vec![],
+                warnings: vec![],
+                plan_error: None,
+            },
+            Ok(()),
+        )];
+
+        let out = format_apply_result(&results);
+        assert!(out.contains("- 변경 없음"));
+    }
+
+    #[test]
+    fn format_apply_result_all_success_no_failure_summary() {
+        // 모든 파일이 성공: 상단 요약 줄이 없어야 한다.
+        let results = vec![(
+            PlannedEdit {
+                path: "/ws/a.md".to_string(),
+                base: "본문\n".to_string(),
+                new_content: "본문\n## auto-links\n- [[b]]\n".to_string(),
+                applied: 1,
+                rejected: vec![],
+                warnings: vec![],
+                plan_error: None,
+            },
+            Ok(()),
+        )];
+
+        let out = format_apply_result(&results);
+        assert!(!out.contains("일부 파일 적용 실패"));
+        assert!(out.contains("- 적용 1건"));
     }
 }

@@ -46,6 +46,8 @@ Markdown tools.
 - Let AI coding agents running in either terminal connect back to Synapse
   through an MCP server that discovers the running app via a local
   `bridge.json` file — no manual port/token setup required.
+- Compute note-to-note link suggestions and apply them declaratively to the
+  auto-links block (document body untouched, idempotent).
 
 ## Screenshots
 
