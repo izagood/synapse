@@ -8,6 +8,7 @@ import {
   placeLabels,
   repulsionBH,
   repulsionExact,
+  type GraphLayout,
   type LabelCandidate,
 } from "./layout";
 import { computeGraph } from "../editor/backlinks";
@@ -144,6 +145,64 @@ describe("layoutGraph", () => {
       edges: [{ source: `${ROOT}/a.md`, target: `${ROOT}/ghost.md` }],
     });
     expect(layout.edges).toHaveLength(0);
+  });
+
+  it("propagates node kind into positioned nodes", () => {
+    const withTag: LinkGraph = {
+      nodes: [
+        { path: `${ROOT}/a.md`, name: "a.md", kind: "note" },
+        { path: "#ai", name: "#ai", kind: "tag" },
+      ],
+      edges: [{ source: `${ROOT}/a.md`, target: "#ai" }],
+    };
+    const layout = layoutGraph(withTag);
+    const byPath = new Map(layout.nodes.map((n) => [n.path, n.kind]));
+    expect(byPath.get(`${ROOT}/a.md`)).toBe("note");
+    expect(byPath.get("#ai")).toBe("tag");
+  });
+});
+
+describe("layoutGraph — forces 파라미터", () => {
+  const graph: LinkGraph = {
+    nodes: [
+      { path: `${ROOT}/a.md`, name: "a.md", kind: "note" as const },
+      { path: `${ROOT}/b.md`, name: "b.md", kind: "note" as const },
+      { path: `${ROOT}/c.md`, name: "c.md", kind: "note" as const },
+    ],
+    edges: [
+      { source: `${ROOT}/a.md`, target: `${ROOT}/b.md` },
+      { source: `${ROOT}/b.md`, target: `${ROOT}/c.md` },
+    ],
+  };
+
+  const dist = (l: GraphLayout, a: string, b: string) => {
+    const na = l.nodes.find((n) => n.path === a)!;
+    const nb = l.nodes.find((n) => n.path === b)!;
+    return Math.hypot(na.x - nb.x, na.y - nb.y);
+  };
+
+  it("같은 파라미터면 결정적", () => {
+    const l1 = layoutGraph(graph, { repulsionScale: 2 });
+    const l2 = layoutGraph(graph, { repulsionScale: 2 });
+    expect(l1.nodes).toEqual(l2.nodes);
+  });
+
+  it("linkDistanceScale을 키우면 연결 노드 간 거리가 늘어난다", () => {
+    const near = layoutGraph(graph, { linkDistanceScale: 0.25 });
+    const far = layoutGraph(graph, { linkDistanceScale: 4 });
+    expect(dist(far, `${ROOT}/a.md`, `${ROOT}/b.md`)).toBeGreaterThan(
+      dist(near, `${ROOT}/a.md`, `${ROOT}/b.md`),
+    );
+  });
+
+  it("기본값(1)은 파라미터 미지정과 동일 좌표", () => {
+    expect(
+      layoutGraph(graph, {
+        repulsionScale: 1,
+        linkDistanceScale: 1,
+        gravityScale: 1,
+      }).nodes,
+    ).toEqual(layoutGraph(graph).nodes);
   });
 });
 
