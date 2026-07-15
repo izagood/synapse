@@ -139,7 +139,11 @@ pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
         }
         i += 1;
     }
-    BlockScan { first, duplicate, unterminated }
+    BlockScan {
+        first,
+        duplicate,
+        unterminated,
+    }
 }
 
 /// 한 노트의 사전 계산 상태.
@@ -226,7 +230,9 @@ pub fn link_candidates(
     // 사전 계산: 본문/링크/키워드
     let mut infos: HashMap<PathBuf, NoteInfo> = HashMap::new();
     for f in &md_files {
-        let Ok(body) = std::fs::read_to_string(f) else { continue };
+        let Ok(body) = std::fs::read_to_string(f) else {
+            continue;
+        };
         let (outside, inside) = split_auto_block(&body);
         infos.insert(
             f.clone(),
@@ -546,7 +552,9 @@ mod tests {
         assert!(out.content.starts_with("---\r\ntitle: x\r\n---\r\n본문 끝"));
         // 다시 빈 목록으로 블록 제거하면 (append가 넣은 개행 외) 본문 원문 유지
         let removed = rewrite_auto_links(&out.content, &[]);
-        assert!(removed.content.starts_with("---\r\ntitle: x\r\n---\r\n본문 끝"));
+        assert!(removed
+            .content
+            .starts_with("---\r\ntitle: x\r\n---\r\n본문 끝"));
         assert!(!removed.content.contains(AUTO_LINKS_START));
     }
 
@@ -594,11 +602,15 @@ mod tests {
     fn duplicate_blocks_replace_first_and_warn() {
         let body = format!(
             "{s}\n## 관련 노트\n- [[old]]\n{e}\n중간\n{s}\n- [[dup]]\n{e}\n",
-            s = AUTO_LINKS_START, e = AUTO_LINKS_END
+            s = AUTO_LINKS_START,
+            e = AUTO_LINKS_END
         );
         let out = rewrite_auto_links(&body, &["- [[new]]".to_string()]);
         assert!(out.content.contains("- [[new]]"));
-        assert!(out.content.contains("- [[dup]]"), "두 번째 블록은 손대지 않음");
+        assert!(
+            out.content.contains("- [[dup]]"),
+            "두 번째 블록은 손대지 않음"
+        );
         assert!(!out.content.contains("- [[old]]"));
         assert_eq!(out.warnings.len(), 1);
     }
@@ -609,7 +621,10 @@ mod tests {
         let out = rewrite_auto_links(&body, &["- [[new]]".to_string()]);
         assert!(out.content.starts_with("본문\n"));
         assert!(out.content.contains("- [[new]]"));
-        assert!(!out.content.contains("깨진 꼬리"), "종료 마커 없으면 EOF까지 블록으로 간주");
+        assert!(
+            !out.content.contains("깨진 꼬리"),
+            "종료 마커 없으면 EOF까지 블록으로 간주"
+        );
         assert_eq!(out.warnings.len(), 1);
     }
 
@@ -701,7 +716,10 @@ mod tests {
         write(&root.join("other.md"), "cilium 언급");
 
         let only = link_candidates(root, &[root.join("k8s.md")], 50).unwrap();
-        assert!(only.iter().all(|c| c.from.ends_with("k8s.md")), "증분: from 제한");
+        assert!(
+            only.iter().all(|c| c.from.ends_with("k8s.md")),
+            "증분: from 제한"
+        );
 
         let capped = link_candidates(root, &[], 1).unwrap();
         assert_eq!(capped.len(), 1, "limit 상한");
@@ -757,7 +775,10 @@ mod tests {
         assert_eq!(existing_cand.score, 0, "휴리스틱 점수가 0이어야 함");
         assert!(existing_cand.existing, "existing=true여야 함");
         assert!(
-            existing_cand.reasons.iter().any(|r| r.contains("기존 auto-links 항목")),
+            existing_cand
+                .reasons
+                .iter()
+                .any(|r| r.contains("기존 auto-links 항목")),
             "reasons에 '기존 auto-links 항목' 근거가 있어야 함"
         );
     }
@@ -789,9 +810,18 @@ mod tests {
         write(&tmp.path().join("outside.md"), "루트 밖");
 
         let links = vec![
-            ApplyLink { to: tmp.path().join("outside.md").display().to_string(), label: None },
-            ApplyLink { to: root.join("없는노트.md").display().to_string(), label: None },
-            ApplyLink { to: root.join("from.md").display().to_string(), label: None },
+            ApplyLink {
+                to: tmp.path().join("outside.md").display().to_string(),
+                label: None,
+            },
+            ApplyLink {
+                to: root.join("없는노트.md").display().to_string(),
+                label: None,
+            },
+            ApplyLink {
+                to: root.join("from.md").display().to_string(),
+                label: None,
+            },
         ];
         let out = apply_auto_links(&root, &root.join("from.md"), "본문\n", &links).unwrap();
         assert_eq!(out.applied, 0);
@@ -814,18 +844,35 @@ mod tests {
         );
 
         let links = vec![
-            ApplyLink { to: root.join("없는노트.md").display().to_string(), label: None },
-            ApplyLink { to: root.join("from.md").display().to_string(), label: None }, // 자기 자신
-            ApplyLink { to: tmp.path().join("outside.md").display().to_string(), label: None },
+            ApplyLink {
+                to: root.join("없는노트.md").display().to_string(),
+                label: None,
+            },
+            ApplyLink {
+                to: root.join("from.md").display().to_string(),
+                label: None,
+            }, // 자기 자신
+            ApplyLink {
+                to: tmp.path().join("outside.md").display().to_string(),
+                label: None,
+            },
         ];
         let out = apply_auto_links(root, &root.join("from.md"), &base, &links).unwrap();
 
         assert_eq!(out.applied, 0);
         assert_eq!(out.rejected.len(), 3, "거부 사유가 채워져야 함");
-        assert_eq!(out.content, base, "전량 거부 시 base 그대로(기존 블록 유지)");
-        assert!(out.content.contains("- [[keep]]"), "기존 블록 내용도 그대로 유지");
+        assert_eq!(
+            out.content, base,
+            "전량 거부 시 base 그대로(기존 블록 유지)"
+        );
         assert!(
-            out.warnings.iter().any(|w| w.contains("유효한 링크가 없어 기존 블록을 유지")),
+            out.content.contains("- [[keep]]"),
+            "기존 블록 내용도 그대로 유지"
+        );
+        assert!(
+            out.warnings
+                .iter()
+                .any(|w| w.contains("유효한 링크가 없어 기존 블록을 유지")),
             "전량 거부 경고가 있어야 함: {:?}",
             out.warnings
         );
@@ -894,12 +941,9 @@ mod tests {
             "href에 원문 괄호가 그대로 남아있으면 안 됨: {}",
             href
         );
-        let resolved = crate::links::resolve_standard_link(
-            &href,
-            &root.join("from.md"),
-            &canonical_root,
-        )
-        .expect("percent-encoded href가 다시 해석 가능해야 함");
+        let resolved =
+            crate::links::resolve_standard_link(&href, &root.join("from.md"), &canonical_root)
+                .expect("percent-encoded href가 다시 해석 가능해야 함");
         assert_eq!(
             resolved,
             root.join("b/회의록(7월).md").canonicalize().unwrap(),
@@ -914,8 +958,14 @@ mod tests {
         write(&root.join("from.md"), "본문\n");
         write(&root.join("b.md"), "# b");
         let links = vec![
-            ApplyLink { to: root.join("b.md").display().to_string(), label: None },
-            ApplyLink { to: root.join("b.md").display().to_string(), label: None },
+            ApplyLink {
+                to: root.join("b.md").display().to_string(),
+                label: None,
+            },
+            ApplyLink {
+                to: root.join("b.md").display().to_string(),
+                label: None,
+            },
         ];
         let out = apply_auto_links(root, &root.join("from.md"), "본문\n", &links).unwrap();
         assert_eq!(out.applied, 1);
@@ -928,7 +978,10 @@ mod tests {
         let root = tmp.path();
         write(&root.join("doc.html"), "<p>html</p>");
         write(&root.join("b.md"), "# b");
-        let links = vec![ApplyLink { to: root.join("b.md").display().to_string(), label: None }];
+        let links = vec![ApplyLink {
+            to: root.join("b.md").display().to_string(),
+            label: None,
+        }];
         assert!(apply_auto_links(root, &root.join("doc.html"), "", &links).is_err());
     }
 }

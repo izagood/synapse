@@ -22,8 +22,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use synapse_core::{
-    apply_auto_links, link_candidates, search_workspace, ApplyLink, Backend, LiveState, LocalBackend,
-    RejectedLink, SearchOptions,
+    apply_auto_links, link_candidates, search_workspace, ApplyLink, Backend, LiveState,
+    LocalBackend, RejectedLink, SearchOptions,
 };
 
 /// 브리지 접속 컨텍스트(환경변수 우선, 없으면 bridge.json에서 cwd로 발견해 1회 읽음).
@@ -448,7 +448,12 @@ fn link_candidates_tool(live: &LiveState, args: &Value) -> Result<String, String
     let paths: Vec<PathBuf> = args
         .get("paths")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(PathBuf::from).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(PathBuf::from)
+                .collect()
+        })
         .unwrap_or_default();
     let cands = link_candidates(Path::new(&root), &paths, limit)
         .map_err(|e| format!("후보 계산 실패: {e}"))?;
@@ -493,8 +498,8 @@ fn plan_apply_links(live: &LiveState, args: &Value) -> Result<Vec<PlannedEdit>, 
             .and_then(Value::as_str)
             .ok_or_else(|| "각 링크에 from이 필요합니다".to_string())?
             .to_string();
-        let link: ApplyLink = serde_json::from_value(l.clone())
-            .map_err(|e| format!("링크 항목 해석 실패: {e}"))?;
+        let link: ApplyLink =
+            serde_json::from_value(l.clone()).map_err(|e| format!("링크 항목 해석 실패: {e}"))?;
         if !groups.contains_key(&from) {
             order.push(from.clone());
         }
@@ -506,7 +511,12 @@ fn plan_apply_links(live: &LiveState, args: &Value) -> Result<Vec<PlannedEdit>, 
     let clear: Vec<String> = args
         .get("clear")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
     let mut clear_overridden: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
@@ -930,7 +940,10 @@ mod tests {
         });
         let plans = plan_apply_links(&live, &args).unwrap();
         assert_eq!(plans.len(), 1);
-        assert!(plans[0].new_content.contains("- [[b]]"), "links가 우선해 블록이 채워져야 함");
+        assert!(
+            plans[0].new_content.contains("- [[b]]"),
+            "links가 우선해 블록이 채워져야 함"
+        );
         assert!(
             plans[0].warnings.iter().any(|w| w.contains("clear")),
             "무시된 clear에 대한 경고가 있어야 함: {:?}",
