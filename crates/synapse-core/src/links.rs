@@ -361,12 +361,50 @@ pub struct LinkGraph {
 /// - 워크스페이스 밖/외부 URL/해석 불가 링크는 무시한다.
 /// - 결과(노드·엣지)는 경로 기준 정렬로 결정적이다.
 pub fn build_graph(root: &Path) -> io::Result<LinkGraph> {
+    build_graph_cached(root, &mut LinkScanCache::default())
+}
+
+/// 파일별 링크 추출 캐시: (mtime, len)이 같으면 본문을 다시 읽지 않고 이전
+/// 추출 결과를 재사용한다. 그래프뷰를 열 때마다 워크스페이스 전체를
+/// 재읽기·재파싱하던 비용이 "변경된 파일만"으로 줄어든다.
+///
+/// mtime+len 동일 판정의 한계(같은 초·같은 길이의 내용 교체)는 mtime이
+/// 나노초 해상도인 현대 파일시스템에서 실질적으로 문제가 되지 않는다.
+#[derive(Default)]
+pub struct LinkScanCache {
+    entries: HashMap<PathBuf, ScanEntry>,
+}
+
+struct ScanEntry {
+    mtime: std::time::SystemTime,
+    len: u64,
+    links: Vec<OutLink>,
+}
+
+impl LinkScanCache {
+    /// 캐시에 남아 있는 파일 수 (테스트·계측용)
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// `build_graph`와 동일하되, 파일별 스캔 결과를 `cache`에 재사용/적재한다.
+/// 같은 `cache`를 계속 넘기면 증분 갱신이 된다. 결과는 캐시 유무와 무관하게
+/// 동일하다(캐시는 파싱 생략일 뿐, 해석은 매번 현재 파일 집합 기준).
+pub fn build_graph_cached(root: &Path, cache: &mut LinkScanCache) -> io::Result<LinkGraph> {
     let root = root.canonicalize()?;
 
     let md_files = collect_markdown(&root);
     let by_stem = stem_index(&md_files);
     // 유효한 노드 경로 집합(엣지 대상이 실제 노드인지 확인용)
     let node_set: std::collections::HashSet<PathBuf> = md_files.iter().cloned().collect();
+
+    // 사라진 파일의 캐시 항목 정리 (무한 성장 방지)
+    cache.entries.retain(|p, _| node_set.contains(p));
 
     let nodes: Vec<GraphNode> = md_files
         .iter()
@@ -382,12 +420,32 @@ pub fn build_graph(root: &Path) -> io::Result<LinkGraph> {
     let mut edges: Vec<GraphEdge> = Vec::new();
     let mut seen: std::collections::HashSet<(PathBuf, PathBuf)> = std::collections::HashSet::new();
     for source in &md_files {
-        let body = match fs::read_to_string(source) {
-            Ok(b) => b,
-            Err(_) => continue,
+        // (mtime, len)이 같으면 캐시된 추출 결과 재사용, 아니면 읽고 갱신
+        let Ok(meta) = fs::metadata(source) else {
+            continue;
         };
-        for (link, _snippet) in extract_links(&body) {
-            let resolved = match &link {
+        let (mtime, len) = (meta.modified().ok(), meta.len());
+        let cached_ok = cache.entries.get(source).is_some_and(|e| {
+            mtime.is_some_and(|t| e.mtime == t) && e.len == len
+        });
+        if !cached_ok {
+            let body = match fs::read_to_string(source) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let links: Vec<OutLink> =
+                extract_links(&body).into_iter().map(|(l, _)| l).collect();
+            // mtime을 못 읽는 파일도 링크는 처리한다 — epoch 키는 다음 호출의
+            // Some(t) 비교와 절대 일치하지 않으므로 항상 재파싱된다.
+            let mtime = mtime.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            cache
+                .entries
+                .insert(source.clone(), ScanEntry { mtime, len, links });
+        }
+        let links = &cache.entries[source].links;
+
+        for link in links {
+            let resolved = match link {
                 OutLink::Standard(href) => resolve_standard_link(href, source, &root),
                 OutLink::Wiki(name) => by_stem.get(&name.to_lowercase()).cloned(),
             };
@@ -723,5 +781,76 @@ mod tests {
         let json = serde_json::to_string(&b).unwrap();
         assert!(json.contains("\"sourcePath\""));
         assert!(json.contains("\"sourceName\""));
+    }
+
+    #[test]
+    fn cached_build_matches_uncached() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("a.md"), "[[b]] 와 [c](c.md)");
+        write(&root.join("b.md"), "[[c]]");
+        write(&root.join("c.md"), "끝");
+
+        let plain = build_graph(root).unwrap();
+        let mut cache = LinkScanCache::default();
+        let first = build_graph_cached(root, &mut cache).unwrap();
+        let second = build_graph_cached(root, &mut cache).unwrap();
+        assert_eq!(plain, first);
+        assert_eq!(first, second);
+        assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
+    fn cache_detects_modified_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("a.md"), "링크 없음");
+        write(&root.join("b.md"), "본문");
+
+        let mut cache = LinkScanCache::default();
+        let before = build_graph_cached(root, &mut cache).unwrap();
+        assert_eq!(before.edges.len(), 0);
+
+        // 내용 수정(길이도 달라짐) → 재파싱되어 새 엣지가 보여야 한다
+        write(&root.join("a.md"), "이제 [[b]] 링크가 생겼다");
+        let after = build_graph_cached(root, &mut cache).unwrap();
+        assert_eq!(after.edges.len(), 1);
+        assert!(after.edges[0].source.ends_with("a.md"));
+        assert!(after.edges[0].target.ends_with("b.md"));
+    }
+
+    #[test]
+    fn cache_prunes_deleted_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("a.md"), "[[b]]");
+        write(&root.join("b.md"), "본문");
+
+        let mut cache = LinkScanCache::default();
+        build_graph_cached(root, &mut cache).unwrap();
+        assert_eq!(cache.len(), 2);
+
+        fs::remove_file(root.join("b.md")).unwrap();
+        let after = build_graph_cached(root, &mut cache).unwrap();
+        assert_eq!(after.nodes.len(), 1);
+        assert_eq!(after.edges.len(), 0);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn cache_resolves_against_current_file_set() {
+        // 캐시된 위키링크도 "지금" 존재하는 파일 기준으로 해석돼야 한다:
+        // a.md는 건드리지 않고 대상(b.md)만 새로 만들어도 엣지가 생겨야 한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("a.md"), "[[b]]");
+
+        let mut cache = LinkScanCache::default();
+        let before = build_graph_cached(root, &mut cache).unwrap();
+        assert_eq!(before.edges.len(), 0);
+
+        write(&root.join("b.md"), "새 대상");
+        let after = build_graph_cached(root, &mut cache).unwrap();
+        assert_eq!(after.edges.len(), 1);
     }
 }
