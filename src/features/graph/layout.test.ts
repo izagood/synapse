@@ -8,6 +8,7 @@ import {
   placeLabels,
   repulsionBH,
   repulsionExact,
+  type GraphLayout,
   type LabelCandidate,
 } from "./layout";
 import { computeGraph } from "../editor/backlinks";
@@ -65,9 +66,9 @@ describe("computeGraph", () => {
 describe("layoutGraph", () => {
   const graph: LinkGraph = {
     nodes: [
-      { path: `${ROOT}/a.md`, name: "a.md" },
-      { path: `${ROOT}/b.md`, name: "b.md" },
-      { path: `${ROOT}/c.md`, name: "c.md" },
+      { path: `${ROOT}/a.md`, name: "a.md", kind: "note" as const },
+      { path: `${ROOT}/b.md`, name: "b.md", kind: "note" as const },
+      { path: `${ROOT}/c.md`, name: "c.md", kind: "note" as const },
     ],
     edges: [
       { source: `${ROOT}/a.md`, target: `${ROOT}/b.md` },
@@ -110,7 +111,7 @@ describe("layoutGraph", () => {
     const many: LinkGraph = {
       nodes: Array.from({ length: 60 }, (_, i) => ({
         path: `${ROOT}/n${i}.md`,
-        name: `n${i}.md`,
+        name: `n${i}.md`, kind: "note" as const,
       })),
       edges: Array.from({ length: 30 }, (_, i) => ({
         source: `${ROOT}/n${i}.md`,
@@ -140,10 +141,68 @@ describe("layoutGraph", () => {
 
   it("drops edges that reference missing nodes", () => {
     const layout = layoutGraph({
-      nodes: [{ path: `${ROOT}/a.md`, name: "a.md" }],
+      nodes: [{ path: `${ROOT}/a.md`, name: "a.md", kind: "note" as const }],
       edges: [{ source: `${ROOT}/a.md`, target: `${ROOT}/ghost.md` }],
     });
     expect(layout.edges).toHaveLength(0);
+  });
+
+  it("propagates node kind into positioned nodes", () => {
+    const withTag: LinkGraph = {
+      nodes: [
+        { path: `${ROOT}/a.md`, name: "a.md", kind: "note" },
+        { path: "#ai", name: "#ai", kind: "tag" },
+      ],
+      edges: [{ source: `${ROOT}/a.md`, target: "#ai" }],
+    };
+    const layout = layoutGraph(withTag);
+    const byPath = new Map(layout.nodes.map((n) => [n.path, n.kind]));
+    expect(byPath.get(`${ROOT}/a.md`)).toBe("note");
+    expect(byPath.get("#ai")).toBe("tag");
+  });
+});
+
+describe("layoutGraph — forces 파라미터", () => {
+  const graph: LinkGraph = {
+    nodes: [
+      { path: `${ROOT}/a.md`, name: "a.md", kind: "note" as const },
+      { path: `${ROOT}/b.md`, name: "b.md", kind: "note" as const },
+      { path: `${ROOT}/c.md`, name: "c.md", kind: "note" as const },
+    ],
+    edges: [
+      { source: `${ROOT}/a.md`, target: `${ROOT}/b.md` },
+      { source: `${ROOT}/b.md`, target: `${ROOT}/c.md` },
+    ],
+  };
+
+  const dist = (l: GraphLayout, a: string, b: string) => {
+    const na = l.nodes.find((n) => n.path === a)!;
+    const nb = l.nodes.find((n) => n.path === b)!;
+    return Math.hypot(na.x - nb.x, na.y - nb.y);
+  };
+
+  it("같은 파라미터면 결정적", () => {
+    const l1 = layoutGraph(graph, { repulsionScale: 2 });
+    const l2 = layoutGraph(graph, { repulsionScale: 2 });
+    expect(l1.nodes).toEqual(l2.nodes);
+  });
+
+  it("linkDistanceScale을 키우면 연결 노드 간 거리가 늘어난다", () => {
+    const near = layoutGraph(graph, { linkDistanceScale: 0.25 });
+    const far = layoutGraph(graph, { linkDistanceScale: 4 });
+    expect(dist(far, `${ROOT}/a.md`, `${ROOT}/b.md`)).toBeGreaterThan(
+      dist(near, `${ROOT}/a.md`, `${ROOT}/b.md`),
+    );
+  });
+
+  it("기본값(1)은 파라미터 미지정과 동일 좌표", () => {
+    expect(
+      layoutGraph(graph, {
+        repulsionScale: 1,
+        linkDistanceScale: 1,
+        gravityScale: 1,
+      }).nodes,
+    ).toEqual(layoutGraph(graph).nodes);
   });
 });
 
@@ -200,15 +259,47 @@ describe("placeLabels", () => {
     const b = at("b", 1, 1, { priority: 3 });
     expect(placeLabels([a, b])).toEqual(placeLabels([b, a]));
   });
+
+  describe("최소 반지름 임계 — 너무 작은 노드는 이름을 생략한다", () => {
+    it("화면 반지름이 minRadius 미만이면 라벨을 숨긴다", () => {
+      const shown = placeLabels(
+        [at("small", 0, 0, { r: 3 }), at("big", 0, 200, { r: 8 })],
+        6,
+      );
+      expect(shown).toEqual(new Set(["big"]));
+    });
+
+    it("숨겨진 라벨은 자리도 차지하지 않는다", () => {
+      // small이 임계 미달로 빠지면, 겹치던 자리의 낮은 우선순위 라벨이 살아난다
+      const shown = placeLabels(
+        [
+          at("small", 0, 0, { r: 3, priority: 9 }),
+          at("near", 1, 1, { r: 8, priority: 1 }),
+        ],
+        6,
+      );
+      expect(shown).toEqual(new Set(["near"]));
+    });
+
+    it("force 라벨(호버·현재 노트)은 임계 미만이어도 표시된다", () => {
+      const shown = placeLabels([at("tiny", 0, 0, { r: 2, force: true })], 6);
+      expect(shown.has("tiny")).toBe(true);
+    });
+
+    it("minRadius 미지정(0)이면 기존 동작 그대로", () => {
+      const shown = placeLabels([at("small", 0, 0, { r: 3 })]);
+      expect(shown.has("small")).toBe(true);
+    });
+  });
 });
 
 describe("adjacencyOf", () => {
   it("returns neighbors regardless of direction", () => {
     const graph: LinkGraph = {
       nodes: [
-        { path: "/n/a.md", name: "a.md" },
-        { path: "/n/b.md", name: "b.md" },
-        { path: "/n/c.md", name: "c.md" },
+        { path: "/n/a.md", name: "a.md", kind: "note" as const },
+        { path: "/n/b.md", name: "b.md", kind: "note" as const },
+        { path: "/n/c.md", name: "c.md", kind: "note" as const },
       ],
       edges: [
         { source: "/n/a.md", target: "/n/b.md" },
@@ -226,7 +317,7 @@ describe("adjacencyOf", () => {
 function sparseGraph(n: number, linked: number): LinkGraph {
   const nodes = Array.from({ length: n }, (_, i) => ({
     path: `${ROOT}/n${i}.md`,
-    name: `n${i}.md`,
+    name: `n${i}.md`, kind: "note" as const,
   }));
   const edges = Array.from({ length: Math.max(0, linked - 1) }, (_, i) => ({
     source: `${ROOT}/n${i}.md`,

@@ -10,7 +10,7 @@
 // 2. 반복 횟수를 규모에 적응시키고, 움직임이 잦아들면 조기 종료한다.
 // 3. 연결 노드가 많으면(BH_THRESHOLD 초과) 반발을 Barnes-Hut로 근사한다.
 
-import type { LinkGraph } from "../../ipc/types";
+import type { GraphNodeKind, LinkGraph } from "../../ipc/types";
 
 export interface PositionedNode {
   path: string;
@@ -19,6 +19,8 @@ export interface PositionedNode {
   y: number;
   /** 이 노드에 연결된 엣지 수(in+out) — 시각적 크기·강조에 사용 */
   degree: number;
+  /** 노트인지 태그 허브인지 — 스타일·라벨 우선순위에 사용 */
+  kind: GraphNodeKind;
 }
 
 export interface GraphLayout {
@@ -33,6 +35,12 @@ export interface LayoutOptions {
   height?: number;
   /** 시뮬레이션 반복 횟수 (많을수록 안정적, 비용 ↑). 미지정 시 규모 적응. */
   iterations?: number;
+  /** 반발력 배율 (기본 1). 클수록 노드가 넓게 퍼진다 */
+  repulsionScale?: number;
+  /** 엣지 자연 길이 배율 (기본 1) */
+  linkDistanceScale?: number;
+  /** 중심 중력 배율 (기본 1). 클수록 그래프가 조밀해진다 */
+  gravityScale?: number;
 }
 
 /** 시뮬레이션 노드 수가 이 값을 넘으면 반발 계산을 Barnes-Hut 근사로 바꾼다. */
@@ -334,17 +342,7 @@ export function layoutGraph(graph: LinkGraph, opts: LayoutOptions = {}): GraphLa
     // 고립 노드가 외곽 고리를 차지하면 연결 구조는 중앙 영역(반경 0.62)만
     // 쓴다 — 이상 간격 k를 그 면적 기준으로 잡아 두 영역이 겹치지 않게 한다.
     const areaFrac = orphanIdx.length > 0 ? 0.62 * 0.62 : 1;
-    simulate(
-      graph,
-      simIdx,
-      edges,
-      xs,
-      ys,
-      width,
-      height,
-      areaFrac,
-      opts.iterations,
-    );
+    simulate(graph, simIdx, edges, xs, ys, width, height, areaFrac, opts);
   }
 
   // 시뮬레이션이 끝난 뒤 한 번만 전체 bounding box를 뷰포트에 맞춘다.
@@ -382,6 +380,7 @@ export function layoutGraph(graph: LinkGraph, opts: LayoutOptions = {}): GraphLa
     x: xs[i],
     y: ys[i],
     degree: degree.get(node.path) ?? 0,
+    kind: node.kind,
   }));
 
   return { nodes, edges, width, height };
@@ -397,12 +396,12 @@ function simulate(
   width: number,
   height: number,
   areaFrac: number,
-  iterationsOpt?: number,
+  opts: LayoutOptions,
 ): void {
   const m = simIdx.length;
   const cx = width / 2;
   const cy = height / 2;
-  const iterations = iterationsOpt ?? adaptiveIterations(m);
+  const iterations = opts.iterations ?? adaptiveIterations(m);
   const spread = Math.sqrt(areaFrac); // 중앙 사용 영역의 반경 비율
 
   // 시뮬레이션 로컬 좌표 (전역 인덱스 → 로컬 인덱스)
@@ -431,10 +430,11 @@ function simulate(
     springB[i] = localOf.get(e.target)!;
   });
 
-  // 시뮬레이션 파라미터 — 이상적 간격은 "연결 구조가 차지하는 영역" 기준
+  // 시뮬레이션 파라미터 — 이상적 간격은 "연결 구조가 차지하는 영역" 기준.
+  // Forces 슬라이더(옵시디언 벤치마킹)는 각 힘의 배율로 반영된다.
   const k = Math.sqrt((width * height * areaFrac) / Math.max(m, 1));
-  const repulsion = k * k; // 반발 상수
-  const springLen = k * 0.8; // 엣지 자연 길이
+  const repulsion = k * k * (opts.repulsionScale ?? 1); // 반발 상수
+  const springLen = k * 0.8 * (opts.linkDistanceScale ?? 1); // 엣지 자연 길이
   const springStrength = 0.02;
   const useBH = m > BH_THRESHOLD;
 
@@ -471,7 +471,7 @@ function simulate(
     }
 
     // 중심으로 약하게 끌어 그래프가 흩어지지 않게 한다
-    const gravity = 0.01;
+    const gravity = 0.01 * (opts.gravityScale ?? 1);
     for (let i = 0; i < m; i += 1) {
       dispX[i] += (cx - sx[i]) * gravity;
       dispY[i] += (cy - sy[i]) * gravity;
@@ -517,6 +517,13 @@ export function adjacencyOf(graph: LinkGraph, path: string): Set<string> {
 
 /** 라벨이 노드 점에서 떨어진 가로 간격(px, 레이아웃 공간). */
 export const LABEL_GAP = 4;
+/**
+ * 이름을 표시할 최소 화면 반지름(px). 대규모 볼트(수천~수만 노드)에서
+ * 점이 이 크기보다 작으면 이름은 시각적 소음이라 생략한다 — 확대해서
+ * 점이 커지면 자연히 다시 나타난다. 호버·검색 포커스 중에는 적용하지
+ * 않는다 (연결 탐색 시에는 작은 이웃의 이름이 곧 목적이므로).
+ */
+export const LABEL_MIN_RADIUS = 6;
 /** 라벨 한 줄의 대략적 높이(px). 폰트 11 + 위아래 여유. */
 export const LABEL_HEIGHT = 14;
 /** 겹침 판정 시 라벨 사이에 두는 최소 여백(px). */
@@ -566,11 +573,13 @@ function isWideChar(code: number): boolean {
  * 겹치지 않게 표시할 라벨 집합을 고른다. 우선순위(force 우선, 그다음
  * priority)가 높은 라벨부터 자리를 잡고, 이미 놓인 라벨과 겹치면 숨긴다.
  * force 라벨은 겹쳐도 표시하되 자리는 차지해 다른 라벨이 피하게 한다.
+ * 화면 반지름 `r`이 `minRadius` 미만인 후보는 표시하지 않고 자리도
+ * 차지하지 않는다 (force 제외).
  *
  * 순수·결정적: 같은 입력이면 항상 같은 집합을 돌려준다.
  * @returns 표시할 노드 path 집합
  */
-export function placeLabels(cands: LabelCandidate[]): Set<string> {
+export function placeLabels(cands: LabelCandidate[], minRadius = 0): Set<string> {
   const order = [...cands].sort((a, b) => {
     if (!!b.force !== !!a.force) return a.force ? -1 : 1;
     if (b.priority !== a.priority) return b.priority - a.priority;
@@ -580,6 +589,7 @@ export function placeLabels(cands: LabelCandidate[]): Set<string> {
   const placed: { l: number; t: number; r: number; b: number }[] = [];
   const shown = new Set<string>();
   for (const c of order) {
+    if (!c.force && c.r < minRadius) continue;
     const left = c.x + c.r + LABEL_GAP - LABEL_MARGIN;
     const right = c.x + c.r + LABEL_GAP + c.width + LABEL_MARGIN;
     const top = c.y - LABEL_HEIGHT / 2 - LABEL_MARGIN;

@@ -22,13 +22,37 @@ import { SAMPLE_EXCALIDRAW_JSON } from "../features/excalidraw/fixtures";
 const MOCK_ROOT = "/mock/notes";
 
 const files = new Map<string, string>([
-  [`${MOCK_ROOT}/README.md`, "# Mock 워크스페이스\n\n브라우저 개발 모드입니다. 실제 파일시스템은 Tauri 앱에서만 접근합니다."],
+  [`${MOCK_ROOT}/README.md`, "# Mock 워크스페이스\n\n브라우저 개발 모드입니다. 실제 파일시스템은 Tauri 앱에서만 접근합니다.\n\n#synapse 데모 태그 · [[2026-06-10]] 데일리 참조"],
   [`${MOCK_ROOT}/daily/2026-06-10.md`, "---\ntitle: 데일리 노트\n---\n\n# 오늘 할 일\n\n- [ ] Synapse M1 마무리\n- [x] M0 완료"],
   [`${MOCK_ROOT}/ai/summary.html`, "<h1>AI 요약</h1><p>HTML 뷰어 데모 문서입니다.</p>"],
   [`${MOCK_ROOT}/assets/diagram.png`, ""],
   [`${MOCK_ROOT}/diagrams/flow.drawio`, SAMPLE_DRAWIO_XML],
   [`${MOCK_ROOT}/drawings/sketch.excalidraw`, SAMPLE_EXCALIDRAW_JSON],
 ]);
+
+// 성능 실험용 합성 볼트: 브라우저 dev 모드에서 ?mockNotes=10000 처럼 지정하면
+// 허브-클러스터 형태의 합성 노트를 시딩한다 (mock 전용 — Tauri 앱에는 없음).
+// 형태: 200개 클러스터 허브 + 노트 2/3는 허브 링크, 1/7은 크로스 링크,
+// 1/5은 40종 #topic 태그, 나머지 1/3은 고립 — 실제 볼트의 희소 구조 근사.
+const synthCount = (() => {
+  if (typeof location === "undefined") return 0;
+  const n = Number(new URLSearchParams(location.search).get("mockNotes"));
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 200_000) : 0;
+})();
+if (synthCount > 0) {
+  const clusters = Math.min(200, synthCount);
+  for (let c = 0; c < clusters; c += 1) {
+    files.set(`${MOCK_ROOT}/synth/hubs/hub-${c}.md`, `# hub-${c}\n\n#cluster${c % 40}`);
+  }
+  for (let i = 0; i < synthCount; i += 1) {
+    const c = i % clusters;
+    const parts: string[] = [];
+    if (i % 3 !== 0) parts.push(`[[hub-${c}]]`);
+    if (i % 7 === 0) parts.push(`[[n${(i + 13) % synthCount}]]`);
+    if (i % 5 === 0) parts.push(`#topic${c % 40}`);
+    files.set(`${MOCK_ROOT}/synth/c${c}/n${i}.md`, `# n${i}\n\n${parts.join(" ")}`);
+  }
+}
 
 const emptyDirs = new Set<string>();
 
