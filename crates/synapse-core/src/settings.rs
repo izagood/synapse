@@ -37,7 +37,6 @@ pub struct EditorSettings {
     pub font_family: String,
     pub font_size: u32,
     pub auto_save_delay_ms: u64,
-    pub assets_folder: String,
     /// 소스/WYSIWYG 에디터에 줄 번호를 표시할지 (단축키/설정으로 토글)
     pub show_line_numbers: bool,
 }
@@ -48,7 +47,6 @@ impl Default for EditorSettings {
             font_family: "system-ui".into(),
             font_size: 16,
             auto_save_delay_ms: 1000,
-            assets_folder: "assets".into(),
             show_line_numbers: false,
         }
     }

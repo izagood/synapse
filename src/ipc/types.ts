@@ -147,7 +147,6 @@ export interface Settings {
     fontFamily: string;
     fontSize: number;
     autoSaveDelayMs: number;
-    assetsFolder: string;
   };
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
@@ -161,7 +160,6 @@ export const DEFAULT_SETTINGS: Settings = {
     fontFamily: "system-ui",
     fontSize: 16,
     autoSaveDelayMs: 1000,
-    assetsFolder: "assets",
   },
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },
