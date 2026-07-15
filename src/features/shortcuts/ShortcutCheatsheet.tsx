@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSettings } from "../../stores/settings";
 import { useT } from "../../i18n";
-import { detectDesktopPlatform, shortcutLabel } from "../../shared/platform";
+import { detectDesktopPlatform } from "../../shared/platform";
 import { SHORTCUTS } from "../../shared/shortcuts";
-import { filterShortcuts, groupByCategory, visibleShortcuts } from "./cheatsheet";
+import { filterShortcuts, groupByCategory, mergedKeyLabel, visibleShortcuts } from "./cheatsheet";
 
 // 단축키 치트시트: 카테고리별 목록 + 상단 검색. 보기 전용(명령 실행 없음).
 // 플랫폼(macOS/Windows)에 맞춘 키 라벨을 shortcutLabel 로 표시한다.
@@ -53,7 +53,7 @@ export function ShortcutCheatsheet() {
                 {group.items.map((def) => (
                   <li key={def.id}>
                     <span className="cheatsheet-desc">{t(def.descriptionKey)}</span>
-                    <kbd className="cheatsheet-keys">{shortcutLabel(def.keys, platform)}</kbd>
+                    <kbd className="cheatsheet-keys">{mergedKeyLabel(def, platform)}</kbd>
                   </li>
                 ))}
               </ul>
