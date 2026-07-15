@@ -22,7 +22,7 @@ import { SAMPLE_EXCALIDRAW_JSON } from "../features/excalidraw/fixtures";
 const MOCK_ROOT = "/mock/notes";
 
 const files = new Map<string, string>([
-  [`${MOCK_ROOT}/README.md`, "# Mock 워크스페이스\n\n브라우저 개발 모드입니다. 실제 파일시스템은 Tauri 앱에서만 접근합니다."],
+  [`${MOCK_ROOT}/README.md`, "# Mock 워크스페이스\n\n브라우저 개발 모드입니다. 실제 파일시스템은 Tauri 앱에서만 접근합니다.\n\n#synapse 데모 태그 · [[2026-06-10]] 데일리 참조"],
   [`${MOCK_ROOT}/daily/2026-06-10.md`, "---\ntitle: 데일리 노트\n---\n\n# 오늘 할 일\n\n- [ ] Synapse M1 마무리\n- [x] M0 완료"],
   [`${MOCK_ROOT}/ai/summary.html`, "<h1>AI 요약</h1><p>HTML 뷰어 데모 문서입니다.</p>"],
   [`${MOCK_ROOT}/assets/diagram.png`, ""],

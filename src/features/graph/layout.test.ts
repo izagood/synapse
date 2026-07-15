@@ -65,9 +65,9 @@ describe("computeGraph", () => {
 describe("layoutGraph", () => {
   const graph: LinkGraph = {
     nodes: [
-      { path: `${ROOT}/a.md`, name: "a.md" },
-      { path: `${ROOT}/b.md`, name: "b.md" },
-      { path: `${ROOT}/c.md`, name: "c.md" },
+      { path: `${ROOT}/a.md`, name: "a.md", kind: "note" as const },
+      { path: `${ROOT}/b.md`, name: "b.md", kind: "note" as const },
+      { path: `${ROOT}/c.md`, name: "c.md", kind: "note" as const },
     ],
     edges: [
       { source: `${ROOT}/a.md`, target: `${ROOT}/b.md` },
@@ -110,7 +110,7 @@ describe("layoutGraph", () => {
     const many: LinkGraph = {
       nodes: Array.from({ length: 60 }, (_, i) => ({
         path: `${ROOT}/n${i}.md`,
-        name: `n${i}.md`,
+        name: `n${i}.md`, kind: "note" as const,
       })),
       edges: Array.from({ length: 30 }, (_, i) => ({
         source: `${ROOT}/n${i}.md`,
@@ -140,7 +140,7 @@ describe("layoutGraph", () => {
 
   it("drops edges that reference missing nodes", () => {
     const layout = layoutGraph({
-      nodes: [{ path: `${ROOT}/a.md`, name: "a.md" }],
+      nodes: [{ path: `${ROOT}/a.md`, name: "a.md", kind: "note" as const }],
       edges: [{ source: `${ROOT}/a.md`, target: `${ROOT}/ghost.md` }],
     });
     expect(layout.edges).toHaveLength(0);
@@ -206,9 +206,9 @@ describe("adjacencyOf", () => {
   it("returns neighbors regardless of direction", () => {
     const graph: LinkGraph = {
       nodes: [
-        { path: "/n/a.md", name: "a.md" },
-        { path: "/n/b.md", name: "b.md" },
-        { path: "/n/c.md", name: "c.md" },
+        { path: "/n/a.md", name: "a.md", kind: "note" as const },
+        { path: "/n/b.md", name: "b.md", kind: "note" as const },
+        { path: "/n/c.md", name: "c.md", kind: "note" as const },
       ],
       edges: [
         { source: "/n/a.md", target: "/n/b.md" },
@@ -226,7 +226,7 @@ describe("adjacencyOf", () => {
 function sparseGraph(n: number, linked: number): LinkGraph {
   const nodes = Array.from({ length: n }, (_, i) => ({
     path: `${ROOT}/n${i}.md`,
-    name: `n${i}.md`,
+    name: `n${i}.md`, kind: "note" as const,
   }));
   const edges = Array.from({ length: Math.max(0, linked - 1) }, (_, i) => ({
     source: `${ROOT}/n${i}.md`,
