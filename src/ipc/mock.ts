@@ -30,6 +30,30 @@ const files = new Map<string, string>([
   [`${MOCK_ROOT}/drawings/sketch.excalidraw`, SAMPLE_EXCALIDRAW_JSON],
 ]);
 
+// 성능 실험용 합성 볼트: 브라우저 dev 모드에서 ?mockNotes=10000 처럼 지정하면
+// 허브-클러스터 형태의 합성 노트를 시딩한다 (mock 전용 — Tauri 앱에는 없음).
+// 형태: 200개 클러스터 허브 + 노트 2/3는 허브 링크, 1/7은 크로스 링크,
+// 1/5은 40종 #topic 태그, 나머지 1/3은 고립 — 실제 볼트의 희소 구조 근사.
+const synthCount = (() => {
+  if (typeof location === "undefined") return 0;
+  const n = Number(new URLSearchParams(location.search).get("mockNotes"));
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 200_000) : 0;
+})();
+if (synthCount > 0) {
+  const clusters = Math.min(200, synthCount);
+  for (let c = 0; c < clusters; c += 1) {
+    files.set(`${MOCK_ROOT}/synth/hubs/hub-${c}.md`, `# hub-${c}\n\n#cluster${c % 40}`);
+  }
+  for (let i = 0; i < synthCount; i += 1) {
+    const c = i % clusters;
+    const parts: string[] = [];
+    if (i % 3 !== 0) parts.push(`[[hub-${c}]]`);
+    if (i % 7 === 0) parts.push(`[[n${(i + 13) % synthCount}]]`);
+    if (i % 5 === 0) parts.push(`#topic${c % 40}`);
+    files.set(`${MOCK_ROOT}/synth/c${c}/n${i}.md`, `# n${i}\n\n${parts.join(" ")}`);
+  }
+}
+
 const emptyDirs = new Set<string>();
 
 function buildMockTree(): FileNode {
