@@ -169,6 +169,7 @@ pub fn disconnect_remote(state: tauri::State<'_, RemoteState>, uri: String) -> R
 
 /// `ssh ...` 명령어 파싱 결과(접속에 바로 쓸 수 있게 해소한 형태).
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ParsedRemoteTarget {
     /// `ssh://user@host[:port]` — 경로는 비워 둔다(연결 후 홈으로 해소).
     pub uri: String,
@@ -232,6 +233,7 @@ fn default_local_user() -> Option<String> {
 
 /// 원격 디렉토리 한 단계의 항목들(이름 + 디렉토리 여부). 디렉토리 브라우저용.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoteDirEntry {
     pub name: String,
     pub is_dir: bool,
@@ -265,4 +267,36 @@ pub async fn list_remote_dir(
         Ok(out)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 프론트(src/ipc/types.ts)는 camelCase 필드를 읽는다. Tauri는 커맨드 "인자"만
+    // camelCase↔snake_case 를 자동 변환하고 "반환값"은 serde 직렬화 그대로이므로,
+    // rename 누락 시 isDir/keyPath 가 조용히 undefined 가 된다 (#115 회귀 방지).
+    #[test]
+    fn remote_dir_entry_serializes_camel_case_for_frontend() {
+        let entry = RemoteDirEntry {
+            name: "docs".into(),
+            is_dir: true,
+        };
+        assert_eq!(
+            serde_json::to_value(&entry).unwrap(),
+            serde_json::json!({ "name": "docs", "isDir": true })
+        );
+    }
+
+    #[test]
+    fn parsed_remote_target_serializes_camel_case_for_frontend() {
+        let target = ParsedRemoteTarget {
+            uri: "ssh://me@host".into(),
+            key_path: Some("~/.ssh/id_ed25519".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&target).unwrap(),
+            serde_json::json!({ "uri": "ssh://me@host", "keyPath": "~/.ssh/id_ed25519" })
+        );
+    }
 }

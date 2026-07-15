@@ -495,6 +495,14 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input.remote-browser-path:focus {
+  color: var(--fg);
+  border-color: var(--accent);
+  outline: none;
 }
 
 .remote-browser-list {
