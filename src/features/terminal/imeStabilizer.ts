@@ -53,6 +53,24 @@ export function shouldBypassXtermKey(event: Pick<KeyboardEvent, "isComposing" | 
   return event.isComposing || event.keyCode === 229;
 }
 
+/** 수식 키 — 자모 조합의 일부(Shift+ㅖ, 된소리 ㄲ 등)로 눌리므로 조합 경계가 아니다. */
+const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock"]);
+
+/**
+ * pending 음절을 확정(flush)해야 하는 조합 경계 keydown인지 판정한다.
+ * 순수 함수 — 단위 테스트 대상.
+ *
+ * IME 처리 키(keyCode 229/isComposing)는 조합 내부 이벤트라 경계가 아니고,
+ * 수식 키는 다음 자모를 위해 조합 도중에 눌린다 — 경계로 오판해 flush하면
+ * 시작 자모가 낱자로 새어 나간다("계획해" 타이핑 시 계=ㄱ+Shift+ㅖ의
+ * Shift keydown이 pending "ㄱ"를 조기 커밋해 "ㄱ계획해"가 되는 버그).
+ */
+export function isCompositionBoundaryKey(
+  event: Pick<KeyboardEvent, "isComposing" | "keyCode" | "key">,
+): boolean {
+  return event.keyCode !== 229 && !event.isComposing && !MODIFIER_KEYS.has(event.key);
+}
+
 /**
  * Blink(Chromium)는 IME가 정상이므로 손대지 않고, WebKit 계열에서만 활성화한다.
  * WKWebView UA에는 AppleWebKit이 있고 Chrome/Chromium/Edg 마커가 없다.
@@ -177,7 +195,8 @@ export function attachImeStabilizer(
     if (ev.target !== textarea) return;
     // 일반 키(스페이스·엔터·백스페이스·영문 등)가 xterm에 닿기 전에, 조합 중이던
     // 음절을 먼저 PTY로 흘려보내야 순서가 맞는다 ("한글 " ≠ "한 글").
-    if (ev.keyCode !== 229 && !ev.isComposing) flushPending();
+    // 단 수식 키(Shift 등)는 자모 조합의 일부이므로 경계로 취급하지 않는다.
+    if (isCompositionBoundaryKey(ev)) flushPending();
   };
 
   const onBeforeInputCapture = (e: Event) => {
