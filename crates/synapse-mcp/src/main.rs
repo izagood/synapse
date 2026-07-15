@@ -18,10 +18,13 @@
 //! 직접 수행한다(앱은 라이브 상태만 제공).
 
 use std::io::{BufRead, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
-use synapse_core::{search_workspace, Backend, LiveState, LocalBackend, SearchOptions};
+use synapse_core::{
+    apply_auto_links, link_candidates, search_workspace, ApplyLink, Backend, LiveState, LocalBackend,
+    RejectedLink, SearchOptions,
+};
 
 /// 브리지 접속 컨텍스트(환경변수 우선, 없으면 bridge.json에서 cwd로 발견해 1회 읽음).
 struct Ctx {
@@ -229,6 +232,42 @@ fn tool_defs() -> Value {
                 "required": ["path", "content"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "link_candidates",
+            "description": "워크스페이스 노트 간 자동 연결 후보를 휴리스틱으로 계산한다(제목 언급·키워드 중복·공통 이웃). 결과는 JSON 배열: {from,to,score,reasons,existing}. existing=true는 이미 auto-links 블록에 있는 연결이며, apply_links는 파일별 전량 교체이므로 유지할 후보도 최종 목록에 포함해야 한다.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "이 노트들(절대 경로)이 from인 후보만 계산(증분). 생략하면 전체." },
+                    "limit": { "type": "number", "description": "최대 후보 수(기본 50)" }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "apply_links",
+            "description": "확정한 노트 연결을 각 from 노트 하단의 auto-links 마커 블록에 wikilink로 기록한다. 선언적: 전달한 links가 각 from 파일 블록의 전체 내용이 된다(해당 from에 빈 목록 = 블록 제거). 마커 밖 본문은 절대 바꾸지 않으며 사용자 편집과 안전하게 병합된다.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "links": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "from": { "type": "string", "description": "링크를 담을 노트의 절대 경로" },
+                                "to": { "type": "string", "description": "링크 대상 노트의 절대 경로" },
+                                "label": { "type": "string", "description": "선택: 연결 이유 한 줄(— 뒤에 표시)" }
+                            },
+                            "required": ["from", "to"],
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "required": ["links"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -274,6 +313,27 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
                 })
             }
         }
+        "link_candidates" => ctx
+            .fetch_live()
+            .and_then(|live| link_candidates_tool(&live, &args)),
+        "apply_links" => ctx.fetch_live().and_then(|live| {
+            let plans = plan_apply_links(&live, &args)?;
+            let mut out = String::from("# apply_links 결과\n");
+            for p in plans {
+                if p.new_content != p.base {
+                    ctx.post_edit(&p.path, &p.new_content, &p.base)?;
+                }
+                out.push_str(&format!("\n## {}\n- 적용 {}건", p.path, p.applied));
+                for r in &p.rejected {
+                    out.push_str(&format!("\n- 거부: {} — {}", r.to, r.reason));
+                }
+                for w in &p.warnings {
+                    out.push_str(&format!("\n- 경고: {w}"));
+                }
+                out.push('\n');
+            }
+            Ok(out)
+        }),
         other => Err(format!("알 수 없는 도구: {other}")),
     };
 
@@ -353,6 +413,90 @@ fn search_notes(live: &LiveState, query: &str) -> Result<String, String> {
         }
     }
     Ok(out)
+}
+
+/// 워크스페이스 루트를 얻는다(원격 제외) — 기존 read_note/search_notes와 동일 규약.
+fn local_root(live: &LiveState) -> Result<String, String> {
+    let root = live
+        .root
+        .as_deref()
+        .ok_or_else(|| "열린 워크스페이스가 없습니다.".to_string())?;
+    if root.starts_with("ssh://") {
+        return Err("원격(SSH) 워크스페이스는 아직 MCP에서 지원하지 않습니다.".to_string());
+    }
+    Ok(root.to_string())
+}
+
+fn link_candidates_tool(live: &LiveState, args: &Value) -> Result<String, String> {
+    let root = local_root(live)?;
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+    let paths: Vec<PathBuf> = args
+        .get("paths")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(PathBuf::from).collect())
+        .unwrap_or_default();
+    let cands = link_candidates(Path::new(&root), &paths, limit)
+        .map_err(|e| format!("후보 계산 실패: {e}"))?;
+    serde_json::to_string_pretty(&cands).map_err(|e| format!("직렬화 실패: {e}"))
+}
+
+/// apply_links 한 파일 분량의 쓰기 계획(테스트 가능한 순수 계획 단계).
+struct PlannedEdit {
+    path: String,
+    base: String,
+    new_content: String,
+    applied: usize,
+    rejected: Vec<RejectedLink>,
+    warnings: Vec<String>,
+}
+
+/// links 인자를 from별로 묶어(입력 순서 보존) 각 파일의 재작성 내용을 계산한다.
+/// 디스크에 쓰지 않는다 — 쓰기는 호출자가 post_edit으로 수행.
+fn plan_apply_links(live: &LiveState, args: &Value) -> Result<Vec<PlannedEdit>, String> {
+    let root = local_root(live)?;
+    let links = args
+        .get("links")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "links 배열 인자가 필요합니다".to_string())?;
+
+    // from별 그룹(입력 순서 보존)
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: std::collections::HashMap<String, Vec<ApplyLink>> =
+        std::collections::HashMap::new();
+    for l in links {
+        let from = l
+            .get("from")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "각 링크에 from이 필요합니다".to_string())?
+            .to_string();
+        let link: ApplyLink = serde_json::from_value(l.clone())
+            .map_err(|e| format!("링크 항목 해석 실패: {e}"))?;
+        if !groups.contains_key(&from) {
+            order.push(from.clone());
+        }
+        groups.entry(from).or_default().push(link);
+    }
+
+    let mut plans = Vec::new();
+    for from in order {
+        let base = read_note(live, &from)?;
+        let outcome = apply_auto_links(
+            Path::new(&root),
+            Path::new(&from),
+            &base,
+            &groups[&from],
+        )
+        .map_err(|e| e.to_string())?;
+        plans.push(PlannedEdit {
+            path: from,
+            base,
+            new_content: outcome.content,
+            applied: outcome.applied,
+            rejected: outcome.rejected,
+            warnings: outcome.warnings,
+        });
+    }
+    Ok(plans)
 }
 
 // ----- JSON-RPC / MCP 프레이밍 헬퍼 -----
@@ -450,7 +594,7 @@ mod tests {
     fn tool_defs_list_tools_with_object_schemas() {
         let defs = tool_defs();
         let arr = defs.as_array().unwrap();
-        assert_eq!(arr.len(), 5);
+        assert_eq!(arr.len(), 7);
         let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_current_note"));
         assert!(names.contains(&"read_note"));
@@ -551,5 +695,70 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("브리지"));
+    }
+
+    #[test]
+    fn tool_defs_include_autolink_tools() {
+        let defs = tool_defs();
+        let arr = defs.as_array().unwrap();
+        assert_eq!(arr.len(), 7);
+        let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"link_candidates"));
+        assert!(names.contains(&"apply_links"));
+    }
+
+    #[test]
+    fn link_candidates_tool_returns_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("cilium.md"), "# Cilium").unwrap();
+        std::fs::write(root.join("k8s.md"), "cilium 언급").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let out = link_candidates_tool(&live, &json!({})).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v.as_array().unwrap().iter().any(|c| {
+            c["from"].as_str().unwrap().ends_with("k8s.md")
+                && c["to"].as_str().unwrap().ends_with("cilium.md")
+        }));
+    }
+
+    #[test]
+    fn plan_apply_links_groups_by_from_and_rewrites() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("from.md"), "본문\n").unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let args = json!({ "links": [
+            { "from": root.join("from.md").display().to_string(),
+              "to": root.join("b.md").display().to_string(),
+              "label": "설명" }
+        ]});
+        let plans = plan_apply_links(&live, &args).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].base, "본문\n");
+        assert!(plans[0].new_content.contains("- [[b]] — 설명"));
+        assert_eq!(plans[0].applied, 1);
+    }
+
+    #[test]
+    fn plan_apply_links_requires_links_array() {
+        let live = LiveState {
+            root: Some("/ws".to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        assert!(plan_apply_links(&live, &json!({})).is_err());
     }
 }
