@@ -17,20 +17,12 @@ import {
   placeLabels,
   type LabelCandidate,
 } from "./layout";
+import { applyZoom, wheelZoomFactor, type ZoomView as View } from "./zoom";
 
 const WIDTH = 900;
 const HEIGHT = 600;
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 5;
-
-interface View {
-  k: number;
-  tx: number;
-  ty: number;
-}
-
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, v));
 
 const displayName = (name: string) => name.replace(/\.(md|markdown)$/i, "");
 
@@ -173,11 +165,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   }, [layout, focusing, hover, matches, neighbors, activePath, maxDegree]);
 
   const zoomAt = (vx: number, vy: number, factor: number) => {
-    setView((v) => {
-      const k = clamp(v.k * factor, MIN_ZOOM, MAX_ZOOM);
-      const f = k / v.k;
-      return { k, tx: vx - (vx - v.tx) * f, ty: vy - (vy - v.ty) * f };
-    });
+    setView((v) => applyZoom(v, vx, vy, factor, MIN_ZOOM, MAX_ZOOM));
   };
 
   // 휠 줌은 네이티브 non-passive 리스너로 — 합성 onWheel은 preventDefault가 막힐 수 있다.
@@ -189,7 +177,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
       const rect = el.getBoundingClientRect();
       const x = ((e.clientX - rect.left) / rect.width) * WIDTH;
       const y = ((e.clientY - rect.top) / rect.height) * HEIGHT;
-      zoomAt(x, y, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      zoomAt(x, y, wheelZoomFactor(e));
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
@@ -199,7 +187,6 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     if (e.button !== 0) return;
     panned.current = false;
     drag.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
-    svgRef.current?.setPointerCapture(e.pointerId);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -209,7 +196,13 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     if (!rect) return;
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
-    if (Math.abs(dx) + Math.abs(dy) > 4) panned.current = true;
+    if (!panned.current && Math.abs(dx) + Math.abs(dy) > 4) {
+      // 팬이 실제로 시작된 뒤에만 포인터를 캡처한다. pointerdown에서 바로
+      // 캡처하면 click이 svg로 재타게팅돼 노드의 onClick이 실행되지 않는다.
+      panned.current = true;
+      svgRef.current?.setPointerCapture(e.pointerId);
+    }
+    if (!panned.current) return;
     setView((v) => ({
       ...v,
       tx: d.tx + (dx / rect.width) * WIDTH,
@@ -219,7 +212,9 @@ export function GraphView({ onClose }: { onClose: () => void }) {
 
   const onPointerUp = (e: React.PointerEvent) => {
     drag.current = null;
-    svgRef.current?.releasePointerCapture(e.pointerId);
+    if (svgRef.current?.hasPointerCapture(e.pointerId)) {
+      svgRef.current.releasePointerCapture(e.pointerId);
+    }
   };
 
   return (
