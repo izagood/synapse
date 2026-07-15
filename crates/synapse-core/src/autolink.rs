@@ -5,10 +5,38 @@
 //! 마커 블록만 멱등하게 재작성한다. 마커 밖 바이트는 절대 바꾸지 않는다.
 //! 설계: docs/auto-links-design.md
 
+use std::collections::{HashMap, HashSet};
+use std::io;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+
+use crate::links::{
+    collect_markdown, extract_links, resolve_standard_link, stem, stem_index, OutLink,
+};
+
 /// auto-links 관리 블록 시작/종료 마커. 블록은 기계 소유이며 내용은 항상
 /// `apply_links` 입력으로 전량 결정된다(멱등성의 근원).
 pub const AUTO_LINKS_START: &str = "<!-- synapse:auto-links:start -->";
 pub const AUTO_LINKS_END: &str = "<!-- synapse:auto-links:end -->";
+
+/// agent에게 제안하는 연결 후보 한 건.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkCandidate {
+    /// 링크를 갖게 될 소스 노트의 절대 경로.
+    pub from: String,
+    /// 링크 대상 노트의 절대 경로.
+    pub to: String,
+    /// 휴리스틱 점수(정렬용). 클수록 유력.
+    pub score: u32,
+    /// 사람이 읽을 근거("제목 언급", "키워드 N개 중복", "공통 이웃 N개").
+    pub reasons: Vec<String>,
+    /// 이 연결이 현재 auto-links 블록에 이미 있는가. apply_links는 선언적
+    /// (파일별 전량 교체)이므로, agent는 existing=true 후보의 유지 여부도
+    /// 함께 판단해 최종 목록에 포함해야 한다.
+    pub existing: bool,
+}
 
 /// 마커 블록 재작성 결과.
 #[derive(Debug)]
@@ -84,6 +112,179 @@ pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
         i += 1;
     }
     BlockScan { first, duplicate, unterminated }
+}
+
+/// 한 노트의 사전 계산 상태.
+struct NoteInfo {
+    body_lower: String,
+    /// 본문(auto 블록 제외)의 링크가 가리키는 노트 집합 — "사람 링크".
+    human_targets: HashSet<PathBuf>,
+    /// auto 블록 안 링크가 가리키는 노트 집합.
+    auto_targets: HashSet<PathBuf>,
+    /// 빈도 상위 키워드.
+    keywords: HashSet<String>,
+}
+
+/// 본문에서 빈도 상위 키워드를 뽑는다(retrieval과 같은 토큰화 규칙).
+fn top_keywords(body_lower: &str, k: usize) -> HashSet<String> {
+    let mut freq: HashMap<&str, u32> = HashMap::new();
+    for tok in body_lower.split(|c: char| !c.is_alphanumeric()) {
+        if tok.chars().count() < 2 {
+            continue;
+        }
+        if crate::retrieval::STOPWORDS.contains(&tok) {
+            continue;
+        }
+        *freq.entry(tok).or_insert(0) += 1;
+    }
+    let mut v: Vec<(&str, u32)> = freq.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    v.into_iter().take(k).map(|(t, _)| t.to_string()).collect()
+}
+
+/// 내용을 (auto 블록 밖, auto 블록 안)으로 나눈다.
+fn split_auto_block(content: &str) -> (String, String) {
+    let lines: Vec<&str> = content.split_inclusive('\n').collect();
+    let scan = scan_auto_block(&lines);
+    match scan.first {
+        Some((s, e)) => {
+            let mut outside = String::new();
+            for l in lines[..s].iter().chain(lines[e + 1..].iter()) {
+                outside.push_str(l);
+            }
+            let inside: String = lines[s..=e].concat();
+            (outside, inside)
+        }
+        None => (content.to_string(), String::new()),
+    }
+}
+
+/// 링크 목록을 대상 노트 절대 경로 집합으로 해석한다.
+fn resolve_targets(
+    text: &str,
+    source: &Path,
+    root: &Path,
+    by_stem: &HashMap<String, PathBuf>,
+) -> HashSet<PathBuf> {
+    let mut out = HashSet::new();
+    for (link, _snippet) in extract_links(text) {
+        let resolved = match &link {
+            OutLink::Standard(href) => resolve_standard_link(href, source, root),
+            OutLink::Wiki(name) => by_stem.get(&name.to_lowercase()).cloned(),
+        };
+        if let Some(t) = resolved {
+            if t != source {
+                out.insert(t);
+            }
+        }
+    }
+    out
+}
+
+/// 워크스페이스에서 자동 연결 후보를 계산한다(결정적, LLM 없음).
+///
+/// `from_paths`가 비어 있지 않으면 그 노트들이 `from`인 쌍만 계산한다(증분).
+/// 이미 사람 링크(auto 블록 밖)로 연결된 쌍은 제외하고, auto 블록으로만
+/// 연결된 쌍은 `existing=true`로 표시해 유지한다.
+pub fn link_candidates(
+    root: &Path,
+    from_paths: &[PathBuf],
+    limit: usize,
+) -> io::Result<Vec<LinkCandidate>> {
+    let root = root.canonicalize()?;
+    let md_files = collect_markdown(&root);
+    let by_stem = stem_index(&md_files);
+
+    // 사전 계산: 본문/링크/키워드
+    let mut infos: HashMap<PathBuf, NoteInfo> = HashMap::new();
+    for f in &md_files {
+        let Ok(body) = std::fs::read_to_string(f) else { continue };
+        let (outside, inside) = split_auto_block(&body);
+        infos.insert(
+            f.clone(),
+            NoteInfo {
+                body_lower: outside.to_lowercase(),
+                human_targets: resolve_targets(&outside, f, &root, &by_stem),
+                auto_targets: resolve_targets(&inside, f, &root, &by_stem),
+                keywords: top_keywords(&outside.to_lowercase(), 12),
+            },
+        );
+    }
+
+    // 공통 이웃용 무방향 인접(사람 링크만 — auto 링크의 자기 강화 방지)
+    let mut adj: HashMap<&PathBuf, HashSet<&PathBuf>> = HashMap::new();
+    for (f, info) in &infos {
+        for t in &info.human_targets {
+            if let Some((tk, _)) = infos.get_key_value(t) {
+                adj.entry(f).or_default().insert(tk);
+                adj.entry(tk).or_default().insert(f);
+            }
+        }
+    }
+
+    // from 스코프: 지정 경로(canonicalize)만 또는 전체
+    let sources: Vec<PathBuf> = if from_paths.is_empty() {
+        md_files.clone()
+    } else {
+        from_paths
+            .iter()
+            .filter_map(|p| p.canonicalize().ok())
+            .filter(|p| infos.contains_key(p))
+            .collect()
+    };
+
+    let mut out: Vec<LinkCandidate> = Vec::new();
+    for a in &sources {
+        let Some(ia) = infos.get(a) else { continue };
+        for b in &md_files {
+            if a == b || ia.human_targets.contains(b) {
+                continue;
+            }
+            let Some(ib) = infos.get(b) else { continue };
+            let mut score = 0u32;
+            let mut reasons = Vec::new();
+
+            if let Some(sb) = stem(b) {
+                let sb = sb.to_lowercase();
+                if sb.chars().count() >= 2 && ia.body_lower.contains(&sb) {
+                    score += 30;
+                    reasons.push(format!("본문이 '{sb}' 제목을 언급"));
+                }
+            }
+            let overlap = ia.keywords.intersection(&ib.keywords).count() as u32;
+            if overlap >= 2 {
+                score += overlap * 8;
+                reasons.push(format!("상위 키워드 {overlap}개 중복"));
+            }
+            let common = adj
+                .get(a)
+                .zip(adj.get(b))
+                .map(|(na, nb)| na.intersection(nb).count() as u32)
+                .unwrap_or(0);
+            if common > 0 {
+                score += common * 10;
+                reasons.push(format!("공통 이웃 노트 {common}개"));
+            }
+            if score == 0 {
+                continue;
+            }
+            out.push(LinkCandidate {
+                from: a.display().to_string(),
+                to: b.display().to_string(),
+                score,
+                reasons,
+                existing: ia.auto_targets.contains(b),
+            });
+        }
+    }
+    out.sort_by(|x, y| {
+        y.score
+            .cmp(&x.score)
+            .then_with(|| x.from.cmp(&y.from))
+            .then_with(|| x.to.cmp(&y.to))
+    });
+    out.truncate(limit);
+    Ok(out)
 }
 
 /// 렌더된 목록 줄들로 블록 텍스트를 만든다. 빈 목록이면 빈 문자열(블록 제거).
@@ -229,5 +430,123 @@ mod tests {
         assert!(out.content.contains("- [[new]]"));
         assert!(!out.content.contains("깨진 꼬리"), "종료 마커 없으면 EOF까지 블록으로 간주");
         assert_eq!(out.warnings.len(), 1);
+    }
+
+    use std::fs::{self, File};
+    use std::io::Write;
+    use std::path::Path;
+
+    fn write(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let mut f = File::create(path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn candidate_title_mention_scores() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("cilium.md"), "# Cilium\nCNI 구현체");
+        write(&root.join("k8s.md"), "네트워킹에서 cilium 을 쓴다");
+        write(&root.join("none.md"), "무관한 노트");
+
+        let cands = link_candidates(root, &[], 50).unwrap();
+        let pair = cands
+            .iter()
+            .find(|c| c.from.ends_with("k8s.md") && c.to.ends_with("cilium.md"))
+            .expect("제목 언급 후보가 있어야 함");
+        assert!(pair.score > 0);
+        assert!(!pair.existing);
+        assert!(pair.reasons.iter().any(|r| r.contains("제목")));
+        assert!(!cands
+            .iter()
+            .any(|c| c.from.ends_with("none.md") || c.to.ends_with("none.md")));
+    }
+
+    #[test]
+    fn candidate_excludes_human_linked_pairs_but_flags_auto_linked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("target.md"), "# target");
+        // human: 본문에서 직접 링크 → 후보 제외
+        write(&root.join("human.md"), "target 이야기. [[target]] 참고");
+        // auto: 블록 안에서만 링크 → 후보 유지 + existing=true
+        write(
+            &root.join("auto.md"),
+            &format!(
+                "target 이야기\n\n{}\n## 관련 노트\n- [[target]]\n{}\n",
+                AUTO_LINKS_START, AUTO_LINKS_END
+            ),
+        );
+
+        let cands = link_candidates(root, &[], 50).unwrap();
+        assert!(
+            !cands
+                .iter()
+                .any(|c| c.from.ends_with("human.md") && c.to.ends_with("target.md")),
+            "사람이 쓴 링크가 있는 쌍은 제외"
+        );
+        let auto = cands
+            .iter()
+            .find(|c| c.from.ends_with("auto.md") && c.to.ends_with("target.md"))
+            .expect("auto 블록 링크 쌍은 후보 유지");
+        assert!(auto.existing);
+    }
+
+    #[test]
+    fn candidate_common_neighbor_scores() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("hub.md"), "# 허브");
+        write(&root.join("a.md"), "[[hub]] 를 가리킴 alpha");
+        write(&root.join("b.md"), "[[hub]] 를 가리킴 beta");
+
+        let cands = link_candidates(root, &[], 50).unwrap();
+        let ab = cands
+            .iter()
+            .find(|c| c.from.ends_with("a.md") && c.to.ends_with("b.md"))
+            .expect("공통 이웃(hub) 후보");
+        assert!(ab.reasons.iter().any(|r| r.contains("공통")));
+    }
+
+    #[test]
+    fn candidate_scoped_by_from_paths_and_limit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("cilium.md"), "# Cilium");
+        write(&root.join("k8s.md"), "cilium 언급");
+        write(&root.join("other.md"), "cilium 언급");
+
+        let only = link_candidates(root, &[root.join("k8s.md")], 50).unwrap();
+        assert!(only.iter().all(|c| c.from.ends_with("k8s.md")), "증분: from 제한");
+
+        let capped = link_candidates(root, &[], 1).unwrap();
+        assert_eq!(capped.len(), 1, "limit 상한");
+    }
+
+    #[test]
+    fn candidates_deterministic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("cilium.md"), "# Cilium");
+        write(&root.join("k8s.md"), "cilium 언급");
+        let a = link_candidates(root, &[], 50).unwrap();
+        let b = link_candidates(root, &[], 50).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn candidate_serializes_camel_case() {
+        let c = LinkCandidate {
+            from: "/v/a.md".into(),
+            to: "/v/b.md".into(),
+            score: 30,
+            reasons: vec!["r".into()],
+            existing: false,
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(json.contains("\"from\"") && json.contains("\"existing\""));
     }
 }
