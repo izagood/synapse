@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  adaptiveIterations,
   adjacencyOf,
+  BH_THRESHOLD,
   estimateLabelWidth,
   layoutGraph,
   placeLabels,
+  repulsionBH,
+  repulsionExact,
   type LabelCandidate,
 } from "./layout";
 import { computeGraph } from "../editor/backlinks";
@@ -213,5 +217,139 @@ describe("adjacencyOf", () => {
     };
     expect(adjacencyOf(graph, "/n/a.md")).toEqual(new Set(["/n/b.md", "/n/c.md"]));
     expect(adjacencyOf(graph, "/n/b.md")).toEqual(new Set(["/n/a.md"]));
+  });
+});
+
+// ── 성능 개선(P1~P3) 관련 ──────────────────────────────────────
+
+/** n개 노드 + 앞쪽 일부만 사슬로 잇는 희소 그래프 생성 */
+function sparseGraph(n: number, linked: number): LinkGraph {
+  const nodes = Array.from({ length: n }, (_, i) => ({
+    path: `${ROOT}/n${i}.md`,
+    name: `n${i}.md`,
+  }));
+  const edges = Array.from({ length: Math.max(0, linked - 1) }, (_, i) => ({
+    source: `${ROOT}/n${i}.md`,
+    target: `${ROOT}/n${i + 1}.md`,
+  }));
+  return { nodes, edges };
+}
+
+describe("layoutGraph — 고립 노드 분리(P1)", () => {
+  it("모든 노드가 고립이어도 균일하게 배치된다", () => {
+    const layout = layoutGraph(sparseGraph(50, 0), { width: 900, height: 600 });
+    expect(layout.nodes).toHaveLength(50);
+    for (const node of layout.nodes) {
+      expect(Number.isFinite(node.x)).toBe(true);
+      expect(Number.isFinite(node.y)).toBe(true);
+      expect(node.x).toBeGreaterThanOrEqual(0);
+      expect(node.x).toBeLessThanOrEqual(900);
+      expect(node.y).toBeGreaterThanOrEqual(0);
+      expect(node.y).toBeLessThanOrEqual(600);
+    }
+    // 고립 노드끼리 같은 자리에 겹치지 않는다
+    const seen = new Set(layout.nodes.map((n) => `${n.x.toFixed(3)},${n.y.toFixed(3)}`));
+    expect(seen.size).toBe(50);
+  });
+
+  it("고립 노드는 연결 구조보다 바깥(외곽 고리)에 놓인다", () => {
+    const g = sparseGraph(200, 8); // 연결 8개 + 고립 192개
+    const layout = layoutGraph(g, { width: 900, height: 600 });
+    const dist = (n: { x: number; y: number }) =>
+      Math.hypot((n.x - 450) / 450, (n.y - 300) / 300); // 타원 정규화 거리
+    const linked = layout.nodes.filter((n) => n.degree > 0);
+    const orphans = layout.nodes.filter((n) => n.degree === 0);
+    const maxLinked = Math.max(...linked.map(dist));
+    const minOrphan = Math.min(...orphans.map(dist));
+    // 두 영역이 대체로 분리된다 (경계 살짝 겹침은 허용)
+    expect(minOrphan).toBeGreaterThan(maxLinked * 0.6);
+  });
+
+  it("희소 그래프의 결정성: 같은 입력 → 같은 출력", () => {
+    const g = sparseGraph(300, 20);
+    const a = layoutGraph(g, { width: 900, height: 600 });
+    const b = layoutGraph(g, { width: 900, height: 600 });
+    expect(a.nodes.map((n) => [n.x, n.y])).toEqual(b.nodes.map((n) => [n.x, n.y]));
+  });
+});
+
+describe("adaptiveIterations (P2)", () => {
+  it("작은 그래프는 300회를 유지한다", () => {
+    expect(adaptiveIterations(50)).toBe(300);
+    expect(adaptiveIterations(300)).toBe(300);
+  });
+
+  it("커질수록 줄고 하한 80을 지킨다", () => {
+    expect(adaptiveIterations(600)).toBeLessThan(300);
+    expect(adaptiveIterations(600)).toBeGreaterThanOrEqual(80);
+    expect(adaptiveIterations(100000)).toBe(80);
+  });
+});
+
+describe("Barnes-Hut 반발 근사 (P3)", () => {
+  /** 해시 기반 결정적 좌표 배열 생성 */
+  function positions(m: number): { xs: Float64Array; ys: Float64Array } {
+    const xs = new Float64Array(m);
+    const ys = new Float64Array(m);
+    for (let i = 0; i < m; i += 1) {
+      xs[i] = 37 + ((i * 137) % 800) + (i % 7) * 0.13;
+      ys[i] = 23 + ((i * 251) % 550) + (i % 5) * 0.29;
+    }
+    return { xs, ys };
+  }
+
+  it("θ=0이면 exact와 일치한다", () => {
+    const m = 60;
+    const { xs, ys } = positions(m);
+    const ex = { x: new Float64Array(m), y: new Float64Array(m) };
+    const bh = { x: new Float64Array(m), y: new Float64Array(m) };
+    repulsionExact(xs, ys, m, 1000, ex.x, ex.y);
+    repulsionBH(xs, ys, m, 1000, bh.x, bh.y, 0);
+    for (let i = 0; i < m; i += 1) {
+      expect(bh.x[i]).toBeCloseTo(ex.x[i], 6);
+      expect(bh.y[i]).toBeCloseTo(ex.y[i], 6);
+    }
+  });
+
+  it("기본 θ=0.9에서도 exact와 방향·크기가 대체로 일치한다", () => {
+    const m = 200;
+    const { xs, ys } = positions(m);
+    const ex = { x: new Float64Array(m), y: new Float64Array(m) };
+    const bh = { x: new Float64Array(m), y: new Float64Array(m) };
+    repulsionExact(xs, ys, m, 1000, ex.x, ex.y);
+    repulsionBH(xs, ys, m, 1000, bh.x, bh.y);
+    let totalErr = 0;
+    let totalMag = 0;
+    for (let i = 0; i < m; i += 1) {
+      totalErr += Math.hypot(bh.x[i] - ex.x[i], bh.y[i] - ex.y[i]);
+      totalMag += Math.hypot(ex.x[i], ex.y[i]);
+    }
+    // 평균 상대 오차 10% 이내면 레이아웃 품질에 충분
+    expect(totalErr / totalMag).toBeLessThan(0.1);
+  });
+
+  it("동일 좌표가 뭉쳐 있어도 발산하지 않는다", () => {
+    const m = 8;
+    const xs = new Float64Array(m).fill(100);
+    const ys = new Float64Array(m).fill(100);
+    const dx = new Float64Array(m);
+    const dy = new Float64Array(m);
+    repulsionBH(xs, ys, m, 1000, dx, dy);
+    for (let i = 0; i < m; i += 1) {
+      expect(Number.isFinite(dx[i])).toBe(true);
+      expect(Number.isFinite(dy[i])).toBe(true);
+    }
+  });
+
+  it("BH 경로를 타는 큰 그래프도 결정적이고 유한하다", () => {
+    const linked = BH_THRESHOLD + 40;
+    const g = sparseGraph(linked, linked); // 전부 연결 → sim 노드가 임계 초과
+    const a = layoutGraph(g, { width: 900, height: 600, iterations: 30 });
+    const b = layoutGraph(g, { width: 900, height: 600, iterations: 30 });
+    expect(a.nodes.map((n) => [n.x, n.y])).toEqual(b.nodes.map((n) => [n.x, n.y]));
+    for (const node of a.nodes) {
+      expect(Number.isFinite(node.x)).toBe(true);
+      expect(Number.isFinite(node.y)).toBe(true);
+    }
   });
 });
