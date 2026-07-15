@@ -28,7 +28,7 @@ synapse는 agent-native 노트앱이다. 사용자가 외부 에이전트(claude
 사용자 → 외부 agent → synapse-mcp 사이드카 → 앱 bridge(HTTP) → synapse-core
   ① link_candidates(root, paths?, limit?) : core가 후보 쌍 + 근거 반환
   ② agent가 기존 read 도구로 노트 확인, 의미 판단
-  ③ apply_links(root, links[])            : core가 마커 블록 멱등 재작성
+  ③ apply_links(links[], clear?[])        : core가 마커 블록 멱등 재작성
   → 파일 watcher가 에디터/GraphView 자동 갱신
 ```
 
@@ -50,7 +50,9 @@ synapse는 agent-native 노트앱이다. 사용자가 외부 에이전트(claude
 | 키워드 중복 | 상위 키워드 교집합 점수 | `retrieval.rs` 토크나이저 |
 | 공통 이웃 | 기존 링크 그래프의 공통 연결 노트 수 | `links.rs::build_graph` |
 
-- 이미 명시 링크로 연결된 쌍은 후보에서 제외한다.
+- 이미 명시 링크로 연결된 쌍은 후보에서 제외한다. 단, 이 제외는 방향성이다:
+  `from→to` 방향에 사람 링크가 이미 있는 쌍만 제외하며, 역방향(`to→from`)
+  사람 링크는 별개로 취급해 `from→to` 후보 계산에 영향을 주지 않는다.
 - 출력: `{from, to, score, reasons[]}` 목록. `reasons`는 agent가 판단 근거로
   쓸 사람이 읽을 문자열. 기본 상한 50 (`limit` 파라미터).
 
@@ -74,13 +76,19 @@ synapse는 agent-native 노트앱이다. 사용자가 외부 에이전트(claude
 
 - `link_candidates(root, paths?, limit?)` → 후보 목록.
   `paths` 지정 시 해당 노트가 `from`인 쌍만(증분).
-- `apply_links(root, links: [{from, to, label?}])` → 파일별 결과.
-  `from` 파일별로 그룹핑해 마커 블록 재작성. `label`은 `— 설명` 꼬리말.
+- `apply_links(links: [{from, to, label?}], clear?: string[])` → 파일별 결과.
+  `root`는 도구 인자로 받지 않는다 — 사이드카가 앱 bridge의 라이브 워크스페이스
+  루트(`live.root`)를 그대로 쓴다. `from` 파일별로 그룹핑해 마커 블록 재작성.
+  `label`은 `— 설명` 꼬리말. `clear`에 지정한 노트는 `links`에 항목이 없어도
+  빈 링크 그룹으로 합류해 블록을 비운다(같은 `from`이 `links`에도 있으면
+  `links`가 우선한다).
 - **선언적 계약**: 전달된 `links`가 해당 파일 블록의 *전체* 내용이 된다.
-  증분 갱신 시에도 agent는 그 파일의 최종 링크 목록 전체를 전달해야 한다
-  (빈 목록 전달 = 블록 비움).
-- 앱 bridge에 대응 HTTP 엔드포인트를 신설하고, 사이드카는 기존 인증
-  (127.0.0.1 + 토큰) 규약을 따른다.
+  증분 갱신 시에도 agent는 그 파일의 최종 링크 목록 전체를 전달해야 한다.
+  다만 어떤 `from`에 대해 "빈 목록"을 표현하려면 `links`에 그 `from`을 아예
+  넣지 않고 `clear`에 넣어야 한다(`links` 배열 항목 자체는 `{from, to}`가
+  필수라 빈 목록을 항목으로 표현할 수 없다).
+- 쓰기는 기존 `/edit` 브리지 엔드포인트를 그대로 재사용한다(신설 없음).
+  사이드카는 기존 인증(127.0.0.1 + 토큰) 규약을 따른다.
 
 **구현 확정 세부:**
 
