@@ -58,7 +58,16 @@ impl Backend for SftpBackend {
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        runtime().block_on(async { self.sftp().write(posix(path), bytes).await.map_err(to_io) })
+        // russh-sftp의 write() 헬퍼는 WRITE 플래그만으로 열어 새 파일을 만들지
+        // 못하고(No such file), 기존 파일도 truncate 없이 덮어써 새 내용이 더
+        // 짧으면 꼬리가 남는다. CREATE|TRUNCATE|WRITE로 여는 create()를 쓴다.
+        let target = posix(path);
+        runtime().block_on(async {
+            let mut file = self.sftp().create(target).await.map_err(to_io)?;
+            file.write_all(bytes).await.map_err(to_io)?;
+            file.shutdown().await.map_err(to_io)?;
+            Ok(())
+        })
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
@@ -197,7 +206,11 @@ impl Backend for SftpBackend {
         let dst = posix(path);
         runtime().block_on(async {
             let sftp = self.sftp();
-            sftp.write(tmp.clone(), content).await.map_err(to_io)?;
+            // tmp는 항상 새 파일이므로 CREATE가 필요하다(create = CREATE|TRUNCATE|WRITE).
+            // sftp.write()는 WRITE만으로 열어 새 파일에서 No such file로 실패한다.
+            let mut file = sftp.create(tmp.clone()).await.map_err(to_io)?;
+            file.write_all(content).await.map_err(to_io)?;
+            file.shutdown().await.map_err(to_io)?;
             if sftp.rename(tmp.clone(), dst.clone()).await.is_err() {
                 let _ = sftp.remove_file(dst.clone()).await;
                 if let Err(e) = sftp.rename(tmp.clone(), dst).await {

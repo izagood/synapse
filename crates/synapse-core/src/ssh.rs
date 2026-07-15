@@ -295,21 +295,36 @@ async fn authenticate(
     user: &str,
     cfg: &SshConfig,
 ) -> Result<(), SshError> {
+    // RSA 키는 서버와 협상한 rsa-sha2 해시로 서명해야 한다. 기본값(None)은
+    // 레거시 ssh-rsa(SHA-1) 서명이라 OpenSSH 8.8+ 서버가 기본 거부한다(RFC 8332).
+    // 서버가 server-sig-algs 확장을 안 주면 rsa-sha2-256을 시도한다 — 확장만
+    // 구현 안 한 서버도 rsa-sha2 서명 자체는 사실상 전부 받는다.
+    // (비-RSA 키에는 PrivateKeyWithHashAlg가 이 값을 무시하므로 무해하다.)
+    let rsa_hash = match handle.best_supported_rsa_hash().await {
+        Ok(Some(server_pref)) => server_pref,
+        Ok(None) | Err(_) => Some(HashAlg::Sha256),
+    };
+
     // 1. SSH 에이전트 (플랫폼별: unix는 SSH_AUTH_SOCK, Windows는 현재 미지원)
-    if cfg.use_agent && try_agent_auth(handle, user).await {
+    if cfg.use_agent && try_agent_auth(handle, user, rsa_hash).await {
         return Ok(());
     }
 
-    // 2. ~/.ssh 키 파일
+    // 2. ~/.ssh 키 파일 — 로드 실패는 건너뛰되 사유를 모아 최종 오류에 싣는다
+    // (조용히 삼키면 "지원 안 되는 키 포맷" 같은 원인이 진단 불가능해진다).
+    let mut key_errors: Vec<String> = Vec::new();
     for path in &cfg.identity_files {
         if !path.exists() {
             continue;
         }
         let key = match load_secret_key(path, cfg.passphrase.as_deref()) {
             Ok(k) => k,
-            Err(_) => continue, // 암호화된 키 등은 건너뛴다
+            Err(e) => {
+                key_errors.push(format!("{}: {e}", path.display()));
+                continue;
+            }
         };
-        let with_alg = PrivateKeyWithHashAlg::new(Arc::new(key), None);
+        let with_alg = PrivateKeyWithHashAlg::new(Arc::new(key), rsa_hash);
         if let Ok(AuthResult::Success) = handle.authenticate_publickey(user, with_alg).await {
             return Ok(());
         }
@@ -322,15 +337,23 @@ async fn authenticate(
         }
     }
 
-    Err(SshError::Auth(
-        "사용 가능한 인증 수단으로 로그인하지 못했습니다(에이전트/키/비밀번호)".into(),
-    ))
+    let mut msg =
+        "사용 가능한 인증 수단으로 로그인하지 못했습니다(에이전트/키/비밀번호)".to_string();
+    if !key_errors.is_empty() {
+        msg.push_str(&format!(" — 로드 실패한 키: {}", key_errors.join(", ")));
+    }
+    Err(SshError::Auth(msg))
 }
 
 /// SSH 에이전트로 공개키 인증을 시도한다. 성공하면 true.
 /// 에이전트 소켓 접근 방식이 플랫폼마다 달라 cfg로 분기한다.
+/// `rsa_hash`: RSA 키에 쓸 서명 해시(협상 결과). 비-RSA 키에는 넘기지 않는다.
 #[cfg(unix)]
-async fn try_agent_auth(handle: &mut Handle<Verifier>, user: &str) -> bool {
+async fn try_agent_auth(
+    handle: &mut Handle<Verifier>,
+    user: &str,
+    rsa_hash: Option<HashAlg>,
+) -> bool {
     use russh::keys::agent::client::AgentClient;
     use russh::keys::agent::AgentIdentity;
 
@@ -342,8 +365,13 @@ async fn try_agent_auth(handle: &mut Handle<Verifier>, user: &str) -> bool {
     };
     for identity in identities {
         if let AgentIdentity::PublicKey { key, .. } = identity {
+            let hash = if key.algorithm().is_rsa() {
+                rsa_hash
+            } else {
+                None
+            };
             if let Ok(AuthResult::Success) = handle
-                .authenticate_publickey_with(user, key, None, &mut agent)
+                .authenticate_publickey_with(user, key, hash, &mut agent)
                 .await
             {
                 return true;
@@ -355,7 +383,11 @@ async fn try_agent_auth(handle: &mut Handle<Verifier>, user: &str) -> bool {
 
 /// 비-unix(Windows 등): SSH 에이전트(Pageant)는 현재 미지원 — 키 파일/비밀번호로 인증한다.
 #[cfg(not(unix))]
-async fn try_agent_auth(_handle: &mut Handle<Verifier>, _user: &str) -> bool {
+async fn try_agent_auth(
+    _handle: &mut Handle<Verifier>,
+    _user: &str,
+    _rsa_hash: Option<HashAlg>,
+) -> bool {
     false
 }
 
@@ -401,6 +433,59 @@ pub fn remote_git_command(cwd: &str, envs: &[(&str, &str)], args: &[&str]) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 레거시 PEM(PKCS#1) RSA 개인키 — `ssh-keygen -t rsa -m PEM`의 출력 포맷으로,
+    /// 실사용 `~/.ssh/id_rsa`에 여전히 흔하다. russh를 default-features=false로
+    /// 빌드하면서 `rsa` feature가 빠지면 "Unsupported key type RSA"로 로드가
+    /// 실패하고, authenticate()가 키를 조용히 건너뛰어 원격 연결 전체가 인증
+    /// 실패로 죽는다. 이 테스트가 그 회귀를 잡는다.
+    /// (테스트 전용으로 생성한 일회용 키다 — 어떤 시스템에도 등록돼 있지 않다.)
+    const PKCS1_RSA_TEST_KEY: &str = "-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEAtrpqGKm3IB2MDcSJpKoBfstlnzXrD2Vf66Dqr6WGtkioQNfo
+Z8PB/5Z9BsLof3E0fpu9qpNhjIYYqbC4OwfrjvX7fKwGHmT30tQgbHYr/K3o3JpQ
+AHFg04fv04euxURE3W+/EKlv/QTJIO2fsve8TraJblVsql9J3m7thrSAkDrAzz6u
+2Y5jCFsdq4pAb+wxES/uDTjfFd8JY8Tf8JQ1cmh/XYq3a1JtMV7rGsKmRKqufRZt
+qKsGVEpUNo5CHyAfUmC7c4XAwORUmetZuYGliYtFHRNjRYYT5t2MjS5QX3dQp6wC
+lnAv83vRC2AcYUQ6E11VT3xXomvFe3o8ggL9JQIDAQABAoIBAE2SieP6eKGLqZ9W
+plBfU88uLfAPBcE9eiEf6UGz9aKA6dzNS/5xHnSQwHcUW3tu5agyGazGcI0liGbR
+fQSich/40VC1/sr8djDsmO8yo63bbpXodLobZ82lUeztFwbr2ohfHi/GnqI9W908
+w6VIgoqv91v9q+oQFd32HaQoEMQpVUcf8m4OzjVueJ+VrTZQaIeeDb6XdafpvBnV
+R212xnWz7n7Ss39Rn214NTaBGpu9yeJBzID/R5JOPuHZgQNIkFDNb2RSDZkK2mgh
+0GgCXtfnDcv6RUOQWzBjVgqqa6Qq+A9Utlj9Ao4QA9FsjmqRAr8SF5UvcNQbhI1D
+4KCmZmkCgYEA4pRC97XlE8Q8J1HwNWu6WjVKJbrb5RaUBUHMM1LT2tdg1cYKx1ko
+DrUF2LQ9v5km2VnwAfKR3wQTW/QB0jJy88HRDr/cOUaI8dshbjs9ZC7UvzAH2BU2
+ycILmt8P8Hk6f8LyEdtxxPPEWh8NSEBuLRR0Q4GHy6l/qdkh8gWuNGMCgYEAznR/
+tCO99Hu+/eBOh4d287uKTvydKbPr0Z8KtzpNIqN5Ibe688nCS4CjnW0kJdaz1IxJ
+ovLr0o3m+w5pAQp+IvVDW1iAFkqPnh8pY168UziKRHVC4zqQQzxoU7YZ5mGC+8An
+LoeLt9a1zzTAzf1l1mAyozX+plRFJw4WuR4satcCgYA0Zt+6FHpfgPH8kgnBASI/
+PLXiVf4HVJp1QMtuT0iqA0flCQFzK16FUD6C6OSjDFOczx0gBi7Qakvj52IIcBx/
+3aJxC9Rt9q8zaF+p8891/RK9COm3guiB7vvqHI6+KftqkvaTRLJiP5J42VekDyqs
+CF//QNTcOF5LNOmR5NhuSwKBgQCfojDEJwbPrYdGYlQWM0Zku1P8MxOKlVX35ZOx
+jWDrMZ+N1LS3n/+dxb+9EBDtORAffsHJPy/cxGAfK0tBxM03VpFYZhvUIJ7f0pR8
+A1p2trciq9CmRjgZ5PF+GMX5/tf6tN8W+TOtWFWH+/BA1ngRxJwi2rMmBO7bfedQ
+B+asTQKBgQDCOGf297mVWvEoxmKVwm4MXGHtG2D04mZTAREwsY5WaYHKSAVt6Dhx
+yWJZLMDm2Z9hNu7MnLDv6ZWR9Eb67blQfkpic5irRWC5ZDbd58pc0oZQvHzrUfTO
+aSQAtymkMzABl2XVe7MLgxIN+evb3FJl/MveCGkbHg6Fkz04SKi4Cg==
+-----END RSA PRIVATE KEY-----
+";
+
+    #[test]
+    fn pkcs1_rsa_pem_key_loads() {
+        let key = russh::keys::decode_secret_key(PKCS1_RSA_TEST_KEY, None)
+            .expect("PKCS#1 PEM RSA 키가 로드돼야 한다(russh `rsa` feature 필요)");
+        assert!(key.algorithm().is_rsa());
+    }
+
+    #[test]
+    fn load_secret_key_reads_pkcs1_rsa_from_file() {
+        // authenticate()가 실제로 쓰는 파일 경로 로드도 같은 포맷을 지원해야 한다.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("id_rsa");
+        std::fs::write(&path, PKCS1_RSA_TEST_KEY).unwrap();
+        let key = load_secret_key(&path, None)
+            .expect("파일 기반 load_secret_key도 PKCS#1 RSA를 읽어야 한다");
+        assert!(key.algorithm().is_rsa());
+    }
 
     #[test]
     fn sh_single_quote_escapes_special_chars() {
