@@ -16,7 +16,8 @@ import { FileHistoryModal } from "../history/FileHistoryModal";
 import { useHistoryUi } from "../history/historyStore";
 import { GlobeIcon, PlusIcon, RefreshIcon } from "../../shared/Icons";
 import { basename } from "../../shared/pathUtils";
-import { isShortcut } from "../../shared/shortcuts";
+import { registerCommand } from "../commands/registry";
+import { CommandPalette } from "../commands/CommandPalette";
 import { useT } from "../../i18n";
 
 const SIDEBAR_DEFAULT = 260;
@@ -38,10 +39,10 @@ export function WorkspaceView() {
   const createDrawing = useWorkspace((s) => s.createDrawing);
   const createDrawioFile = useWorkspace((s) => s.createDrawioFile);
   const importHtmlAsNote = useWorkspace((s) => s.importHtmlAsNote);
-  const saveActive = useWorkspace((s) => s.saveActive);
   const [quickOpen, setQuickOpen] = useState(false);
   const [search, setSearch] = useState(false);
   const [graph, setGraph] = useState(false);
+  const [palette, setPalette] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const terminalVisible = useTerminal((s) => s.visible);
@@ -76,60 +77,44 @@ export function WorkspaceView() {
     if (html && html.trim()) await importHtmlAsNote(html);
   }, [importHtmlAsNote]);
 
-  // 워크스페이스 단축키 (VS Code 관례) — 정의는 shared/shortcuts 단일 출처
+  // 컴포넌트 로컬 state 에 묶인 커맨드 — 마운트 동안만 동적 등록 (VS Code 방식).
+  // 스토어 기반 커맨드(탭 닫기류·저장·새 파일 등)는 staticCommands 에서 정적 등록된다.
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isShortcut(e, "view.graph")) {
-        e.preventDefault();
-        setGraph((v) => !v);
-      } else if (isShortcut(e, "nav.search")) {
-        e.preventDefault();
-        setSearch((v) => !v);
-      } else if (isShortcut(e, "file.newNote")) {
-        e.preventDefault();
-        void createNote(targetDir());
-      } else if (isShortcut(e, "file.newDrawing")) {
-        e.preventDefault();
-        void createDrawing(targetDir());
-      } else if (isShortcut(e, "file.newDiagram")) {
-        e.preventDefault();
-        void createDrawioFile(targetDir());
-      } else if (isShortcut(e, "file.save")) {
-        e.preventDefault();
-        void saveActive();
-      } else if (isShortcut(e, "nav.quickOpen")) {
-        e.preventDefault();
-        setQuickOpen((v) => !v);
-      } else if (isShortcut(e, "view.toggleSidebar")) {
-        e.preventDefault();
-        setSidebarVisible((v) => !v);
-      } else if (isShortcut(e, "view.toggleTerminal")) {
-        e.preventDefault();
-        useTerminal.getState().toggle();
-      } else if (isShortcut(e, "tab.close")) {
-        // 포커스가 터미널 도크 안이면 노트가 아니라 활성 터미널을 닫는다(VS Code 동작).
-        const term = useTerminal.getState();
-        if (
-          term.visible &&
-          term.activeId &&
-          document.activeElement?.closest(".terminal-dock")
-        ) {
-          e.preventDefault();
-          term.closeTerminal(term.activeId);
-          return;
-        }
-        // 그 외에는 현재 노트 탭을 닫는다. 탭이 없으면 가로채지 않고 OS 기본
-        // 동작(창/앱 닫기)에 맡겨, 마지막 노트까지 닫혔을 때만 앱이 닫힌다.
-        const { activePath, closeTab } = useWorkspace.getState();
-        if (activePath) {
-          e.preventDefault();
-          void closeTab(activePath);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveActive, createNote, createDrawing, createDrawioFile, targetDir]);
+    const offs = [
+      registerCommand({
+        id: "view.graph",
+        titleKey: "shortcuts.desc.graph",
+        category: "view",
+        run: () => setGraph((v) => !v),
+      }),
+      registerCommand({
+        id: "nav.search",
+        titleKey: "shortcuts.desc.search",
+        category: "navigation",
+        run: () => setSearch((v) => !v),
+      }),
+      registerCommand({
+        id: "nav.quickOpen",
+        titleKey: "shortcuts.desc.quickOpen",
+        category: "navigation",
+        run: () => setQuickOpen((v) => !v),
+      }),
+      registerCommand({
+        id: "view.toggleSidebar",
+        titleKey: "shortcuts.desc.toggleSidebar",
+        category: "view",
+        run: () => setSidebarVisible((v) => !v),
+      }),
+      registerCommand({
+        id: "palette.toggle",
+        titleKey: "shortcuts.desc.palette",
+        category: "general",
+        hideFromPalette: true, // 팔레트 안에서 "팔레트 열기"는 무의미
+        run: () => setPalette((v) => !v),
+      }),
+    ];
+    return () => offs.forEach((off) => off());
+  }, []);
 
   // 사이드바 드래그 리사이즈 (F1) — 더블클릭으로 기본값 복원
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -234,6 +219,7 @@ export function WorkspaceView() {
       {quickOpen && <QuickOpenModal onClose={() => setQuickOpen(false)} />}
       {search && <SearchModal onClose={() => setSearch(false)} />}
       {graph && <GraphView onClose={() => setGraph(false)} />}
+      {palette && <CommandPalette onClose={() => setPalette(false)} />}
       {historyPath && (
         <FileHistoryModal key={historyPath} path={historyPath} onClose={closeHistory} />
       )}
