@@ -259,6 +259,38 @@ describe("placeLabels", () => {
     const b = at("b", 1, 1, { priority: 3 });
     expect(placeLabels([a, b])).toEqual(placeLabels([b, a]));
   });
+
+  describe("최소 반지름 임계 — 너무 작은 노드는 이름을 생략한다", () => {
+    it("화면 반지름이 minRadius 미만이면 라벨을 숨긴다", () => {
+      const shown = placeLabels(
+        [at("small", 0, 0, { r: 3 }), at("big", 0, 200, { r: 8 })],
+        6,
+      );
+      expect(shown).toEqual(new Set(["big"]));
+    });
+
+    it("숨겨진 라벨은 자리도 차지하지 않는다", () => {
+      // small이 임계 미달로 빠지면, 겹치던 자리의 낮은 우선순위 라벨이 살아난다
+      const shown = placeLabels(
+        [
+          at("small", 0, 0, { r: 3, priority: 9 }),
+          at("near", 1, 1, { r: 8, priority: 1 }),
+        ],
+        6,
+      );
+      expect(shown).toEqual(new Set(["near"]));
+    });
+
+    it("force 라벨(호버·현재 노트)은 임계 미만이어도 표시된다", () => {
+      const shown = placeLabels([at("tiny", 0, 0, { r: 2, force: true })], 6);
+      expect(shown.has("tiny")).toBe(true);
+    });
+
+    it("minRadius 미지정(0)이면 기존 동작 그대로", () => {
+      const shown = placeLabels([at("small", 0, 0, { r: 3 })]);
+      expect(shown.has("small")).toBe(true);
+    });
+  });
 });
 
 describe("adjacencyOf", () => {

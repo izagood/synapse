@@ -3612,16 +3612,18 @@ body.resizing-sidebar {
   }
 }
 
+/* 링크 두께는 설정 패널 슬라이더가 --graph-link-w 배율로 조정한다
+   (vectorEffect: non-scaling-stroke 라 화면 px 기준) */
 .graph-edge {
   stroke: var(--fg-faint);
-  stroke-width: 1.1;
+  stroke-width: calc(1.1px * var(--graph-link-w, 1));
   stroke-opacity: 0.45;
   transition: stroke-opacity 0.15s ease;
 }
 
 .graph-edge-active {
   stroke: var(--accent);
-  stroke-width: 2;
+  stroke-width: calc(2px * var(--graph-link-w, 1));
   stroke-opacity: 0.95;
 }
 

@@ -1,7 +1,7 @@
 // 그래프 표시 전 서브그래프 필터링 + 그룹 컬러 매칭 (옵시디언 Filters/Groups 대응).
 // 전부 순수 함수 — 레이아웃(layout.ts)에 들어가기 전의 LinkGraph를 다듬는다.
 import type { GraphNode, LinkGraph } from "../../ipc/types";
-import type { GraphGroup } from "../../stores/graphView";
+import type { GraphGroup, GraphViewSettings } from "../../stores/graphView";
 
 export interface FilterOptions {
   /** 이름 부분 일치 필터 — 일치 노드와 직접 이웃만 남긴다. 빈 문자열이면 미적용 */
@@ -95,6 +95,29 @@ export function filterGraph(graph: LinkGraph, opts: FilterOptions): LinkGraph {
   }
 
   return { nodes, edges };
+}
+
+/**
+ * GraphView 파이프라인: 설정 → 표시용 서브그래프.
+ * 로컬 그래프는 activePath가 실제 그래프에 있을 때만 적용한다 —
+ * 노트를 안 연 상태나 그래프 밖 파일이 활성인 경우 전체 그래프를 유지한다.
+ */
+export function visibleGraph(
+  graph: LinkGraph,
+  s: GraphViewSettings,
+  activePath: string | null,
+): LinkGraph {
+  const depth = s.filters.localDepth;
+  const local =
+    depth !== 0 && activePath && graph.nodes.some((n) => n.path === activePath)
+      ? { center: activePath, depth }
+      : undefined;
+  return filterGraph(graph, {
+    query: s.filters.query,
+    showTags: s.filters.showTags,
+    showOrphans: s.filters.showOrphans,
+    local,
+  });
 }
 
 /** 노트 path → 연결된 태그 집합("#x"). 그룹 tag: 규칙 매칭용 */

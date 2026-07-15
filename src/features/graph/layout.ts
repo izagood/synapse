@@ -517,6 +517,13 @@ export function adjacencyOf(graph: LinkGraph, path: string): Set<string> {
 
 /** 라벨이 노드 점에서 떨어진 가로 간격(px, 레이아웃 공간). */
 export const LABEL_GAP = 4;
+/**
+ * 이름을 표시할 최소 화면 반지름(px). 대규모 볼트(수천~수만 노드)에서
+ * 점이 이 크기보다 작으면 이름은 시각적 소음이라 생략한다 — 확대해서
+ * 점이 커지면 자연히 다시 나타난다. 호버·검색 포커스 중에는 적용하지
+ * 않는다 (연결 탐색 시에는 작은 이웃의 이름이 곧 목적이므로).
+ */
+export const LABEL_MIN_RADIUS = 6;
 /** 라벨 한 줄의 대략적 높이(px). 폰트 11 + 위아래 여유. */
 export const LABEL_HEIGHT = 14;
 /** 겹침 판정 시 라벨 사이에 두는 최소 여백(px). */
@@ -566,11 +573,13 @@ function isWideChar(code: number): boolean {
  * 겹치지 않게 표시할 라벨 집합을 고른다. 우선순위(force 우선, 그다음
  * priority)가 높은 라벨부터 자리를 잡고, 이미 놓인 라벨과 겹치면 숨긴다.
  * force 라벨은 겹쳐도 표시하되 자리는 차지해 다른 라벨이 피하게 한다.
+ * 화면 반지름 `r`이 `minRadius` 미만인 후보는 표시하지 않고 자리도
+ * 차지하지 않는다 (force 제외).
  *
  * 순수·결정적: 같은 입력이면 항상 같은 집합을 돌려준다.
  * @returns 표시할 노드 path 집합
  */
-export function placeLabels(cands: LabelCandidate[]): Set<string> {
+export function placeLabels(cands: LabelCandidate[], minRadius = 0): Set<string> {
   const order = [...cands].sort((a, b) => {
     if (!!b.force !== !!a.force) return a.force ? -1 : 1;
     if (b.priority !== a.priority) return b.priority - a.priority;
@@ -580,6 +589,7 @@ export function placeLabels(cands: LabelCandidate[]): Set<string> {
   const placed: { l: number; t: number; r: number; b: number }[] = [];
   const shown = new Set<string>();
   for (const c of order) {
+    if (!c.force && c.r < minRadius) continue;
     const left = c.x + c.r + LABEL_GAP - LABEL_MARGIN;
     const right = c.x + c.r + LABEL_GAP + c.width + LABEL_MARGIN;
     const top = c.y - LABEL_HEIGHT / 2 - LABEL_MARGIN;

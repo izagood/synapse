@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LinkGraph } from "../../ipc/types";
-import { buildTagIndex, filterGraph, groupColorOf } from "./filter";
+import { GRAPH_VIEW_DEFAULTS } from "../../stores/graphView";
+import { buildTagIndex, filterGraph, groupColorOf, visibleGraph } from "./filter";
 
 const g: LinkGraph = {
   nodes: [
@@ -112,5 +113,38 @@ describe("groupColorOf", () => {
       { id: "2", query: "a.md", color: "#0000ff" },
     ];
     expect(groupColorOf(g.nodes[0], groups, tagIndex)).toBe("#0000ff");
+  });
+});
+
+describe("visibleGraph (GraphView 파이프라인)", () => {
+  const localOn = {
+    ...GRAPH_VIEW_DEFAULTS,
+    filters: {
+      ...GRAPH_VIEW_DEFAULTS.filters,
+      localDepth: 1 as const,
+      showOrphans: true,
+    },
+  };
+
+  it("localDepth>0이라도 activePath가 그래프에 없으면 전체 그래프", () => {
+    expect(visibleGraph(g, localOn, "/없는/노트.md").nodes.length).toBe(
+      g.nodes.length,
+    );
+    expect(visibleGraph(g, localOn, null).nodes.length).toBe(g.nodes.length);
+  });
+
+  it("activePath가 있으면 로컬 그래프로 좁힌다", () => {
+    expect(
+      visibleGraph(g, localOn, "/w/a.md")
+        .nodes.map((n) => n.path)
+        .sort(),
+    ).toEqual(["#ai", "/w/a.md", "/w/b.md"]);
+  });
+
+  it("기본 설정은 태그 유지 + 고립 숨김", () => {
+    const f = visibleGraph(g, GRAPH_VIEW_DEFAULTS, null);
+    const paths = f.nodes.map((n) => n.path);
+    expect(paths).toContain("#ai");
+    expect(paths).not.toContain("/w/orphan.md");
   });
 });
