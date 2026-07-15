@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::links::{
     collect_markdown, extract_links, resolve_standard_link, stem, stem_index, OutLink,
@@ -44,6 +44,34 @@ pub struct RewriteOutcome {
     /// 재작성된 전체 내용. 마커 블록 밖 바이트는 원문 그대로다.
     pub content: String,
     /// 이상 상황 경고(중복 블록, 종료 마커 누락 등). 실패는 아니다.
+    pub warnings: Vec<String>,
+}
+
+/// `apply_links`가 받는 링크 한 건(대상 절대 경로 + 선택 설명).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyLink {
+    pub to: String,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+/// 거부된 링크와 사유.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RejectedLink {
+    pub to: String,
+    pub reason: String,
+}
+
+/// 한 파일에 대한 apply 결과.
+#[derive(Debug)]
+pub struct ApplyOutcome {
+    /// 재작성된 전체 내용(거부 링크는 빠짐). base와 같을 수 있다(무변경).
+    pub content: String,
+    /// 블록에 들어간 링크 수.
+    pub applied: usize,
+    pub rejected: Vec<RejectedLink>,
     pub warnings: Vec<String>,
 }
 
@@ -360,6 +388,103 @@ pub fn rewrite_auto_links(original: &str, items: &[String]) -> RewriteOutcome {
     RewriteOutcome { content, warnings }
 }
 
+/// 검증·렌더 후 auto-links 블록을 재작성한다(순수 — 디스크에 쓰지 않는다).
+///
+/// 선언적 계약: `links`가 이 파일 블록의 전체 내용이 된다(빈 목록 = 블록 제거).
+/// 각 대상은 (루트 내부, 실존, 마크다운, from 자신 아님)을 검증해 통과분만
+/// 렌더하고, 나머지는 `rejected`로 돌려준다(부분 성공).
+pub fn apply_auto_links(
+    root: &Path,
+    from: &Path,
+    base: &str,
+    links: &[ApplyLink],
+) -> Result<ApplyOutcome, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("워크스페이스 루트를 열 수 없습니다: {e}"))?;
+    let from_abs = from
+        .canonicalize()
+        .map_err(|e| format!("from 노트를 찾을 수 없습니다({}): {e}", from.display()))?;
+    if !from_abs.starts_with(&root) {
+        return Err("from 노트가 워크스페이스 밖입니다".to_string());
+    }
+    if !crate::links::is_markdown(&from_abs) {
+        return Err("auto-links는 마크다운 노트에만 적용합니다".to_string());
+    }
+
+    let md_files = collect_markdown(&root);
+    let by_stem = stem_index(&md_files);
+
+    let mut items: Vec<String> = Vec::new();
+    let mut rejected: Vec<RejectedLink> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+
+    for link in links {
+        let raw = Path::new(&link.to);
+        let target = match raw.canonicalize() {
+            Ok(t) => t,
+            Err(_) => {
+                rejected.push(RejectedLink {
+                    to: link.to.clone(),
+                    reason: "대상 노트가 존재하지 않습니다".to_string(),
+                });
+                continue;
+            }
+        };
+        if !target.starts_with(&root) {
+            rejected.push(RejectedLink {
+                to: link.to.clone(),
+                reason: "대상이 워크스페이스 밖입니다".to_string(),
+            });
+            continue;
+        }
+        if !crate::links::is_markdown(&target) {
+            rejected.push(RejectedLink {
+                to: link.to.clone(),
+                reason: "대상이 마크다운 노트가 아닙니다".to_string(),
+            });
+            continue;
+        }
+        if target == from_abs {
+            rejected.push(RejectedLink {
+                to: link.to.clone(),
+                reason: "자기 자신은 연결할 수 없습니다".to_string(),
+            });
+            continue;
+        }
+        if !seen.insert(target.clone()) {
+            warnings.push(format!("중복 대상 무시: {}", link.to));
+            continue;
+        }
+        let name = stem(&target).unwrap_or_default();
+        // 위키링크가 이 대상으로 정확히 해석되면 [[stem]], 아니면(stem 충돌)
+        // 루트 기준 표준 링크로 폴백해 오연결을 막는다.
+        let href = if by_stem.get(&name.to_lowercase()) == Some(&target) {
+            format!("[[{name}]]")
+        } else {
+            let rel = target
+                .strip_prefix(&root)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            format!("[{name}](/{rel})")
+        };
+        match &link.label {
+            Some(l) if !l.trim().is_empty() => items.push(format!("- {href} — {}", l.trim())),
+            _ => items.push(format!("- {href}")),
+        }
+    }
+
+    let rewrite = rewrite_auto_links(base, &items);
+    warnings.extend(rewrite.warnings);
+    Ok(ApplyOutcome {
+        content: rewrite.content,
+        applied: items.len(),
+        rejected,
+        warnings,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,5 +711,89 @@ mod tests {
             existing_cand.reasons.iter().any(|r| r.contains("기존 auto-links 항목")),
             "reasons에 '기존 auto-links 항목' 근거가 있어야 함"
         );
+    }
+
+    #[test]
+    fn apply_renders_wikilinks_with_label() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("from.md"), "본문\n");
+        write(&root.join("cilium.md"), "# Cilium");
+
+        let links = vec![ApplyLink {
+            to: root.join("cilium.md").display().to_string(),
+            label: Some("CNI 구현체".to_string()),
+        }];
+        let out = apply_auto_links(root, &root.join("from.md"), "본문\n", &links).unwrap();
+        assert!(out.content.contains("- [[cilium]] — CNI 구현체"));
+        assert_eq!(out.applied, 1);
+        assert!(out.rejected.is_empty());
+        assert!(out.content.starts_with("본문\n"), "본문 불가침");
+    }
+
+    #[test]
+    fn apply_rejects_outside_missing_and_self() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("ws");
+        fs::create_dir_all(&root).unwrap();
+        write(&root.join("from.md"), "본문\n");
+        write(&tmp.path().join("outside.md"), "루트 밖");
+
+        let links = vec![
+            ApplyLink { to: tmp.path().join("outside.md").display().to_string(), label: None },
+            ApplyLink { to: root.join("없는노트.md").display().to_string(), label: None },
+            ApplyLink { to: root.join("from.md").display().to_string(), label: None },
+        ];
+        let out = apply_auto_links(&root, &root.join("from.md"), "본문\n", &links).unwrap();
+        assert_eq!(out.applied, 0);
+        assert_eq!(out.rejected.len(), 3);
+        // 유효 링크 0개 + 기존 블록 없음 → 파일 무변경
+        assert_eq!(out.content, "본문\n");
+    }
+
+    #[test]
+    fn apply_falls_back_to_root_relative_link_on_stem_collision() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("from.md"), "본문\n");
+        // 같은 stem 두 개: 정렬상 a/노트.md 가 stem 인덱스를 차지
+        write(&root.join("a/노트.md"), "first");
+        write(&root.join("b/노트.md"), "second");
+
+        let links = vec![ApplyLink {
+            to: root.join("b/노트.md").display().to_string(),
+            label: None,
+        }];
+        let out = apply_auto_links(root, &root.join("from.md"), "본문\n", &links).unwrap();
+        assert!(
+            out.content.contains("- [노트](/b/노트.md)"),
+            "stem 충돌 시 루트 기준 표준 링크 폴백: {}",
+            out.content
+        );
+    }
+
+    #[test]
+    fn apply_dedups_targets_with_warning() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("from.md"), "본문\n");
+        write(&root.join("b.md"), "# b");
+        let links = vec![
+            ApplyLink { to: root.join("b.md").display().to_string(), label: None },
+            ApplyLink { to: root.join("b.md").display().to_string(), label: None },
+        ];
+        let out = apply_auto_links(root, &root.join("from.md"), "본문\n", &links).unwrap();
+        assert_eq!(out.applied, 1);
+        assert_eq!(out.warnings.len(), 1);
+    }
+
+    #[test]
+    fn apply_rejects_non_markdown_from() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("doc.html"), "<p>html</p>");
+        write(&root.join("b.md"), "# b");
+        let links = vec![ApplyLink { to: root.join("b.md").display().to_string(), label: None }];
+        assert!(apply_auto_links(root, &root.join("doc.html"), "", &links).is_err());
     }
 }

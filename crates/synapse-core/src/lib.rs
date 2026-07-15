@@ -28,8 +28,8 @@ pub mod walk;
 pub mod watch;
 
 pub use autolink::{
-    link_candidates, rewrite_auto_links, LinkCandidate, RewriteOutcome, AUTO_LINKS_START,
-    AUTO_LINKS_END,
+    apply_auto_links, link_candidates, rewrite_auto_links, ApplyLink, ApplyOutcome, LinkCandidate,
+    RejectedLink, RewriteOutcome, AUTO_LINKS_START, AUTO_LINKS_END,
 };
 pub use bridge::{generate_token, token_matches, LiveState, OpenTab};
 pub use config_sync::ConfigSyncState;
