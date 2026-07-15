@@ -363,6 +363,12 @@ export const en: LocaleShape<KoMessages> = {
       save: "Save current note",
       deleteFile: "Delete selected file",
       closeTab: "Close current tab (closes window if last)",
+      palette: "Command palette",
+      nextTab: "Next tab",
+      prevTab: "Previous tab",
+      goToTab: "Go to tab n (9 = last tab)",
+      closeOthers: "Close other tabs",
+      reopenTab: "Reopen closed tab",
       toggleSidebar: "Toggle sidebar",
       graph: "Toggle graph view",
       toggleTerminal: "Toggle terminal",
@@ -374,5 +380,9 @@ export const en: LocaleShape<KoMessages> = {
       undo: "Undo",
       redo: "Redo",
     },
+  },
+  palette: {
+    placeholder: "Search commands…",
+    empty: "No results",
   },
 };

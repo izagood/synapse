@@ -24,9 +24,14 @@ export interface ShortcutDef {
   handledBy: ShortcutHandledBy;
   /** 생략 시 전체 플랫폼. 특정 플랫폼 전용일 때만 지정 */
   platforms?: DesktopPlatform[];
+  /**
+   * 치트시트 병합 표시 (tab.goTo1~9 용): "first"=이 항목만 노출하되 라벨을
+   * ⌘1…9 처럼 범위로 렌더, "hidden"=치트시트에서 숨김. 생략 시 일반 표시.
+   */
+  cheatsheetMerge?: "first" | "hidden";
 }
 
-const MODIFIER_TOKENS = new Set(["Mod", "Shift", "Alt"]);
+const MODIFIER_TOKENS = new Set(["Mod", "Shift", "Alt", "Ctrl"]);
 
 /** keys 에서 modifier 가 아닌 메인 키 토큰들 */
 export function mainKeyTokens(keys: string[]): string[] {
@@ -43,20 +48,22 @@ export interface KeyEventLike {
 
 /**
  * 키 이벤트가 주어진 단축키 정의(keys)와 일치하는지 순수 판정한다.
- * "Mod" = metaKey(⌘) 또는 ctrlKey, "Shift" = shiftKey, "Alt" = altKey.
+ * "Mod" = metaKey(⌘) 또는 ctrlKey, "Ctrl" = ctrlKey 단독(⌘와 구분 — mac ⌃Tab 등),
+ * "Shift" = shiftKey, "Alt" = altKey.
  * 메인 키는 e.key 를 소문자 비교한다. 기존 핸들러들의
  * (ctrlKey||metaKey) + key.toLowerCase() 비교와 동치다.
  */
 export function matchShortcut(e: KeyEventLike, keys: string[]): boolean {
   const main = mainKeyTokens(keys);
   if (main.length !== 1) return false;
-  const wantMod = keys.includes("Mod");
-  const wantShift = keys.includes("Shift");
-  const wantAlt = keys.includes("Alt");
-  const mod = e.metaKey || e.ctrlKey;
-  if (wantMod !== mod) return false;
-  if (wantShift !== e.shiftKey) return false;
-  if (wantAlt !== e.altKey) return false;
+  if (keys.includes("Ctrl")) {
+    if (!e.ctrlKey || e.metaKey) return false;
+  } else {
+    const mod = e.metaKey || e.ctrlKey;
+    if (keys.includes("Mod") !== mod) return false;
+  }
+  if (keys.includes("Shift") !== e.shiftKey) return false;
+  if (keys.includes("Alt") !== e.altKey) return false;
   return e.key.toLowerCase() === main[0].toLowerCase();
 }
 
@@ -83,6 +90,13 @@ export const SHORTCUTS: ShortcutDef[] = [
     descriptionKey: "shortcuts.desc.cheatsheet",
     handledBy: "app",
   },
+  {
+    id: "palette.toggle",
+    category: "general",
+    keys: ["Mod", "Shift", "P"],
+    descriptionKey: "shortcuts.desc.palette",
+    handledBy: "app",
+  },
   // --- 탐색 ---
   {
     id: "nav.quickOpen",
@@ -98,6 +112,32 @@ export const SHORTCUTS: ShortcutDef[] = [
     descriptionKey: "shortcuts.desc.search",
     handledBy: "app",
   },
+  {
+    id: "tab.next",
+    category: "navigation",
+    keys: ["Ctrl", "Tab"],
+    descriptionKey: "shortcuts.desc.nextTab",
+    handledBy: "app",
+  },
+  {
+    id: "tab.prev",
+    category: "navigation",
+    keys: ["Ctrl", "Shift", "Tab"],
+    descriptionKey: "shortcuts.desc.prevTab",
+    handledBy: "app",
+  },
+  // n번째 탭으로 (⌘9는 마지막 탭 — VS Code 관례). 치트시트에는 ⌘1…9 한 줄로 병합.
+  ...Array.from(
+    { length: 9 },
+    (_, i): ShortcutDef => ({
+      id: `tab.goTo${i + 1}`,
+      category: "navigation",
+      keys: ["Mod", String(i + 1)],
+      descriptionKey: "shortcuts.desc.goToTab",
+      handledBy: "app",
+      cheatsheetMerge: i === 0 ? "first" : "hidden",
+    }),
+  ),
   // --- 파일 ---
   {
     id: "file.newNote",
@@ -139,6 +179,21 @@ export const SHORTCUTS: ShortcutDef[] = [
     category: "file",
     keys: ["Mod", "W"],
     descriptionKey: "shortcuts.desc.closeTab",
+    handledBy: "app",
+  },
+  {
+    // VS Code mac 기본값(⌥⌘T)과 동일
+    id: "tab.closeOthers",
+    category: "file",
+    keys: ["Mod", "Alt", "T"],
+    descriptionKey: "shortcuts.desc.closeOthers",
+    handledBy: "app",
+  },
+  {
+    id: "tab.reopen",
+    category: "file",
+    keys: ["Mod", "Shift", "T"],
+    descriptionKey: "shortcuts.desc.reopenTab",
     handledBy: "app",
   },
   // --- 보기 ---

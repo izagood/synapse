@@ -101,6 +101,48 @@ describe("생성 단축키", () => {
   });
 });
 
+describe("Ctrl 토큰 (ctrlKey 단독 — mac ⌃Tab 등)", () => {
+  it("Ctrl+Tab은 ctrlKey만 눌렸을 때 매칭된다", () => {
+    expect(matchShortcut(ev({ key: "Tab", ctrlKey: true }), ["Ctrl", "Tab"])).toBe(true);
+  });
+
+  it("⌘Tab(metaKey)은 Ctrl 토큰에 매칭되지 않는다", () => {
+    expect(matchShortcut(ev({ key: "Tab", metaKey: true }), ["Ctrl", "Tab"])).toBe(false);
+  });
+
+  it("Ctrl+meta 동시 입력은 Ctrl 토큰에 매칭되지 않는다", () => {
+    expect(
+      matchShortcut(ev({ key: "Tab", ctrlKey: true, metaKey: true }), ["Ctrl", "Tab"]),
+    ).toBe(false);
+  });
+
+  it("Ctrl+Shift+Tab은 Shift 유무를 정확히 요구한다", () => {
+    expect(
+      matchShortcut(ev({ key: "Tab", ctrlKey: true, shiftKey: true }), ["Ctrl", "Shift", "Tab"]),
+    ).toBe(true);
+    expect(matchShortcut(ev({ key: "Tab", ctrlKey: true }), ["Ctrl", "Shift", "Tab"])).toBe(false);
+  });
+});
+
+describe("신규 단축키 정의 (커맨드 시스템)", () => {
+  it("신규 id들이 존재하고 키가 스펙과 일치한다", () => {
+    expect(shortcutById("palette.toggle").keys).toEqual(["Mod", "Shift", "P"]);
+    expect(shortcutById("tab.next").keys).toEqual(["Ctrl", "Tab"]);
+    expect(shortcutById("tab.prev").keys).toEqual(["Ctrl", "Shift", "Tab"]);
+    expect(shortcutById("tab.closeOthers").keys).toEqual(["Mod", "Alt", "T"]);
+    expect(shortcutById("tab.reopen").keys).toEqual(["Mod", "Shift", "T"]);
+    for (let n = 1; n <= 9; n++) {
+      expect(shortcutById(`tab.goTo${n}`).keys).toEqual(["Mod", String(n)]);
+    }
+  });
+
+  it("goTo 시리즈는 치트시트 병합 표시 플래그를 가진다", () => {
+    expect(shortcutById("tab.goTo1").cheatsheetMerge).toBe("first");
+    expect(shortcutById("tab.goTo2").cheatsheetMerge).toBe("hidden");
+    expect(shortcutById("tab.goTo9").cheatsheetMerge).toBe("hidden");
+  });
+});
+
 describe("SHORTCUTS registry integrity", () => {
   it("has unique ids", () => {
     const ids = SHORTCUTS.map((s) => s.id);
