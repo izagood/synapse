@@ -9,7 +9,11 @@ import {
 } from "./layoutCache";
 
 const g = (paths: string[], edges: [string, string][] = []): LinkGraph => ({
-  nodes: paths.map((p) => ({ path: p, name: p.split("/").pop() ?? p })),
+  nodes: paths.map((p) => ({
+    path: p,
+    name: p.split("/").pop() ?? p,
+    kind: "note" as const,
+  })),
   edges: edges.map(([source, target]) => ({ source, target })),
 });
 

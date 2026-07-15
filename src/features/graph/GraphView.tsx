@@ -12,6 +12,7 @@ import {
 } from "../../shared/Icons";
 import {
   LABEL_GAP,
+  LABEL_MIN_RADIUS,
   adjacencyOf,
   estimateLabelWidth,
   layoutGraph,
@@ -29,6 +30,9 @@ import {
   graphSignature,
   setCachedLayout,
 } from "./layoutCache";
+import { buildTagIndex, groupColorOf, visibleGraph } from "./filter";
+import { GraphPanel } from "./GraphPanel";
+import { useGraphView } from "../../stores/graphView";
 
 // WebKit(맥 Safari/WKWebView) 전용 핀치 이벤트 — lib.dom에 타입이 없다.
 interface WebKitGestureEvent extends Event {
@@ -65,6 +69,8 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   const [hover, setHover] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<View>({ k: 1, tx: 0, ty: 0 });
+  const gv = useGraphView((s) => s.settings);
+  const updateGv = useGraphView((s) => s.update);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -106,17 +112,31 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 레이아웃은 그래프 내용 서명으로 캐시한다 — 노트 변경이 없으면 그래프뷰를
-  // 다시 열어도 즉시 표시된다 (layoutGraph는 결정적이라 재사용이 안전하다).
+  // 원본 그래프 → 설정(필터·로컬 그래프)이 적용된 표시용 서브그래프
+  const shown = useMemo(
+    () => (graph ? visibleGraph(graph, gv, activePath) : null),
+    [graph, gv, activePath],
+  );
+
+  // 레이아웃은 표시용 그래프 서명 + forces 배율로 캐시한다 — 슬라이더를
+  // 움직이면 재계산되고, 같은 값으로 돌아오면 캐시가 즉시 살아난다
+  // (layoutGraph는 결정적이라 재사용이 안전하다).
   const layout = useMemo(() => {
-    if (!graph) return null;
-    const sig = graphSignature(graph);
+    if (!shown) return null;
+    const f = gv.forces;
+    const sig = `${graphSignature(shown)}|f:${f.repulsion},${f.linkDistance},${f.gravity}`;
     const cached = getCachedLayout(sig);
     if (cached) return cached;
-    const computed = layoutGraph(graph, { width: WIDTH, height: HEIGHT });
+    const computed = layoutGraph(shown, {
+      width: WIDTH,
+      height: HEIGHT,
+      repulsionScale: f.repulsion,
+      linkDistanceScale: f.linkDistance,
+      gravityScale: f.gravity,
+    });
     setCachedLayout(sig, computed);
     return computed;
-  }, [graph]);
+  }, [shown, gv.forces]);
 
   const maxDegree = useMemo(
     () =>
@@ -126,11 +146,28 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     [layout],
   );
 
-  // 호버한 노드의 인접 집합(엣지·노드 강조용)
+  // 호버한 노드의 인접 집합(엣지·노드 강조용) — 표시용 그래프 기준
   const neighbors = useMemo(
-    () => (graph && hover ? adjacencyOf(graph, hover) : null),
-    [graph, hover],
+    () => (shown && hover ? adjacencyOf(shown, hover) : null),
+    [shown, hover],
   );
+
+  // 그룹 컬러 매칭 결과 (노드 path → 색). 그룹이 없으면 빈 맵
+  const tagIndex = useMemo(
+    () => (shown ? buildTagIndex(shown) : new Map<string, Set<string>>()),
+    [shown],
+  );
+  const colorByPath = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!shown || gv.groups.length === 0) return m;
+    for (const n of shown.nodes) {
+      const c = groupColorOf(n, gv.groups, tagIndex);
+      if (c) m.set(n.path, c);
+    }
+    return m;
+  }, [shown, gv.groups, tagIndex]);
+
+  const nodeScale = gv.display.nodeScale;
 
   // 검색어와 이름이 일치하는 노드 경로 집합
   const matches = useMemo(() => {
@@ -185,15 +222,32 @@ export function GraphView({ onClose }: { onClose: () => void }) {
         path: n.path,
         x: n.x * k,
         y: n.y * k,
-        r: radiusOf(n.degree, maxDegree) * k,
+        r: radiusOf(n.degree, maxDegree) * nodeScale * k,
         width: estimateLabelWidth(displayName(n.name)),
         // 현재 노트·이웃을 배경 허브보다 위로 — 큰 degree일수록 먼저 배치.
-        priority: n.degree + (isCurrent ? 1000 : 0) + (active ? 100 : 0),
+        // 태그 허브는 클러스터 이름표 역할이라 노트보다 우선한다.
+        priority:
+          n.degree +
+          (isCurrent ? 1000 : 0) +
+          (active ? 100 : 0) +
+          (n.kind === "tag" ? 50 : 0),
         force,
       });
     }
-    return placeLabels(cands);
-  }, [layout, focusing, hover, matches, neighbors, activePath, maxDegree, view.k]);
+    // 평상시엔 화면상 너무 작은 점의 이름을 생략한다(확대하면 다시 나타난다).
+    // 포커스 중엔 작은 이웃의 이름이 곧 목적이므로 임계를 끈다.
+    return placeLabels(cands, focusing ? 0 : LABEL_MIN_RADIUS);
+  }, [
+    layout,
+    focusing,
+    hover,
+    matches,
+    neighbors,
+    activePath,
+    maxDegree,
+    view.k,
+    nodeScale,
+  ]);
 
   const zoomAt = (vx: number, vy: number, factor: number) => {
     setView((v) => applyZoom(v, vx, vy, factor, MIN_ZOOM, MAX_ZOOM));
@@ -338,6 +392,11 @@ export function GraphView({ onClose }: { onClose: () => void }) {
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               width="100%"
               role="img"
+              style={
+                {
+                  "--graph-link-w": gv.display.linkThickness,
+                } as React.CSSProperties
+              }
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -381,8 +440,6 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                 })}
                 {layout!.nodes.map((n) => {
                   const isCurrent = n.path === activePath;
-                  const linked = n.degree > 0;
-                  if (!linked && !isCurrent) return null;
                   const active = isActive(n.path);
                   const dimmed = focusing && !active && !isCurrent;
                   return (
@@ -390,7 +447,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                       key={n.path}
                       cx={n.x}
                       cy={n.y}
-                      r={radiusOf(n.degree, maxDegree) * 1.6}
+                      r={radiusOf(n.degree, maxDegree) * nodeScale * 1.6}
                       fill="url(#graph-halo-grad)"
                       className={[
                         "graph-halo",
@@ -408,10 +465,12 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                   const active = isActive(n.path);
                   const dimmed = focusing && !active && !isCurrent;
                   const linked = n.degree > 0;
-                  const r = radiusOf(n.degree, maxDegree);
+                  const r = radiusOf(n.degree, maxDegree) * nodeScale;
+                  const groupColor = colorByPath.get(n.path);
                   const cls = [
                     "graph-node",
                     linked ? "graph-node-linked" : "graph-node-iso",
+                    n.kind === "tag" ? "graph-node-tag" : "",
                     isCurrent ? "graph-node-current" : "",
                     active ? "graph-node-active" : "",
                     dimmed ? "graph-node-dimmed" : "",
@@ -429,6 +488,11 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                       }
                       onClick={() => {
                         if (panned.current) return;
+                        // 태그 허브 클릭 → 그 태그 이웃만 남기는 검색 필터 주입
+                        if (n.kind === "tag") {
+                          updateGv({ filters: { query: n.name } });
+                          return;
+                        }
                         void openFileAt(n.path);
                         onClose();
                       }}
@@ -438,6 +502,11 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                         r={r}
                         vectorEffect="non-scaling-stroke"
                         className="graph-node-dot"
+                        style={
+                          groupColor
+                            ? { fill: groupColor, stroke: groupColor }
+                            : undefined
+                        }
                       />
                     </g>
                   );
@@ -447,7 +516,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                   const isCurrent = n.path === activePath;
                   const active = isActive(n.path);
                   const dimmed = focusing && !active && !isCurrent;
-                  const r = radiusOf(n.degree, maxDegree);
+                  const r = radiusOf(n.degree, maxDegree) * nodeScale;
                   const k = view.k;
                   // 화면 고정 크기 라벨: 줌 그룹 안에서 1/k로 역보정해
                   // 화면에선 항상 11px — 확대할수록 더 많은 이름이 보인다.
@@ -462,6 +531,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                       }}
                       className={[
                         "graph-node-label",
+                        n.kind === "tag" ? "graph-node-label-tag" : "",
                         isCurrent ? "graph-node-label-current" : "",
                         active ? "graph-node-label-active" : "",
                         dimmed ? "graph-node-label-dimmed" : "",
@@ -475,6 +545,8 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                 })}
               </g>
             </svg>
+
+            <GraphPanel />
 
             <div className="graph-zoom">
               <button

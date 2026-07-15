@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeBacklinks, extractLinks, linksInLine } from "./backlinks";
+import { computeBacklinks, computeGraph, extractLinks, linksInLine } from "./backlinks";
 
 const ROOT = "/vault";
 
@@ -72,5 +72,35 @@ describe("computeBacklinks", () => {
   it("존재하지 않는 대상은 빈 결과", () => {
     const files = new Map<string, string>([[`${ROOT}/a.md`, "[x](존재.md)"]]);
     expect(computeBacklinks(ROOT, `${ROOT}/없음.md`, files)).toEqual([]);
+  });
+});
+
+describe("computeGraph 태그 승격 (Rust build_graph 미러)", () => {
+  it("본문 #태그를 tag 노드로 승격하고 노트→태그 엣지를 만든다", () => {
+    const files = new Map<string, string>([
+      [`${ROOT}/a.md`, "#AI 관련 [[b]]"],
+      [`${ROOT}/b.md`, "#ai 후속"],
+    ]);
+    const g = computeGraph(ROOT, files);
+    expect(g.nodes.filter((n) => n.kind === "tag")).toEqual([
+      { path: "#ai", name: "#ai", kind: "tag" },
+    ]);
+    expect(g.nodes.filter((n) => n.kind === "note")).toHaveLength(2);
+    // 노트→태그 엣지 2개 (a→#ai, b→#ai) + 노트 링크 1개 (a→b)
+    expect(g.edges.filter((e) => e.target === "#ai")).toHaveLength(2);
+    expect(g.edges).toHaveLength(3);
+  });
+
+  it("헤딩·숫자·코드펜스·URL 앵커는 태그가 아니다", () => {
+    const files = new Map<string, string>([
+      [
+        `${ROOT}/a.md`,
+        "# 헤딩\n이슈 #123\n```\n#펜스\n```\nhttp://x.com/#anchor (#ok)",
+      ],
+    ]);
+    const g = computeGraph(ROOT, files);
+    expect(g.nodes.filter((n) => n.kind === "tag").map((n) => n.path)).toEqual([
+      "#ok",
+    ]);
   });
 });

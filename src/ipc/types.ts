@@ -212,12 +212,16 @@ export interface Backlink {
   snippet: string;
 }
 
-// Rust synapse-core::links::{GraphNode, GraphEdge, LinkGraph} 와 1:1 대응 (FR-6.2)
+// Rust synapse-core::links::{NodeKind, GraphNode, GraphEdge, LinkGraph} 와 1:1 대응 (FR-6.2)
+/** 그래프 노드 종류 — 노트 파일이거나, 본문에서 추출한 해시태그 허브 */
+export type GraphNodeKind = "note" | "tag";
+
 export interface GraphNode {
-  /** 노트의 절대 경로 (안정적 식별자) */
+  /** 노트 절대 경로, 태그 노드는 "#<tag>" (안정적 식별자) */
   path: string;
-  /** 표시용 파일명 */
+  /** 표시용 이름 (태그 노드는 "#<tag>") */
   name: string;
+  kind: GraphNodeKind;
 }
 
 export interface GraphEdge {
