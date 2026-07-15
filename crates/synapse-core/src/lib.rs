@@ -36,7 +36,10 @@ pub use fs_io::{
     ensure_writable_within, is_safe_file_name, workspace_write_lock,
 };
 pub use git::{ConflictChoice, ConflictPreview, FileCommit, GitWorkspace, SyncState, SyncStatus};
-pub use links::{backlinks_for, build_graph, Backlink, GraphEdge, GraphNode, LinkGraph};
+pub use links::{
+    backlinks_for, build_graph, build_graph_cached, Backlink, GraphEdge, GraphNode, LinkGraph,
+    LinkScanCache,
+};
 pub use location::{
     path_to_uri, urify_tree, Location, LocationError, SshLocation, DEFAULT_SSH_PORT,
 };

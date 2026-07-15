@@ -73,6 +73,8 @@ fn default_shell() -> String {
 
 /// 새 PTY를 연다. 자식 env에 브리지 접속 정보를 주입하고, cwd를 워크스페이스
 /// 루트로 맞춘다. 반환값은 이후 write/resize/kill에 쓰는 터미널 id.
+// tauri command는 State 주입 인자가 많아 8개가 됐다 — IPC 시그니처라 묶지 않는다.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn pty_open(
     app: AppHandle,

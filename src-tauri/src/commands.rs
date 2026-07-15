@@ -233,11 +233,20 @@ pub async fn backlinks(root: String, path: String) -> Result<Vec<Backlink>, Stri
 
 /// 워크스페이스 전체의 노트 링크 그래프(노드=노트, 엣지=링크)를 만든다 (FR-6.2).
 /// 백링크와 같은 전체 순회라 무거울 수 있어 블로킹 풀에서 돈다.
+/// 루트별 링크 스캔 캐시 — 그래프뷰를 다시 열 때 변경된 파일만 재파싱한다.
+static GRAPH_SCAN_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, synapse_core::LinkScanCache>>,
+> = std::sync::OnceLock::new();
+
 #[tauri::command]
 pub async fn link_graph(root: String) -> Result<LinkGraph, String> {
     require_local(&parse_loc(&root)?)?;
     crate::sync::run_blocking(move || {
-        synapse_core::build_graph(Path::new(&root)).map_err(|e| e.to_string())
+        let caches = GRAPH_SCAN_CACHE.get_or_init(Default::default);
+        // 락 오염(다른 스레드 패닉)이어도 캐시는 재파싱으로 자가 회복된다
+        let mut map = caches.lock().unwrap_or_else(|e| e.into_inner());
+        let cache = map.entry(root.clone()).or_default();
+        synapse_core::build_graph_cached(Path::new(&root), cache).map_err(|e| e.to_string())
     })
     .await
 }

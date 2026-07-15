@@ -24,6 +24,11 @@ import {
   wheelZoomFactor,
   type ZoomView as View,
 } from "./zoom";
+import {
+  getCachedLayout,
+  graphSignature,
+  setCachedLayout,
+} from "./layoutCache";
 
 // WebKit(맥 Safari/WKWebView) 전용 핀치 이벤트 — lib.dom에 타입이 없다.
 interface WebKitGestureEvent extends Event {
@@ -101,10 +106,17 @@ export function GraphView({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const layout = useMemo(
-    () => (graph ? layoutGraph(graph, { width: WIDTH, height: HEIGHT }) : null),
-    [graph],
-  );
+  // 레이아웃은 그래프 내용 서명으로 캐시한다 — 노트 변경이 없으면 그래프뷰를
+  // 다시 열어도 즉시 표시된다 (layoutGraph는 결정적이라 재사용이 안전하다).
+  const layout = useMemo(() => {
+    if (!graph) return null;
+    const sig = graphSignature(graph);
+    const cached = getCachedLayout(sig);
+    if (cached) return cached;
+    const computed = layoutGraph(graph, { width: WIDTH, height: HEIGHT });
+    setCachedLayout(sig, computed);
+    return computed;
+  }, [graph]);
 
   const maxDegree = useMemo(
     () =>
