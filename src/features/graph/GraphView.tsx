@@ -11,6 +11,7 @@ import {
   SearchIcon,
 } from "../../shared/Icons";
 import {
+  LABEL_GAP,
   adjacencyOf,
   estimateLabelWidth,
   layoutGraph,
@@ -134,10 +135,14 @@ export function GraphView({ onClose }: { onClose: () => void }) {
   // 겹치지 않게 표시할 라벨 집합을 미리 계산한다.
   // - 포커스 중(호버·검색): 포커스 집합만 후보 → 연결된 노트 제목이
   //   배경 허브에 가리지 않고 우선 배치된다. 호버한 노드는 항상 표시.
-  // - 평상시: 허브(degree ≥ 2)와 현재 노트만 후보 → 빽빽한 중심부에서
-  //   겹치는 라벨은 숨겨 화면이 정돈된다.
+  // - 평상시: 전 노드가 후보 — 겹침 회피가 밀도 필터 역할을 해서
+  //   축소 화면에선 허브 위주로, 확대할수록 주변 이름이 드러난다.
+  // 라벨은 화면 고정 크기(11px)로 그리므로 충돌 판정도 화면(px) 공간
+  // 에서 한다: 좌표·반지름에 줌 배율 k를 곱하고 글자 폭은 그대로 둔다.
+  // 확대하면 노드 간 화면 거리가 벌어져 통과하는 라벨이 자연히 늘어난다.
   const shownLabels = useMemo(() => {
     if (!layout) return new Set<string>();
+    const k = view.k;
     const cands: LabelCandidate[] = [];
     for (const n of layout.nodes) {
       const isCurrent = n.path === activePath;
@@ -147,14 +152,13 @@ export function GraphView({ onClose }: { onClose: () => void }) {
           ? n.path === hover || (neighbors?.has(n.path) ?? false)
           : false;
       const inFocus = active || isCurrent || n.path === hover;
-      const eligible = focusing ? inFocus : n.degree >= 2 || isCurrent;
-      if (!eligible) continue;
+      if (focusing && !inFocus) continue;
       const force = focusing ? n.path === hover : isCurrent;
       cands.push({
         path: n.path,
-        x: n.x,
-        y: n.y,
-        r: radiusOf(n.degree, maxDegree),
+        x: n.x * k,
+        y: n.y * k,
+        r: radiusOf(n.degree, maxDegree) * k,
         width: estimateLabelWidth(displayName(n.name)),
         // 현재 노트·이웃을 배경 허브보다 위로 — 큰 degree일수록 먼저 배치.
         priority: n.degree + (isCurrent ? 1000 : 0) + (active ? 100 : 0),
@@ -162,7 +166,7 @@ export function GraphView({ onClose }: { onClose: () => void }) {
       });
     }
     return placeLabels(cands);
-  }, [layout, focusing, hover, matches, neighbors, activePath, maxDegree]);
+  }, [layout, focusing, hover, matches, neighbors, activePath, maxDegree, view.k]);
 
   const zoomAt = (vx: number, vy: number, factor: number) => {
     setView((v) => applyZoom(v, vx, vy, factor, MIN_ZOOM, MAX_ZOOM));
@@ -268,6 +272,16 @@ export function GraphView({ onClose }: { onClose: () => void }) {
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
             >
+              <defs>
+                {/* 헤일로용 소프트 글로우 — 원판 대신 중심→가장자리 페이드 */}
+                <radialGradient id="graph-halo-grad">
+                  <stop offset="0%" className="graph-halo-stop-core" />
+                  <stop offset="100%" className="graph-halo-stop-edge" />
+                </radialGradient>
+              </defs>
+              {/* SVG는 문서 순서가 곧 쌓임 순서다. 헤일로가 이웃 노드의
+                  라벨을 덮지 않도록 엣지 → 헤일로 → 점 → 라벨 레이어로
+                  나눠 그린다(라벨이 항상 최상단). */}
               <g
                 transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}
               >
@@ -297,11 +311,34 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                 })}
                 {layout!.nodes.map((n) => {
                   const isCurrent = n.path === activePath;
+                  const linked = n.degree > 0;
+                  if (!linked && !isCurrent) return null;
+                  const active = isActive(n.path);
+                  const dimmed = focusing && !active && !isCurrent;
+                  return (
+                    <circle
+                      key={n.path}
+                      cx={n.x}
+                      cy={n.y}
+                      r={radiusOf(n.degree, maxDegree) * 1.6}
+                      fill="url(#graph-halo-grad)"
+                      className={[
+                        "graph-halo",
+                        isCurrent ? "graph-halo-current" : "",
+                        active ? "graph-halo-active" : "",
+                        dimmed ? "graph-halo-dimmed" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    />
+                  );
+                })}
+                {layout!.nodes.map((n) => {
+                  const isCurrent = n.path === activePath;
                   const active = isActive(n.path);
                   const dimmed = focusing && !active && !isCurrent;
                   const linked = n.degree > 0;
                   const r = radiusOf(n.degree, maxDegree);
-                  const showLabel = shownLabels.has(n.path);
                   const cls = [
                     "graph-node",
                     linked ? "graph-node-linked" : "graph-node-iso",
@@ -327,20 +364,43 @@ export function GraphView({ onClose }: { onClose: () => void }) {
                       }}
                     >
                       <title>{n.name}</title>
-                      {(linked || isCurrent) && (
-                        <circle r={r * 2.4} className="graph-node-halo" />
-                      )}
                       <circle
                         r={r}
                         vectorEffect="non-scaling-stroke"
                         className="graph-node-dot"
                       />
-                      {showLabel && (
-                        <text x={r + 4} y={4} className="graph-node-label">
-                          {displayName(n.name)}
-                        </text>
-                      )}
                     </g>
+                  );
+                })}
+                {layout!.nodes.map((n) => {
+                  if (!shownLabels.has(n.path)) return null;
+                  const isCurrent = n.path === activePath;
+                  const active = isActive(n.path);
+                  const dimmed = focusing && !active && !isCurrent;
+                  const r = radiusOf(n.degree, maxDegree);
+                  const k = view.k;
+                  // 화면 고정 크기 라벨: 줌 그룹 안에서 1/k로 역보정해
+                  // 화면에선 항상 11px — 확대할수록 더 많은 이름이 보인다.
+                  return (
+                    <text
+                      key={n.path}
+                      x={n.x + r + LABEL_GAP / k}
+                      y={n.y + 4 / k}
+                      style={{
+                        fontSize: `${11 / k}px`,
+                        strokeWidth: `${3.5 / k}px`,
+                      }}
+                      className={[
+                        "graph-node-label",
+                        isCurrent ? "graph-node-label-current" : "",
+                        active ? "graph-node-label-active" : "",
+                        dimmed ? "graph-node-label-dimmed" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      {displayName(n.name)}
+                    </text>
                   );
                 })}
               </g>
