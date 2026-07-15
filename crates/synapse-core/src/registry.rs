@@ -69,6 +69,14 @@ pub fn record_opened(config_dir: &Path, workspace: &Path) -> io::Result<Vec<Stri
     Ok(registry.recent)
 }
 
+/// 최근 연 폴더 목록을 전부 비운다 (시작 화면 "모두 지우기").
+/// 세션 복원용 last_workspace와 워크스페이스별 상태는 건드리지 않는다.
+pub fn clear_recent(config_dir: &Path) -> io::Result<()> {
+    let mut registry = load(config_dir);
+    registry.recent.clear();
+    save(config_dir, &registry)
+}
+
 /// 앱 재시작 시 복원할 워크스페이스 (삭제된 로컬 폴더면 None, 원격은 유지)
 pub fn last_workspace(config_dir: &Path) -> Option<String> {
     load(config_dir).last_workspace.filter(|p| is_listable(p))
@@ -159,6 +167,32 @@ mod tests {
         assert_eq!(
             last_workspace(config.path()),
             Some("ssh://me@host:2222/srv/notes".to_string())
+        );
+    }
+
+    #[test]
+    fn clear_recent_empties_list_but_keeps_session_state() {
+        let config = tempfile::tempdir().unwrap();
+        let ws = tempfile::tempdir().unwrap();
+        record_opened(config.path(), ws.path()).unwrap();
+        set_workspace_state(
+            config.path(),
+            ws.path(),
+            serde_json::json!({"openTabs": ["a.md"]}),
+        )
+        .unwrap();
+
+        clear_recent(config.path()).unwrap();
+
+        assert!(recent_workspaces(config.path()).is_empty());
+        // 최근 목록만 비운다 — 세션 복원과 탭 상태는 그대로
+        assert_eq!(
+            last_workspace(config.path()),
+            Some(ws.path().display().to_string())
+        );
+        assert_eq!(
+            workspace_state(config.path(), ws.path())["openTabs"][0],
+            "a.md"
         );
     }
 
