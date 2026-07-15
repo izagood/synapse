@@ -318,21 +318,27 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
             .and_then(|live| link_candidates_tool(&live, &args)),
         "apply_links" => ctx.fetch_live().and_then(|live| {
             let plans = plan_apply_links(&live, &args)?;
-            let mut out = String::from("# apply_links 결과\n");
+
+            // 파일별 쓰기 결과 누적: (PlannedEdit, Result)
+            // 루프에서 실패해도 다음 파일을 계속 처리하는 best-effort 의미론.
+            let mut results: Vec<(PlannedEdit, Result<(), String>)> = Vec::new();
+
             for p in plans {
-                if p.new_content != p.base {
-                    ctx.post_edit(&p.path, &p.new_content, &p.base)?;
-                }
-                out.push_str(&format!("\n## {}\n- 적용 {}건", p.path, p.applied));
-                for r in &p.rejected {
-                    out.push_str(&format!("\n- 거부: {} — {}", r.to, r.reason));
-                }
-                for w in &p.warnings {
-                    out.push_str(&format!("\n- 경고: {w}"));
-                }
-                out.push('\n');
+                let edit_result = if p.new_content != p.base {
+                    // 변경이 있으면 post_edit 시도, 실패해도 Err로 기록하고 계속.
+                    match ctx.post_edit(&p.path, &p.new_content, &p.base) {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(e),
+                    }
+                } else {
+                    // 변경 없음
+                    Ok(())
+                };
+                results.push((p, edit_result));
             }
-            Ok(out)
+
+            let formatted = format_apply_result(&results);
+            Ok(formatted)
         }),
         other => Err(format!("알 수 없는 도구: {other}")),
     };
@@ -497,6 +503,47 @@ fn plan_apply_links(live: &LiveState, args: &Value) -> Result<Vec<PlannedEdit>, 
         });
     }
     Ok(plans)
+}
+
+/// apply_links 결과를 서식화한다(테스트 가능한 순수 함수).
+/// 성공/실패 파일을 모두 보고하고, 실패가 있으면 상단에 요약 줄을 넣는다.
+/// best-effort 의미론: 일부 파일 쓰기 실패해도 성공한 파일 보고는 유지된다.
+fn format_apply_result(results: &[(PlannedEdit, Result<(), String>)]) -> String {
+    let mut out = String::from("# apply_links 결과\n");
+
+    // 실패 존재 여부 확인 — 하나라도 실패하면 요약 줄을 넣는다.
+    let has_failure = results.iter().any(|(_, res)| res.is_err());
+
+    if has_failure {
+        out.push_str("일부 파일 적용 실패 — 재작성은 멱등이므로 실패 파일만 재시도하면 된다\n");
+    }
+
+    for (p, result) in results {
+        out.push_str(&format!("\n## {}\n", p.path));
+
+        match result {
+            Ok(()) => {
+                // 성공: 변경 있음 또는 변경 없음 구분
+                if p.new_content == p.base {
+                    out.push_str("- 변경 없음\n");
+                } else {
+                    out.push_str(&format!("- 적용 {}건\n", p.applied));
+                    for r in &p.rejected {
+                        out.push_str(&format!("- 거부: {} — {}\n", r.to, r.reason));
+                    }
+                    for w in &p.warnings {
+                        out.push_str(&format!("- 경고: {}\n", w));
+                    }
+                }
+            }
+            Err(e) => {
+                // 실패: 브리지 쓰기 오류 등을 기록
+                out.push_str(&format!("- 실패: {}\n", e));
+            }
+        }
+    }
+
+    out
 }
 
 // ----- JSON-RPC / MCP 프레이밍 헬퍼 -----
@@ -760,5 +807,86 @@ mod tests {
             open_tabs: vec![],
         };
         assert!(plan_apply_links(&live, &json!({})).is_err());
+    }
+
+    #[test]
+    fn format_apply_result_success_and_failure_preserves_both() {
+        // 성공 + 실패 혼합: 성공 파일의 보고가 유지되고 실패 파일에 "실패:"가 붙는지 검증.
+        let results = vec![
+            (
+                PlannedEdit {
+                    path: "/ws/a.md".to_string(),
+                    base: "본문\n".to_string(),
+                    new_content: "본문\n## auto-links\n- [[b]]\n".to_string(),
+                    applied: 1,
+                    rejected: vec![],
+                    warnings: vec![],
+                },
+                Ok(()),
+            ),
+            (
+                PlannedEdit {
+                    path: "/ws/b.md".to_string(),
+                    base: "b 본문\n".to_string(),
+                    new_content: "b 본문\n## auto-links\n- [[c]]\n".to_string(),
+                    applied: 1,
+                    rejected: vec![],
+                    warnings: vec![],
+                },
+                Err("브리지 쓰기 실패".to_string()),
+            ),
+        ];
+
+        let out = format_apply_result(&results);
+
+        // a.md의 성공 보고가 유지되어야 한다.
+        assert!(out.contains("/ws/a.md"));
+        assert!(out.contains("- 적용 1건"));
+
+        // b.md의 실패 보고
+        assert!(out.contains("/ws/b.md"));
+        assert!(out.contains("- 실패: 브리지 쓰기 실패"));
+
+        // 상단 요약 줄 (실패가 있으므로 있어야 함)
+        assert!(out.contains("일부 파일 적용 실패"));
+    }
+
+    #[test]
+    fn format_apply_result_marks_no_change() {
+        // 변경 없음 케이스: "- 변경 없음"으로 표기되는지 검증.
+        let results = vec![(
+            PlannedEdit {
+                path: "/ws/x.md".to_string(),
+                base: "동일\n".to_string(),
+                new_content: "동일\n".to_string(),
+                applied: 0,
+                rejected: vec![],
+                warnings: vec![],
+            },
+            Ok(()),
+        )];
+
+        let out = format_apply_result(&results);
+        assert!(out.contains("- 변경 없음"));
+    }
+
+    #[test]
+    fn format_apply_result_all_success_no_failure_summary() {
+        // 모든 파일이 성공: 상단 요약 줄이 없어야 한다.
+        let results = vec![(
+            PlannedEdit {
+                path: "/ws/a.md".to_string(),
+                base: "본문\n".to_string(),
+                new_content: "본문\n## auto-links\n- [[b]]\n".to_string(),
+                applied: 1,
+                rejected: vec![],
+                warnings: vec![],
+            },
+            Ok(()),
+        )];
+
+        let out = format_apply_result(&results);
+        assert!(!out.contains("일부 파일 적용 실패"));
+        assert!(out.contains("- 적용 1건"));
     }
 }
