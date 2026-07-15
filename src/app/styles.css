@@ -2584,6 +2584,14 @@ body.resizing-sidebar {
   padding: 10px 16px;
 }
 
+/* 커맨드 팔레트 — quick-open 스타일 재사용, 우측에 단축키 라벨만 추가 */
+.command-palette .palette-key {
+  margin-left: auto;
+  color: var(--fg-dim);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
 /* ---- 단축키 치트시트 ---- */
 
 .cheatsheet {

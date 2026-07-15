@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { ipc } from "../ipc/ipc";
 import { useWorkspace } from "../stores/workspace";
 import { useSettings } from "../stores/settings";
+import { registerStaticCommands } from "../features/commands/staticCommands";
+import { useShortcutDispatcher } from "../features/commands/useShortcutDispatcher";
 import { applyTheme, nativeWindowTheme } from "../features/theme/theme";
 import { StartScreen } from "../features/workspace/StartScreen";
 import { WorkspaceView } from "../features/workspace/WorkspaceView";
@@ -9,7 +11,10 @@ import { installFileWatch } from "../features/workspace/fileWatch";
 import { SettingsModal } from "../features/settings/SettingsModal";
 import { ShortcutCheatsheet } from "../features/shortcuts/ShortcutCheatsheet";
 import { UpdateToast } from "../features/update/UpdateToast";
-import { isShortcut } from "../shared/shortcuts";
+
+// 스토어 기반 커맨드는 모듈 로드 시 1회 등록 (컴포넌트 로컬 state 커맨드는
+// WorkspaceView 가 마운트 동안 동적 등록한다)
+registerStaticCommands();
 
 export default function App() {
   const root = useWorkspace((s) => s.root);
@@ -28,28 +33,9 @@ export default function App() {
   // 외부 파일 변경 시 수동 새로고침 없이 자동 reload (워처 + 포커스 복귀)
   useEffect(() => installFileWatch(), []);
 
-  // 전역 단축키: 설정 토글 · 새 창 · 단축키 치트시트 (정의는 shared/shortcuts 단일 출처)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isShortcut(e, "settings.toggle")) {
-        e.preventDefault();
-        const s = useSettings.getState();
-        if (s.showSettings) {
-          s.closeSettings();
-        } else {
-          s.openSettings();
-        }
-      } else if (isShortcut(e, "window.new")) {
-        e.preventDefault();
-        void ipc.newWindow();
-      } else if (isShortcut(e, "help.cheatsheet")) {
-        e.preventDefault();
-        useSettings.getState().toggleShortcuts();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  // 전역 단축키: 정의(shared/shortcuts)와 실행(커맨드 레지스트리)을 잇는
+  // keydown 리스너는 앱 전체에 이 디스패처 하나뿐이다
+  useShortcutDispatcher();
 
   // 테마 적용: data-theme 속성 + 커스텀 색상 오버라이드 + 시스템 테마 변화 추적 (FR-5.3)
   // 네이티브 창(타이틀바)도 같은 테마를 따르도록 동기화한다
