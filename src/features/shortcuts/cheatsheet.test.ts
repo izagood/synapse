@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { translate, type TranslationKey } from "../../i18n";
 import type { ShortcutDef } from "../../shared/shortcuts";
-import { SHORTCUTS } from "../../shared/shortcuts";
-import { filterShortcuts, groupByCategory, visibleShortcuts } from "./cheatsheet";
+import { SHORTCUTS, shortcutById } from "../../shared/shortcuts";
+import { filterShortcuts, groupByCategory, mergedKeyLabel, visibleShortcuts } from "./cheatsheet";
 
 const en = (key: TranslationKey) => translate("en", key);
 
@@ -28,6 +28,24 @@ describe("visibleShortcuts", () => {
   it("keeps platform-agnostic entries and drops those not for the platform", () => {
     expect(visibleShortcuts(defs, "windows").map((d) => d.id)).toEqual(["a"]);
     expect(visibleShortcuts(defs, "macos").map((d) => d.id)).toEqual(["a", "mac-only"]);
+  });
+
+  it("cheatsheetMerge:hidden 항목(tab.goTo2~9)은 치트시트에서 제외된다", () => {
+    const out = visibleShortcuts(SHORTCUTS, "macos");
+    expect(out.some((d) => d.id === "tab.goTo1")).toBe(true);
+    expect(out.some((d) => d.id === "tab.goTo2")).toBe(false);
+    expect(out.some((d) => d.id === "tab.goTo9")).toBe(false);
+  });
+});
+
+describe("mergedKeyLabel", () => {
+  it("cheatsheetMerge:first 항목은 ⌘1…9 범위로 표시한다", () => {
+    expect(mergedKeyLabel(shortcutById("tab.goTo1"), "macos")).toBe("⌘1…9");
+    expect(mergedKeyLabel(shortcutById("tab.goTo1"), "windows")).toBe("Ctrl+1…9");
+  });
+
+  it("일반 항목은 shortcutLabel 그대로", () => {
+    expect(mergedKeyLabel(shortcutById("tab.close"), "macos")).toBe("⌘W");
   });
 });
 
