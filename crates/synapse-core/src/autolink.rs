@@ -340,6 +340,21 @@ fn render_block(items: &[String]) -> String {
     s
 }
 
+/// rel 경로를 최소한으로 percent-encode한다. synapse 자신의 링크 파서(`links.rs`)가
+/// 오해석할 수 있는 문자(`%`, `(`, `)`, `#`, `?`, 공백)만 인코딩하고 `/`는 경로
+/// 구분자이므로 그대로 둔다. `resolve_standard_link`의 percent-decode와 정확히
+/// 왕복된다.
+fn percent_encode_path(rel: &str) -> String {
+    let mut out = String::with_capacity(rel.len());
+    for c in rel.chars() {
+        match c {
+            '%' | '(' | ')' | '#' | '?' | ' ' => out.push_str(&format!("%{:02X}", c as u32)),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// auto-links 마커 블록만 `items`로 통째 재작성한다(멱등). 블록이 없고
 /// `items`가 있으면 파일 끝에 빈 줄 하나를 두고 추가한다. 마커 밖 바이트는
 /// 절대 바꾸지 않는다.
@@ -378,7 +393,9 @@ pub fn rewrite_auto_links(original: &str, items: &[String]) -> RewriteOutcome {
             if !original.is_empty() && !original.ends_with('\n') {
                 out.push('\n');
             }
-            if !original.trim_end().is_empty() {
+            // 이미 빈 줄(연속 개행)로 끝나면 구분 빈 줄을 또 넣지 않는다 —
+            // add→remove→add를 반복해도 빈 줄이 누적되지 않게 한다.
+            if !original.trim_end().is_empty() && !original.ends_with("\n\n") {
                 out.push('\n'); // 본문과 블록 사이 빈 줄 하나
             }
             out.push_str(&block);
@@ -467,7 +484,11 @@ pub fn apply_auto_links(
                 .strip_prefix(&root)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
-            format!("[{name}](/{rel})")
+            // 경로에 파서를 오해석시킬 문자(%, (, ), #, ?, 공백)가 있으면
+            // percent-encode하고, 라벨의 [/]는 (/)로 치환해 라벨 파싱 깨짐을 막는다.
+            let rel = percent_encode_path(&rel);
+            let safe_name = name.replace('[', "(").replace(']', ")");
+            format!("[{safe_name}](/{rel})")
         };
         match &link.label {
             Some(l) if !l.trim().is_empty() => items.push(format!("- {href} — {}", l.trim())),
@@ -475,10 +496,21 @@ pub fn apply_auto_links(
         }
     }
 
-    let rewrite = rewrite_auto_links(base, &items);
-    warnings.extend(rewrite.warnings);
+    // 전량 거부 방어: links가 비어 있지 않은데(전달은 됐는데) 검증 통과분이
+    // 0이면 기존 블록을 지우지 않는다 — 링크 전량이 존재하지 않는 파일을
+    // 가리키는 등 이상 입력 때문에 사용자의 기존 auto-links 블록이 통째로
+    // 사라지는 것을 막는다. links가 진짜 빈 slice(명시적 비움)면 기존대로
+    // 블록을 제거한다.
+    let content = if !links.is_empty() && items.is_empty() {
+        warnings.push("유효한 링크가 없어 기존 블록을 유지했습니다".to_string());
+        base.to_string()
+    } else {
+        let rewrite = rewrite_auto_links(base, &items);
+        warnings.extend(rewrite.warnings);
+        rewrite.content
+    };
     Ok(ApplyOutcome {
-        content: rewrite.content,
+        content,
         applied: items.len(),
         rejected,
         warnings,
@@ -530,6 +562,23 @@ mod tests {
     fn empty_items_on_no_block_is_noop() {
         let out = rewrite_auto_links("본문\n", &[]);
         assert_eq!(out.content, "본문\n");
+    }
+
+    #[test]
+    fn add_remove_add_cycle_does_not_accumulate_blank_lines() {
+        // add → remove(빈 목록) → add 를 반복해도 구분 빈 줄이 누적되지 않아야 한다.
+        let step1 = rewrite_auto_links("본문\n", &["- [[b]]".to_string()]);
+        let step2 = rewrite_auto_links(&step1.content, &[]); // remove
+        let step3 = rewrite_auto_links(&step2.content, &["- [[b]]".to_string()]); // add again
+        assert_eq!(
+            step3.content, step1.content,
+            "2회차 add 결과가 1회차와 같아야 함(빈 줄 누적 없음)"
+        );
+
+        // 한 사이클 더 반복해도 여전히 동일해야 한다.
+        let step4 = rewrite_auto_links(&step3.content, &[]);
+        let step5 = rewrite_auto_links(&step4.content, &["- [[b]]".to_string()]);
+        assert_eq!(step5.content, step1.content, "3회차도 동일해야 함");
     }
 
     #[test]
@@ -752,6 +801,37 @@ mod tests {
     }
 
     #[test]
+    fn apply_all_rejected_preserves_existing_block() {
+        // links가 비어 있지 않은데(3건 전달) 전부 거부되면, 기존에 있던
+        // auto-links 블록을 지우지 말고 base 그대로 반환해야 한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("from.md"), "본문\n");
+        let base = format!(
+            "본문\n\n{s}\n## 관련 노트\n- [[keep]]\n{e}\n",
+            s = AUTO_LINKS_START,
+            e = AUTO_LINKS_END
+        );
+
+        let links = vec![
+            ApplyLink { to: root.join("없는노트.md").display().to_string(), label: None },
+            ApplyLink { to: root.join("from.md").display().to_string(), label: None }, // 자기 자신
+            ApplyLink { to: tmp.path().join("outside.md").display().to_string(), label: None },
+        ];
+        let out = apply_auto_links(root, &root.join("from.md"), &base, &links).unwrap();
+
+        assert_eq!(out.applied, 0);
+        assert_eq!(out.rejected.len(), 3, "거부 사유가 채워져야 함");
+        assert_eq!(out.content, base, "전량 거부 시 base 그대로(기존 블록 유지)");
+        assert!(out.content.contains("- [[keep]]"), "기존 블록 내용도 그대로 유지");
+        assert!(
+            out.warnings.iter().any(|w| w.contains("유효한 링크가 없어 기존 블록을 유지")),
+            "전량 거부 경고가 있어야 함: {:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
     fn apply_falls_back_to_root_relative_link_on_stem_collision() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
@@ -769,6 +849,61 @@ mod tests {
             out.content.contains("- [노트](/b/노트.md)"),
             "stem 충돌 시 루트 기준 표준 링크 폴백: {}",
             out.content
+        );
+    }
+
+    #[test]
+    fn apply_percent_encodes_fallback_href_and_roundtrips() {
+        // stem 충돌 폴백 링크의 파일명에 파서를 오해석시킬 문자(괄호 등)가
+        // 있으면 percent-encode해야 하고, 그 결과가 다시 links.rs 파서로
+        // 정확히 원래 파일을 가리키도록 왕복돼야 한다(핵심 단언).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("from.md"), "본문\n");
+        // 같은 stem 충돌 준비: 정렬상 a/ 가 stem 인덱스를 차지, b/ 가 폴백 대상
+        write(&root.join("a/회의록(7월).md"), "first");
+        write(&root.join("b/회의록(7월).md"), "second");
+
+        let links = vec![ApplyLink {
+            to: root.join("b/회의록(7월).md").display().to_string(),
+            label: None,
+        }];
+        let out = apply_auto_links(root, &root.join("from.md"), "본문\n", &links).unwrap();
+
+        // 왕복 단언: extract_links + resolve_standard_link로 원래 파일을 가리키는지.
+        let canonical_root = root.canonicalize().unwrap();
+        let found = crate::links::extract_links(&out.content);
+        let href = found
+            .iter()
+            .find_map(|(l, _)| match l {
+                crate::links::OutLink::Standard(href) => Some(href.clone()),
+                crate::links::OutLink::Wiki(_) => None,
+            })
+            .expect("표준 링크로 폴백된 href가 있어야 함");
+
+        // href(괄호 안 표시 라벨이 아니라 실제 경로) 자체는 percent-encode 되어
+        // 원문 괄호를 담지 않아야 한다 — 라벨 [회의록(7월)]의 괄호는 표시용이라
+        // 그대로 둬도 되지만, href 안 괄호는 파서를 오해석시키므로 인코딩 필수.
+        assert!(
+            href.contains("%28") && href.contains("%29"),
+            "href의 괄호가 percent-encode 되어야 함: {}",
+            href
+        );
+        assert!(
+            !href.contains('(') && !href.contains(')'),
+            "href에 원문 괄호가 그대로 남아있으면 안 됨: {}",
+            href
+        );
+        let resolved = crate::links::resolve_standard_link(
+            &href,
+            &root.join("from.md"),
+            &canonical_root,
+        )
+        .expect("percent-encoded href가 다시 해석 가능해야 함");
+        assert_eq!(
+            resolved,
+            root.join("b/회의록(7월).md").canonicalize().unwrap(),
+            "왕복 결과가 원래 파일 경로와 같아야 함"
         );
     }
 

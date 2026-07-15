@@ -247,7 +247,7 @@ fn tool_defs() -> Value {
         },
         {
             "name": "apply_links",
-            "description": "확정한 노트 연결을 각 from 노트 하단의 auto-links 마커 블록에 wikilink로 기록한다. 선언적: 전달한 links가 각 from 파일 블록의 전체 내용이 된다(해당 from에 빈 목록 = 블록 제거). 마커 밖 본문은 절대 바꾸지 않으며 사용자 편집과 안전하게 병합된다.",
+            "description": "확정한 노트 연결을 각 from 노트 하단의 auto-links 마커 블록에 wikilink로 기록한다. 선언적: 전달한 links가 각 from 파일 블록의 전체 내용이 된다. 블록을 비우고 싶은(links에 항목이 없는) from 노트는 links에 빈 목록을 넣을 수 없으므로 clear에 그 절대 경로를 넣는다(= 블록 제거). 같은 from이 links와 clear 양쪽에 있으면 links가 우선한다. 마커 밖 본문은 절대 바꾸지 않으며 사용자 편집과 안전하게 병합된다.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -263,6 +263,11 @@ fn tool_defs() -> Value {
                             "required": ["from", "to"],
                             "additionalProperties": false
                         }
+                    },
+                    "clear": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "auto-links 블록을 비울 노트의 절대 경로 목록"
                     }
                 },
                 "required": ["links"],
@@ -324,7 +329,11 @@ fn handle_tool_call(id: Option<Value>, msg: &Value, ctx: &Ctx) -> Value {
             let mut results: Vec<(PlannedEdit, Result<(), String>)> = Vec::new();
 
             for p in plans {
-                let edit_result = if p.new_content != p.base {
+                let edit_result = if let Some(err) = p.plan_error.clone() {
+                    // plan 단계(read_note/apply_auto_links) 자체가 실패한 파일 —
+                    // 쓰기를 시도하지 않고 바로 실패로 기록한다.
+                    Err(err)
+                } else if p.new_content != p.base {
                     // 변경이 있으면 post_edit 시도, 실패해도 Err로 기록하고 계속.
                     match ctx.post_edit(&p.path, &p.new_content, &p.base) {
                         Ok(_) => Ok(()),
@@ -454,10 +463,19 @@ struct PlannedEdit {
     applied: usize,
     rejected: Vec<RejectedLink>,
     warnings: Vec<String>,
+    /// 이 파일의 plan 단계(read_note/apply_auto_links) 자체가 실패한 사유.
+    /// Some이면 이 파일은 쓰기를 시도하지 않고 그대로 실패 항목으로 보고된다.
+    /// (요청 자체가 잘못된 경우(links 배열 부재/형식 오류)는 여기 담기지
+    /// 않고 plan_apply_links가 즉시 Err를 반환한다 — 배치 전체 요청 오류.)
+    plan_error: Option<String>,
 }
 
 /// links 인자를 from별로 묶어(입력 순서 보존) 각 파일의 재작성 내용을 계산한다.
 /// 디스크에 쓰지 않는다 — 쓰기는 호출자가 post_edit으로 수행.
+///
+/// from별 read_note/apply_auto_links 실패는 배치 전체를 중단시키지 않고
+/// 해당 파일의 `plan_error`로 격하한다(best-effort). 반면 `links` 인자 자체가
+/// 없거나 각 항목 형식이 틀린 요청 레벨 오류는 그대로 Err로 전파한다.
 fn plan_apply_links(live: &LiveState, args: &Value) -> Result<Vec<PlannedEdit>, String> {
     let root = local_root(live)?;
     let links = args
@@ -483,23 +501,72 @@ fn plan_apply_links(live: &LiveState, args: &Value) -> Result<Vec<PlannedEdit>, 
         groups.entry(from).or_default().push(link);
     }
 
+    // clear: 블록을 비울 노트 목록. 같은 from이 links에도 있으면 links가
+    // 우선하고(경고), clear만 있으면 빈 링크 그룹으로 합류시켜 블록을 제거한다.
+    let clear: Vec<String> = args
+        .get("clear")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    let mut clear_overridden: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for from in clear {
+        if groups.contains_key(&from) {
+            clear_overridden.insert(
+                from.clone(),
+                "clear 지정을 무시했습니다(같은 from에 links가 있어 links가 우선)".to_string(),
+            );
+            continue;
+        }
+        order.push(from.clone());
+        groups.insert(from, Vec::new());
+    }
+
     let mut plans = Vec::new();
     for from in order {
-        let base = read_note(live, &from)?;
-        let outcome = apply_auto_links(
-            Path::new(&root),
-            Path::new(&from),
-            &base,
-            &groups[&from],
-        )
-        .map_err(|e| e.to_string())?;
+        let base = match read_note(live, &from) {
+            Ok(b) => b,
+            Err(e) => {
+                plans.push(PlannedEdit {
+                    path: from,
+                    base: String::new(),
+                    new_content: String::new(),
+                    applied: 0,
+                    rejected: Vec::new(),
+                    warnings: Vec::new(),
+                    plan_error: Some(e),
+                });
+                continue;
+            }
+        };
+        let outcome =
+            match apply_auto_links(Path::new(&root), Path::new(&from), &base, &groups[&from]) {
+                Ok(o) => o,
+                Err(e) => {
+                    plans.push(PlannedEdit {
+                        path: from,
+                        base,
+                        new_content: String::new(),
+                        applied: 0,
+                        rejected: Vec::new(),
+                        warnings: Vec::new(),
+                        plan_error: Some(e),
+                    });
+                    continue;
+                }
+            };
+        let mut warnings = outcome.warnings;
+        if let Some(w) = clear_overridden.remove(&from) {
+            warnings.push(w);
+        }
         plans.push(PlannedEdit {
             path: from,
             base,
             new_content: outcome.content,
             applied: outcome.applied,
             rejected: outcome.rejected,
-            warnings: outcome.warnings,
+            warnings,
+            plan_error: None,
         });
     }
     Ok(plans)
@@ -523,17 +590,19 @@ fn format_apply_result(results: &[(PlannedEdit, Result<(), String>)]) -> String 
 
         match result {
             Ok(()) => {
-                // 성공: 변경 있음 또는 변경 없음 구분
+                // 성공: 변경 있음 또는 변경 없음 구분. rejected/warnings는 변경
+                // 여부와 무관하게 항상 보고한다(예: 전량 거부로 무변경이어도
+                // 거부 사유는 사용자가 알아야 한다).
                 if p.new_content == p.base {
                     out.push_str("- 변경 없음\n");
                 } else {
                     out.push_str(&format!("- 적용 {}건\n", p.applied));
-                    for r in &p.rejected {
-                        out.push_str(&format!("- 거부: {} — {}\n", r.to, r.reason));
-                    }
-                    for w in &p.warnings {
-                        out.push_str(&format!("- 경고: {}\n", w));
-                    }
+                }
+                for r in &p.rejected {
+                    out.push_str(&format!("- 거부: {} — {}\n", r.to, r.reason));
+                }
+                for w in &p.warnings {
+                    out.push_str(&format!("- 경고: {}\n", w));
                 }
             }
             Err(e) => {
@@ -810,6 +879,102 @@ mod tests {
     }
 
     #[test]
+    fn plan_apply_links_clear_empties_block() {
+        // I2: clear에 지정된 노트는 links에 항목이 없어도 블록이 제거돼야 한다.
+        use synapse_core::{AUTO_LINKS_END, AUTO_LINKS_START};
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let base = format!(
+            "본문\n\n{s}\n## 관련 노트\n- [[b]]\n{e}\n",
+            s = AUTO_LINKS_START,
+            e = AUTO_LINKS_END
+        );
+        std::fs::write(root.join("from.md"), &base).unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let args = json!({
+            "links": [],
+            "clear": [ root.join("from.md").display().to_string() ]
+        });
+        let plans = plan_apply_links(&live, &args).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert!(
+            !plans[0].new_content.contains(AUTO_LINKS_START),
+            "clear로 지정된 노트는 블록이 제거돼야 함: {}",
+            plans[0].new_content
+        );
+    }
+
+    #[test]
+    fn plan_apply_links_links_take_priority_over_clear_for_same_from() {
+        // 같은 from이 links와 clear 양쪽에 있으면 links가 우선한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("from.md"), "본문\n").unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let from_path = root.join("from.md").display().to_string();
+        let args = json!({
+            "links": [ { "from": from_path, "to": root.join("b.md").display().to_string() } ],
+            "clear": [ from_path ]
+        });
+        let plans = plan_apply_links(&live, &args).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert!(plans[0].new_content.contains("- [[b]]"), "links가 우선해 블록이 채워져야 함");
+        assert!(
+            plans[0].warnings.iter().any(|w| w.contains("clear")),
+            "무시된 clear에 대한 경고가 있어야 함: {:?}",
+            plans[0].warnings
+        );
+    }
+
+    #[test]
+    fn plan_apply_links_isolates_per_file_failure() {
+        // I3: 존재하지 않는 from 하나가 있어도 나머지 정상 from은 계속 계획돼야 한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("ok.md"), "본문\n").unwrap();
+        std::fs::write(root.join("b.md"), "# b").unwrap();
+        let live = LiveState {
+            root: Some(root.display().to_string()),
+            active_path: None,
+            active_content: None,
+            open_tabs: vec![],
+        };
+        let args = json!({ "links": [
+            { "from": root.join("없는파일.md").display().to_string(),
+              "to": root.join("b.md").display().to_string() },
+            { "from": root.join("ok.md").display().to_string(),
+              "to": root.join("b.md").display().to_string() }
+        ]});
+        let plans = plan_apply_links(&live, &args).expect("배치 전체가 중단되면 안 됨");
+        assert_eq!(plans.len(), 2);
+
+        let failed = plans
+            .iter()
+            .find(|p| p.path.ends_with("없는파일.md"))
+            .expect("실패 파일도 결과에 포함돼야 함");
+        assert!(failed.plan_error.is_some(), "실패 사유가 담겨야 함");
+
+        let ok = plans
+            .iter()
+            .find(|p| p.path.ends_with("ok.md"))
+            .expect("정상 파일 계획은 유지돼야 함");
+        assert!(ok.plan_error.is_none());
+        assert!(ok.new_content.contains("- [[b]]"));
+    }
+
+    #[test]
     fn format_apply_result_success_and_failure_preserves_both() {
         // 성공 + 실패 혼합: 성공 파일의 보고가 유지되고 실패 파일에 "실패:"가 붙는지 검증.
         let results = vec![
@@ -821,6 +986,7 @@ mod tests {
                     applied: 1,
                     rejected: vec![],
                     warnings: vec![],
+                    plan_error: None,
                 },
                 Ok(()),
             ),
@@ -832,6 +998,7 @@ mod tests {
                     applied: 1,
                     rejected: vec![],
                     warnings: vec![],
+                    plan_error: None,
                 },
                 Err("브리지 쓰기 실패".to_string()),
             ),
@@ -852,6 +1019,39 @@ mod tests {
     }
 
     #[test]
+    fn format_apply_result_shows_rejected_and_warnings_on_no_change() {
+        // I4: content==base(변경 없음)이어도 rejected/warnings는 항상 보고돼야 한다.
+        let results = vec![(
+            PlannedEdit {
+                path: "/ws/x.md".to_string(),
+                base: "본문\n".to_string(),
+                new_content: "본문\n".to_string(),
+                applied: 0,
+                rejected: vec![RejectedLink {
+                    to: "/ws/없음.md".to_string(),
+                    reason: "대상 노트가 존재하지 않습니다".to_string(),
+                }],
+                warnings: vec!["유효한 링크가 없어 기존 블록을 유지했습니다".to_string()],
+                plan_error: None,
+            },
+            Ok(()),
+        )];
+
+        let out = format_apply_result(&results);
+        assert!(out.contains("- 변경 없음"));
+        assert!(
+            out.contains("거부: /ws/없음.md — 대상 노트가 존재하지 않습니다"),
+            "변경 없음이어도 거부 사유가 나와야 함: {}",
+            out
+        );
+        assert!(
+            out.contains("경고: 유효한 링크가 없어 기존 블록을 유지했습니다"),
+            "변경 없음이어도 경고가 나와야 함: {}",
+            out
+        );
+    }
+
+    #[test]
     fn format_apply_result_marks_no_change() {
         // 변경 없음 케이스: "- 변경 없음"으로 표기되는지 검증.
         let results = vec![(
@@ -862,6 +1062,7 @@ mod tests {
                 applied: 0,
                 rejected: vec![],
                 warnings: vec![],
+                plan_error: None,
             },
             Ok(()),
         )];
@@ -881,6 +1082,7 @@ mod tests {
                 applied: 1,
                 rejected: vec![],
                 warnings: vec![],
+                plan_error: None,
             },
             Ok(()),
         )];
