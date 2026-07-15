@@ -166,6 +166,8 @@ const tauriIpc: SynapseIpc = {
 
   setWindowTheme: (theme) => getCurrentWindow().setTheme(theme),
 
+  setWindowTitle: (title) => getCurrentWindow().setTitle(title),
+
   async prepareHtmlView(cacheName, html) {
     const path = await invoke<string>("viewer_cache_write", {
       fileName: cacheName,
