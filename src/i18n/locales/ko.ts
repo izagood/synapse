@@ -357,6 +357,12 @@ export const ko = {
       save: "현재 노트 저장",
       deleteFile: "선택한 파일 삭제",
       closeTab: "현재 탭 닫기 (마지막 탭이면 창 닫기)",
+      palette: "커맨드 팔레트",
+      nextTab: "다음 탭",
+      prevTab: "이전 탭",
+      goToTab: "n번째 탭으로 (9는 마지막 탭)",
+      closeOthers: "다른 탭 모두 닫기",
+      reopenTab: "닫은 탭 다시 열기",
       toggleSidebar: "사이드바 토글",
       graph: "그래프 뷰 토글",
       toggleTerminal: "터미널 토글",
@@ -368,5 +374,9 @@ export const ko = {
       undo: "실행 취소",
       redo: "다시 실행",
     },
+  },
+  palette: {
+    placeholder: "커맨드 검색…",
+    empty: "결과 없음",
   },
 } as const;
