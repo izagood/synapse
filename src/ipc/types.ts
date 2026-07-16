@@ -477,6 +477,9 @@ export interface SynapseIpc {
   /** 네이티브 창(타이틀바) 테마 동기화 — null이면 OS 테마 따름 */
   setWindowTheme(theme: "light" | "dark" | null): Promise<void>;
 
+  /** 네이티브 창 제목 설정 — 열린 폴더명을 반영한다 */
+  setWindowTitle(title: string): Promise<void>;
+
   /**
    * 뷰어용 HTML을 캐시에 쓰고 iframe이 로드할 수 있는 실제 URL을 돌려준다.
    * (srcdoc은 #앵커 이동·CSP 상속 문제가 있어 실제 URL로 렌더링한다, FR-3)

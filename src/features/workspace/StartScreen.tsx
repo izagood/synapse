@@ -8,6 +8,7 @@ import { RemoteConnect } from "./RemoteConnect";
 import { OpenPathForm } from "./OpenPathForm";
 import { openWorkspacePath } from "./openPath";
 import { displayWorkspacePath, isRemoteWorkspace } from "./recentDisplay";
+import { TitleBar } from "./TitleBar";
 
 /**
  * 시작 화면: 단일 배경 위 중앙 2컬럼 — 왼쪽은 "시작하기"(폴더 열기·SSH·클론)와
@@ -24,6 +25,8 @@ export function StartScreen() {
 
   return (
     <div className="start-screen">
+      {/* macOS Overlay 타이틀바 자리의 투명 드래그 스트립 (창 이동용) */}
+      <TitleBar title="" />
       <div className="start-card">
         <header className="start-header">
           <h1 className="logo">Synapse</h1>
