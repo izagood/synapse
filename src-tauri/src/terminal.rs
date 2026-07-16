@@ -71,6 +71,33 @@ fn default_shell() -> String {
     }
 }
 
+/// PTY로 무엇을 실행할지(순수 결정 — 단위 테스트 대상).
+#[derive(Debug, PartialEq, Eq)]
+enum LaunchSpec {
+    /// 로컬 셸. cwd가 None이면 홈에서 시작.
+    Local { cwd: Option<String> },
+    /// 원격 접속: 시스템 ssh argv(프로그램 + 인자).
+    Remote { argv: Vec<String> },
+}
+
+fn launch_spec(root: Option<&str>, key_path: Option<String>) -> Result<LaunchSpec, String> {
+    let Some(root) = root else {
+        return Ok(LaunchSpec::Local { cwd: None });
+    };
+    if !root.starts_with("ssh://") {
+        return Ok(LaunchSpec::Local {
+            cwd: Some(root.to_string()),
+        });
+    }
+    let loc = synapse_core::Location::parse(root).map_err(|e| e.to_string())?;
+    let synapse_core::Location::Ssh(ssh_loc) = loc else {
+        return Ok(LaunchSpec::Local { cwd: None });
+    };
+    Ok(LaunchSpec::Remote {
+        argv: synapse_core::ssh_shell_argv(&ssh_loc, key_path.as_deref()),
+    })
+}
+
 /// 새 PTY를 연다. 자식 env에 브리지 접속 정보를 주입하고, cwd를 워크스페이스
 /// 루트로 맞춘다. 반환값은 이후 write/resize/kill에 쓰는 터미널 id.
 // tauri command는 State 주입 인자가 많아 8개가 됐다 — IPC 시그니처라 묶지 않는다.
@@ -80,6 +107,7 @@ pub fn pty_open(
     app: AppHandle,
     bridge: tauri::State<'_, BridgeState>,
     state: tauri::State<'_, PtyState>,
+    remote: tauri::State<'_, crate::remote::RemoteState>,
     window_label: String,
     root: Option<String>,
     shell: Option<String>,
@@ -96,21 +124,45 @@ pub fn pty_open(
         })
         .map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new(shell.unwrap_or_else(default_shell));
-    // 로그인+인터랙티브 셸로 띄운다 — GUI(Dock) 실행 앱은 PATH가 최소라, 셸이
-    // .zprofile/.zshrc(homebrew shellenv, mise/pyenv shim 등)를 직접 읽어 사용자
-    // 환경을 복원해야 node/brew/claude 등이 잡힌다(VS Code 기본 동작과 동일).
-    // cmd.exe/powershell엔 해당 인자가 없으므로 unix 계열에만 적용한다.
-    if !cfg!(windows) {
-        cmd.arg("-l");
-        cmd.arg("-i");
-    }
-    if let Some(root) = root.as_deref() {
-        // 원격(ssh://) 루트는 로컬 cwd로 쓸 수 없으므로 무시(홈에서 시작).
-        if !root.starts_with("ssh://") {
-            cmd.cwd(root);
+    // 원격(ssh://) 루트면 연결 시 지정한 키 경로를 찾아 시스템 ssh를 띄운다.
+    let key_path = root
+        .as_deref()
+        .filter(|r| r.starts_with("ssh://"))
+        .and_then(|r| synapse_core::Location::parse(r).ok())
+        .and_then(|l| match l {
+            synapse_core::Location::Ssh(s) => remote.key_path_for(&s),
+            _ => None,
+        });
+    let spec = launch_spec(root.as_deref(), key_path)?;
+
+    let mut cmd = match &spec {
+        LaunchSpec::Remote { argv } => {
+            // 원격: `ssh -t … "cd <dir> && exec $SHELL -l"` — 인증은 에이전트·
+            // 기본 키·기록된 -i 키를 시스템 ssh가 처리하고, 비밀번호 인증은
+            // PTY 안이라 ssh가 직접 물어본다. 브리지 env는 원격에 전파되지
+            // 않는다(원격 MCP 브리지는 후속 과제).
+            let mut c = CommandBuilder::new(&argv[0]);
+            for a in &argv[1..] {
+                c.arg(a);
+            }
+            c
         }
-    }
+        LaunchSpec::Local { cwd } => {
+            let mut c = CommandBuilder::new(shell.unwrap_or_else(default_shell));
+            // 로그인+인터랙티브 셸로 띄운다 — GUI(Dock) 실행 앱은 PATH가 최소라, 셸이
+            // .zprofile/.zshrc(homebrew shellenv, mise/pyenv shim 등)를 직접 읽어 사용자
+            // 환경을 복원해야 node/brew/claude 등이 잡힌다(VS Code 기본 동작과 동일).
+            // cmd.exe/powershell엔 해당 인자가 없으므로 unix 계열에만 적용한다.
+            if !cfg!(windows) {
+                c.arg("-l");
+                c.arg("-i");
+            }
+            if let Some(cwd) = cwd {
+                c.cwd(cwd);
+            }
+            c
+        }
+    };
     // 색상·이펙트가 제대로 렌더되도록 터미널 타입을 지정한다.
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -230,4 +282,41 @@ pub fn pty_kill(state: tauri::State<'_, PtyState>, id: String) -> Result<(), Str
         let _ = session.child.kill();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launch_spec_local_root_sets_cwd() {
+        let spec = launch_spec(Some("/ws"), None).unwrap();
+        assert_eq!(
+            spec,
+            LaunchSpec::Local {
+                cwd: Some("/ws".into())
+            }
+        );
+    }
+
+    #[test]
+    fn launch_spec_no_root_is_local_home() {
+        assert_eq!(
+            launch_spec(None, None).unwrap(),
+            LaunchSpec::Local { cwd: None }
+        );
+    }
+
+    #[test]
+    fn launch_spec_ssh_root_builds_remote_argv() {
+        let spec = launch_spec(Some("ssh://me@h:2222/ws/notes"), Some("/k".into())).unwrap();
+        let LaunchSpec::Remote { argv } = spec else {
+            panic!("원격 argv 여야 한다")
+        };
+        assert_eq!(argv[0], "ssh");
+        assert!(argv.contains(&"me@h".to_string()));
+        assert!(argv.contains(&"2222".to_string()));
+        assert!(argv.contains(&"/k".to_string()));
+        assert!(argv.last().unwrap().starts_with("cd '/ws/notes'"));
+    }
 }
