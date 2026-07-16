@@ -411,6 +411,18 @@ export function SettingsModal() {
               }
             />
           </label>
+          <label className="setting-row">
+            <span>{t("settings.showBacklinks")}</span>
+            <input
+              type="checkbox"
+              checked={settings.editor.showBacklinks}
+              onChange={(e) =>
+                void update({
+                  editor: { ...settings.editor, showBacklinks: e.target.checked },
+                })
+              }
+            />
+          </label>
         </section>
 
         <section>

@@ -127,6 +127,33 @@ describe("settings store (mock ipc)", () => {
     expect(persisted.terminal.external).toBe("iterm2");
   });
 
+  it("editor.showBacklinks는 기본 숨김이고 갱신이 저장된다", async () => {
+    expect(useSettings.getState().settings.editor.showBacklinks).toBe(false);
+
+    await useSettings.getState().update({
+      editor: { ...useSettings.getState().settings.editor, showBacklinks: true },
+    });
+
+    const s = useSettings.getState().settings;
+    expect(s.editor.showBacklinks).toBe(true);
+    expect(s.editor.fontSize).toBe(16); // 다른 필드는 그대로
+
+    const persisted = await ipc.getSettings();
+    expect(persisted.editor.showBacklinks).toBe(true);
+  });
+
+  it("과거 설정의 누락된 showBacklinks를 숨김으로 보정한다", async () => {
+    // showBacklinks 필드가 없던 시절의 설정을 흉내낸다 (필드 누락 → 캐스팅).
+    const legacy = structuredClone(DEFAULT_SETTINGS);
+    delete (legacy.editor as Partial<Settings["editor"]>).showBacklinks;
+    useSettings.setState({ settings: legacy });
+
+    // normalizeSettings를 타는 아무 update나 호출하면 보정된다.
+    await useSettings.getState().update({ sync: { auto: false, intervalMinutes: 5 } });
+
+    expect(useSettings.getState().settings.editor.showBacklinks).toBe(false);
+  });
+
   it("과거 설정의 누락된 terminal 섹션을 기본값으로 보정한다", async () => {
     // terminal 섹션이 없던 시절의 설정 파일을 흉내낸다 (필드 누락 → 캐스팅).
     const legacy = structuredClone(DEFAULT_SETTINGS) as Partial<Settings>;

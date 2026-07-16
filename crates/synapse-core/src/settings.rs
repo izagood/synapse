@@ -39,6 +39,8 @@ pub struct EditorSettings {
     pub auto_save_delay_ms: u64,
     /// 소스/WYSIWYG 에디터에 줄 번호를 표시할지 (단축키/설정으로 토글)
     pub show_line_numbers: bool,
+    /// 에디터 하단 백링크 패널을 표시할지 (설정/커맨드로 토글, 기본 숨김)
+    pub show_backlinks: bool,
 }
 
 impl Default for EditorSettings {
@@ -48,6 +50,7 @@ impl Default for EditorSettings {
             font_size: 16,
             auto_save_delay_ms: 1000,
             show_line_numbers: false,
+            show_backlinks: false,
         }
     }
 }
@@ -225,6 +228,36 @@ mod tests {
         // camelCase 키로 직렬화된다 (프론트 Settings.editor.showLineNumbers 와 매핑)
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"showLineNumbers\":true"));
+    }
+
+    #[test]
+    fn backlinks_default_off_and_roundtrip() {
+        // 기본값은 숨김
+        assert!(!Settings::default().editor.show_backlinks);
+
+        // 켠 뒤 저장·복원이 유지된다
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        s.editor.show_backlinks = true;
+        save_settings(dir.path(), &s).unwrap();
+        assert!(load_settings(dir.path()).editor.show_backlinks);
+
+        // camelCase 키로 직렬화된다 (프론트 Settings.editor.showBacklinks 와 매핑)
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"showBacklinks\":true"));
+    }
+
+    #[test]
+    fn old_settings_without_backlinks_default_off() {
+        // 백링크 필드가 없던 기존 settings.json 은 기본값(숨김)으로 읽힌다.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"editor":{"fontSize":18}}"#,
+        )
+        .unwrap();
+        let s = load_settings(dir.path());
+        assert!(!s.editor.show_backlinks);
     }
 
     #[test]

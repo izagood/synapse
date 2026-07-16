@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
+import { useSettings } from "../../stores/settings";
 import { ipc } from "../../ipc/ipc";
 import type { Backlink } from "../../ipc/types";
 import { useT } from "../../i18n";
@@ -9,10 +10,12 @@ const COLLAPSED_KEY = "synapse.backlinksCollapsed";
 
 // 현재 활성 노트를 가리키는 다른 노트(백링크)를 보여주는 패널 (FR-2.8 → FR-6.1).
 // 에디터 영역 하단에 접이식으로 붙는다. 항목 클릭 시 해당 노트를 연다.
+// editor.showBacklinks 설정(기본 숨김)이 켜져 있을 때만 렌더된다.
 export function BacklinksPanel() {
   const root = useWorkspace((s) => s.root);
   const activePath = useWorkspace((s) => s.activePath);
   const openFileAt = useWorkspace((s) => s.openFileAt);
+  const showBacklinks = useSettings((s) => s.settings.editor.showBacklinks);
   // 저장으로 백링크가 바뀔 수 있으니 활성 문서의 savedContent 변화를 트리거로 쓴다
   const savedContent = useWorkspace((s) =>
     s.activePath ? s.docs[s.activePath]?.savedContent : undefined,
@@ -26,7 +29,8 @@ export function BacklinksPanel() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!root || !activePath) {
+    // 패널이 숨겨져 있으면 백링크 계산(IPC) 자체를 생략한다
+    if (!root || !activePath || !showBacklinks) {
       setLinks([]);
       return;
     }
@@ -46,7 +50,7 @@ export function BacklinksPanel() {
     return () => {
       cancelled = true;
     };
-  }, [root, activePath, savedContent]);
+  }, [root, activePath, savedContent, showBacklinks]);
 
   const toggle = () => {
     setCollapsed((v) => {
@@ -55,7 +59,7 @@ export function BacklinksPanel() {
     });
   };
 
-  if (!activePath) return null;
+  if (!showBacklinks || !activePath) return null;
 
   return (
     <div className="backlinks-panel">

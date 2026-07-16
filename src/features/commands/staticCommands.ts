@@ -138,6 +138,17 @@ const defs: CommandDef[] = [
     run: () => useTerminal.getState().toggle(),
   },
   {
+    id: "view.toggleBacklinks",
+    titleKey: "backlinks.toggle",
+    category: "view",
+    // 설정(editor.showBacklinks)을 뒤집어 저장한다 — 설정 모달 체크박스와 동일 상태
+    run: () => {
+      const s = useSettings.getState();
+      const editor = s.settings.editor;
+      return s.update({ editor: { ...editor, showBacklinks: !editor.showBacklinks } });
+    },
+  },
+  {
     id: "window.new",
     titleKey: "shortcuts.desc.newWindow",
     category: "general",

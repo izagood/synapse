@@ -147,6 +147,8 @@ export interface Settings {
     fontFamily: string;
     fontSize: number;
     autoSaveDelayMs: number;
+    /** 에디터 하단 백링크 패널 표시 여부 (기본 숨김) */
+    showBacklinks: boolean;
   };
   sync: { auto: boolean; intervalMinutes: number };
   htmlViewer: { allowScripts: boolean; allowNetwork: boolean };
@@ -160,6 +162,7 @@ export const DEFAULT_SETTINGS: Settings = {
     fontFamily: "system-ui",
     fontSize: 16,
     autoSaveDelayMs: 1000,
+    showBacklinks: false,
   },
   sync: { auto: true, intervalMinutes: 5 },
   htmlViewer: { allowScripts: false, allowNetwork: false },

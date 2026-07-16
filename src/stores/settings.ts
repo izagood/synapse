@@ -15,6 +15,11 @@ function normalizeSettings(settings: Settings): Settings {
       // 과거 설정에는 canvasTheme가 없다 → 기본 light(캔버스는 밝게)로 보정한다
       canvasTheme: settings.appearance.canvasTheme ?? "light",
     },
+    editor: {
+      ...settings.editor,
+      // 과거 설정에는 showBacklinks가 없다 → 기본 숨김으로 보정한다
+      showBacklinks: settings.editor.showBacklinks ?? false,
+    },
     // terminal 섹션이 없던 과거 설정 보정
     terminal: settings.terminal ?? DEFAULT_SETTINGS.terminal,
   };
