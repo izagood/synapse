@@ -19,6 +19,9 @@ use synapse_core::{
 #[derive(Default)]
 pub struct RemoteState {
     sessions: Mutex<HashMap<String, Arc<SshSession>>>,
+    /// 연결 시 사용자가 지정한 키 경로(세션 키 → 틸드 확장 완료 경로).
+    /// 내장/외부 터미널이 시스템 ssh를 띄울 때 `-i`로 재사용한다.
+    key_paths: Mutex<HashMap<String, String>>,
 }
 
 fn session_key(loc: &SshLocation) -> String {
@@ -41,6 +44,29 @@ impl RemoteState {
 
     fn remove(&self, loc: &SshLocation) {
         self.sessions.lock().unwrap().remove(&session_key(loc));
+        self.key_paths.lock().unwrap().remove(&session_key(loc));
+    }
+
+    /// 연결에 쓰인 키 경로를 기록한다(None이면 기존 기록 제거).
+    pub fn record_key_path(&self, loc: &SshLocation, key: Option<String>) {
+        let mut map = self.key_paths.lock().unwrap();
+        match key {
+            Some(k) => {
+                map.insert(session_key(loc), k);
+            }
+            None => {
+                map.remove(&session_key(loc));
+            }
+        }
+    }
+
+    /// 이 위치의 연결에 쓰인 키 경로(터미널 ssh 재사용용).
+    pub fn key_path_for(&self, loc: &SshLocation) -> Option<String> {
+        self.key_paths
+            .lock()
+            .unwrap()
+            .get(&session_key(loc))
+            .cloned()
     }
 }
 
@@ -119,12 +145,14 @@ pub async fn connect_remote(
     // 사용자가 키 파일을 직접 지정하면 가장 먼저 시도한다(~/.ssh 기본 키보다 우선).
     // GUI에 흔히 입력하는 `~/.ssh/...` 틸드 경로를 홈으로 확장한다 — 확장하지 않으면
     // `Path::exists()`가 false가 돼 해당 키가 조용히 스킵되고 인증이 실패한다.
+    let mut stored_key: Option<String> = None;
     if let Some(key) = key_path
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
     {
-        cfg.identity_files
-            .insert(0, synapse_core::expand_tilde(&key, &home));
+        let expanded = synapse_core::expand_tilde(&key, &home);
+        stored_key = Some(expanded.to_string_lossy().into_owned());
+        cfg.identity_files.insert(0, expanded);
     }
     cfg.password = password;
     cfg.passphrase = passphrase;
@@ -155,6 +183,7 @@ pub async fn connect_remote(
     .await?;
 
     state.put(session);
+    state.record_key_path(&ssh_loc, stored_key);
     Ok(RemoteConnection { root: resolved_uri })
 }
 
@@ -256,7 +285,10 @@ pub async fn list_remote_dir(
             .map(|e| {
                 // 심링크 대상까지 따라가 디렉토리 여부를 본다(따라가다 실패하면 파일 취급).
                 let is_dir = backend.metadata(&e.path).map(|m| m.is_dir).unwrap_or(false);
-                RemoteDirEntry { name: e.name, is_dir }
+                RemoteDirEntry {
+                    name: e.name,
+                    is_dir,
+                }
             })
             .collect();
         out.sort_by(|a, b| {
@@ -298,5 +330,24 @@ mod tests {
             serde_json::to_value(&target).unwrap(),
             serde_json::json!({ "uri": "ssh://me@host", "keyPath": "~/.ssh/id_ed25519" })
         );
+    }
+
+    #[test]
+    fn remote_state_records_and_clears_key_path() {
+        let loc = SshLocation {
+            user: "me".into(),
+            host: "h".into(),
+            port: 22,
+            path: "/ws".into(),
+        };
+        let state = RemoteState::default();
+        assert_eq!(state.key_path_for(&loc), None);
+
+        state.record_key_path(&loc, Some("/home/me/.ssh/k".into()));
+        assert_eq!(state.key_path_for(&loc), Some("/home/me/.ssh/k".into()));
+
+        // None 기록은 기존 값을 지운다(키 없이 재연결한 경우).
+        state.record_key_path(&loc, None);
+        assert_eq!(state.key_path_for(&loc), None);
     }
 }

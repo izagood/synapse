@@ -331,4 +331,25 @@ describe("FileTree 외부 터미널에서 열기", () => {
 
     expect(openExternalTerminal).toHaveBeenCalledWith(TREE.path, AI_DIR.path);
   });
+
+  it("실패하면 에러를 삼키지 않고 워크스페이스 error 상태로 표면화한다", async () => {
+    vi.spyOn(ipc, "openExternalTerminal").mockRejectedValue(
+      new Error("커스텀 터미널 명령은 아직 원격 접속을 지원하지 않습니다"),
+    );
+    render();
+    openMenu(); // README.md 우클릭
+
+    const btn = [...host.querySelectorAll(".context-menu button")].find(
+      (b) => b.textContent === "외부 터미널에서 열기",
+    ) as HTMLButtonElement;
+    await act(async () => {
+      btn.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(useWorkspace.getState().error).toContain(
+      "커스텀 터미널 명령은 아직 원격 접속을 지원하지 않습니다",
+    );
+  });
 });

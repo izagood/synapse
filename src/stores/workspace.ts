@@ -182,6 +182,8 @@ interface WorkspaceState {
    * 디렉터리는 호출 전에 걸러내야 한다(파일 단위로만 가져온다).
    */
   importExternalFiles(destDir: string, files: ArrayLike<File>): Promise<void>;
+  /** "터미널에서 열기" — 실패(원격 미지원 커스텀 터미널 등)는 error에 담아 UI에 표면화한다 */
+  openExternalTerminal(cwd?: string): Promise<void>;
 }
 
 
@@ -958,6 +960,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       }
     }
     if (imported) await get().refreshTree();
+  },
+
+  async openExternalTerminal(cwd) {
+    const { root } = get();
+    if (!root) return;
+    try {
+      await ipc.openExternalTerminal(root, cwd);
+    } catch (e) {
+      set({ error: String(e) });
+    }
   },
 }));
 

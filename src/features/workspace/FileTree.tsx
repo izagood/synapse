@@ -297,6 +297,7 @@ function TreeContextMenu({
   const createDrawing = useWorkspace((s) => s.createDrawing);
   const createDrawioFile = useWorkspace((s) => s.createDrawioFile);
   const duplicateEntry = useWorkspace((s) => s.duplicateEntry);
+  const openExternalTerminal = useWorkspace((s) => s.openExternalTerminal);
   const openHistory = useHistoryUi((s) => s.open);
   const root = useWorkspace((s) => s.root);
   const t = useT();
@@ -414,9 +415,7 @@ function TreeContextMenu({
       </button>
       {root && (
         <button
-          onClick={() =>
-            run(() => void ipc.openExternalTerminal(root, dirOf(node, root)).catch(() => undefined))
-          }
+          onClick={() => run(() => void openExternalTerminal(dirOf(node, root)))}
         >
           {t("fileTree.openInTerminal")}
         </button>

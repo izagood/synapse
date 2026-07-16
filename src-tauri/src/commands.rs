@@ -644,9 +644,17 @@ pub async fn update_settings(settings: synapse_core::settings::Settings) -> Resu
 }
 
 /// 선택된 OS 터미널을 cwd에서 연다. spawn 실패는 에러로 표면화(조용한 실패 금지).
+/// 원격(ssh://) 대상이면 해당 원격 디렉토리로 접속하는 ssh를 터미널에서 실행한다.
 #[tauri::command]
-pub fn open_external_terminal(root: String, cwd: Option<String>) -> Result<(), String> {
-    use synapse_core::external_terminal::{launch_command, linux_auto_candidates, Launch, Platform};
+pub fn open_external_terminal(
+    remote: tauri::State<'_, crate::remote::RemoteState>,
+    root: String,
+    cwd: Option<String>,
+) -> Result<(), String> {
+    use synapse_core::external_terminal::{
+        launch_command, linux_auto_candidates, remote_launch_command, remote_linux_candidates,
+        Launch, Platform,
+    };
 
     let target = cwd.unwrap_or(root);
     // get_settings/update_settings와 동일하게 config sync가 연결돼 있으면 클라우드
@@ -666,8 +674,25 @@ pub fn open_external_terminal(root: String, cwd: Option<String>) -> Result<(), S
         Platform::Linux
     };
 
-    // 리눅스 auto는 존재하는 첫 후보를 고른다(which).
-    let launch: Launch = if platform == Platform::Linux && choice != "custom" {
+    let launch: Launch = if target.starts_with("ssh://") {
+        // 원격: 연결 시 기록된 키 경로로 시스템 ssh 명령을 조립한다.
+        let loc = synapse_core::Location::parse(&target).map_err(|e| e.to_string())?;
+        let synapse_core::Location::Ssh(ssh_loc) = loc else {
+            return Err("ssh:// URI가 아닙니다".to_string());
+        };
+        let key = remote.key_path_for(&ssh_loc);
+        let argv = synapse_core::ssh_shell_argv(&ssh_loc, key.as_deref());
+        let cmd = synapse_core::shell_join(&argv);
+        if platform == Platform::Linux && choice != "custom" {
+            remote_linux_candidates(&argv, &cmd)
+                .into_iter()
+                .find(|l| which_exists(&l.program))
+                .ok_or("설치된 터미널 에뮬레이터를 찾지 못했습니다")?
+        } else {
+            remote_launch_command(platform, choice, &argv, &cmd)?
+        }
+    } else if platform == Platform::Linux && choice != "custom" {
+        // 리눅스 auto는 존재하는 첫 후보를 고른다(which).
         linux_auto_candidates(&target)
             .into_iter()
             .find(|l| which_exists(&l.program))

@@ -14,6 +14,7 @@ pub mod merge;
 pub mod migrate;
 pub mod paths;
 pub mod registry;
+pub mod remote_shell;
 pub mod retrieval;
 pub mod search;
 pub mod secrets;
@@ -35,7 +36,10 @@ pub use bridge::{generate_token, token_matches, LiveState, OpenTab};
 pub use config_sync::ConfigSyncState;
 pub use discovery::{find_for_cwd, remove_by_token, upsert, BridgeEntry, BridgeMap};
 pub use docid::strip_doc_id;
-pub use external_terminal::{launch_command, linux_auto_candidates, Launch, Platform};
+pub use external_terminal::{
+    launch_command, linux_auto_candidates, remote_launch_command, remote_linux_candidates, Launch,
+    Platform,
+};
 pub use fs_io::{
     atomic_write, atomic_write_bytes, create_unique_folder, create_unique_note,
     ensure_writable_within, is_safe_file_name, workspace_write_lock,
@@ -55,6 +59,7 @@ pub use merge::{merge_agent_edit, merge_three_way, save_merge};
 pub use migrate::remove_collab_dir;
 pub use paths::{ensure_within, legacy_pdf_draw_sidecar, pdf_draw_sidecar_path, rel_path_within};
 pub use registry::{clear_recent, recent_workspaces, record_opened};
+pub use remote_shell::{shell_join, ssh_shell_argv};
 pub use retrieval::{retrieve_context, RetrievalOptions, RetrievalResult, RetrievedSnippet};
 pub use search::{search_workspace, SearchHit, SearchMatch, SearchOptions};
 pub use sftp::SftpBackend;
