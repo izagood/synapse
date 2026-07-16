@@ -90,8 +90,11 @@ fn launch_spec(root: Option<&str>, key_path: Option<String>) -> Result<LaunchSpe
         });
     }
     let loc = synapse_core::Location::parse(root).map_err(|e| e.to_string())?;
+    // 위에서 이미 "ssh://" 접두를 확인했으니 Location::parse는 항상 Ssh를 반환한다
+    // (도달 불가). 그래도 원래 버그(원격을 조용히 로컬로 되돌림)를 재현하지 않도록
+    // 로컬로 폴백하지 않고 실패시킨다 — 방어적 분기는 침묵하지 않고 크게 실패해야 한다.
     let synapse_core::Location::Ssh(ssh_loc) = loc else {
-        return Ok(LaunchSpec::Local { cwd: None });
+        return Err("ssh:// 루트 해석에 실패했습니다".to_string());
     };
     Ok(LaunchSpec::Remote {
         argv: synapse_core::ssh_shell_argv(&ssh_loc, key_path.as_deref()),
@@ -100,7 +103,7 @@ fn launch_spec(root: Option<&str>, key_path: Option<String>) -> Result<LaunchSpe
 
 /// 새 PTY를 연다. 자식 env에 브리지 접속 정보를 주입하고, cwd를 워크스페이스
 /// 루트로 맞춘다. 반환값은 이후 write/resize/kill에 쓰는 터미널 id.
-// tauri command는 State 주입 인자가 많아 8개가 됐다 — IPC 시그니처라 묶지 않는다.
+// tauri command는 State 주입 인자가 많아 9개가 됐다 — IPC 시그니처라 묶지 않는다.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn pty_open(

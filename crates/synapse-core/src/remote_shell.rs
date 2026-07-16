@@ -131,4 +131,11 @@ mod tests {
             r#"ssh -p 22 me@hosta 'cd '\''/ws'\'' && exec "$SHELL" -l'"#
         );
     }
+
+    #[test]
+    fn shell_join_quotes_path_containing_space() {
+        // 공백이 든 키 경로(-i 인자 값)가 나뉘지 않도록 통째로 싱글쿼트돼야 한다.
+        let joined = shell_join(&["-i".into(), "/Users/me/my key".into()]);
+        assert_eq!(joined, "-i '/Users/me/my key'");
+    }
 }

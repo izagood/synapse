@@ -232,9 +232,15 @@ mod tests {
 
     #[test]
     fn remote_macos_iterm_creates_window_with_command() {
-        let l = remote_launch_command(Platform::MacOs, "iterm2", &ssh_argv(), "ssh me@h").unwrap();
+        let cmd = r#"ssh -t -p 22 me@h 'cd '\''/ws'\'' && exec "$SHELL" -l'"#;
+        let l = remote_launch_command(Platform::MacOs, "iterm2", &ssh_argv(), cmd).unwrap();
         assert_eq!(l.program, "osascript");
         assert!(l.args[1].contains("create window with default profile command"));
+        // AppleScript 문자열 안에서 셸 명령의 큰따옴표가 이스케이프돼야 한다(Terminal 테스트와 동일 계약).
+        assert!(
+            l.args[1].contains(r#"create window with default profile command "ssh -t -p 22 me@h"#)
+        );
+        assert!(l.args[1].contains(r#"\"$SHELL\""#));
     }
 
     #[test]
