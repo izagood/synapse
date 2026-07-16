@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../stores/workspace";
 import { FileTree } from "./FileTree";
 import { TabBar } from "./TabBar";
+import { TitleBar } from "./TitleBar";
 import { ContentPane } from "./ContentPane";
 import { QuickOpenModal } from "./QuickOpenModal";
 import { SearchModal } from "./SearchModal";
@@ -158,6 +159,7 @@ export function WorkspaceView() {
 
   return (
     <div className="workspace">
+      <TitleBar title={folderName ?? ""} onOpenPalette={() => setPalette(true)} />
       <div className="workspace-body">
         <ActivityBar
           sidebarVisible={sidebarVisible}

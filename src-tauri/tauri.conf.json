@@ -13,6 +13,8 @@
     "windows": [
       {
         "title": "Synapse",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1280,
         "height": 800,
         "minWidth": 800,

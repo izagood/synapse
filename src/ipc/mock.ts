@@ -691,6 +691,11 @@ export const mockIpc: SynapseIpc = {
     // 브라우저 모드에는 네이티브 창이 없다
   },
 
+  async setWindowTitle(title) {
+    // 브라우저 모드: 문서 제목으로 대신 반영한다
+    document.title = title;
+  },
+
   async prepareHtmlView(_cacheName, html) {
     if (typeof URL.createObjectURL === "function") {
       return URL.createObjectURL(new Blob([html], { type: "text/html" }));

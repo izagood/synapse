@@ -5,6 +5,7 @@ import { useSettings } from "../stores/settings";
 import { registerStaticCommands } from "../features/commands/staticCommands";
 import { useShortcutDispatcher } from "../features/commands/useShortcutDispatcher";
 import { applyTheme, nativeWindowTheme } from "../features/theme/theme";
+import { basename } from "../shared/pathUtils";
 import { StartScreen } from "../features/workspace/StartScreen";
 import { WorkspaceView } from "../features/workspace/WorkspaceView";
 import { installFileWatch } from "../features/workspace/fileWatch";
@@ -32,6 +33,13 @@ export default function App() {
 
   // 외부 파일 변경 시 수동 새로고침 없이 자동 reload (워처 + 포커스 복귀)
   useEffect(() => installFileWatch(), []);
+
+  // 창 제목을 열린 폴더명으로 동기화 — macOS 는 hiddenTitle 로 숨겨져 있지만
+  // Mission Control 등에, Windows/Linux 는 네이티브 타이틀바에 그대로 쓰인다
+  useEffect(() => {
+    const title = root ? `${basename(root)} — Synapse` : "Synapse";
+    void ipc.setWindowTitle(title).catch(() => undefined);
+  }, [root]);
 
   // 전역 단축키: 정의(shared/shortcuts)와 실행(커맨드 레지스트리)을 잇는
   // keydown 리스너는 앱 전체에 이 디스패처 하나뿐이다
