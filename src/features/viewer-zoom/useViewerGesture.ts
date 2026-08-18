@@ -1,5 +1,12 @@
 import { useEffect, useRef } from "react";
-import { distance, midpoint } from "./zoomMath";
+import {
+  GESTURE_EVENTS,
+  distance,
+  gestureZoomFactor,
+  midpoint,
+  wheelZoomFactor,
+  type WebKitGestureEvent,
+} from "./zoomMath";
 
 export interface ViewerGestureHandlers {
   /** factor 배 줌. (localX, localY)는 ref 요소 좌상단 기준 앵커 좌표. */
@@ -12,8 +19,12 @@ export interface ViewerGestureHandlers {
   panEnabled?: () => boolean;
 }
 
-// 트랙패드 핀치는 브라우저에서 ctrl(+meta) wheel 이벤트로 들어오고, 터치스크린
-// 핀치는 두 개의 포인터로 들어온다. 두 경로를 모두 받아 onZoom 으로 정규화한다.
+// 트랙패드 핀치가 들어오는 경로는 엔진마다 다르다:
+// - Chromium 계열 WebView(Windows/Linux): ctrl(+meta) wheel
+// - WebKit(맥 Safari/WKWebView): 고유 GestureEvent (실측: 핀치 시 wheel+ctrlKey 0건)
+// 터치스크린 핀치는 두 개의 포인터로 들어온다.
+// Tauri는 맥에서 WKWebView를 쓰므로 GestureEvent 경로가 없으면 맥에서 핀치 줌이
+// 아예 동작하지 않는다. 세 경로를 모두 받아 onZoom 으로 정규화한다.
 // wheel/touch 기본 동작을 막아야 하므로 passive:false 로 직접 리스너를 단다.
 export function useViewerGesture(
   ref: React.RefObject<HTMLElement | null>,
@@ -37,8 +48,8 @@ export function useViewerGesture(
         // 트랙패드 핀치 또는 ctrl+휠 → 줌
         e.preventDefault();
         const p = local(e.clientX, e.clientY);
-        // deltaY 가 작은 핀치(픽셀 단위)와 큰 휠 노치 모두 부드럽게: 지수 매핑.
-        h.onZoom(Math.exp(-e.deltaY * 0.01), p.x, p.y);
+        // 배율 계산은 그래프 뷰와 공유한다(deltaMode·ctrlKey 보정 포함).
+        h.onZoom(wheelZoomFactor(e), p.x, p.y);
       } else if (h.panEnabled?.() && h.onPan) {
         // 확대 상태에서 일반 휠/투핑거 스크롤 → 패닝
         e.preventDefault();
@@ -104,7 +115,31 @@ export function useViewerGesture(
       }
     };
 
+    // 맥 WKWebView 핀치 — GestureEvent.scale은 제스처 시작 기준 누적 배율이라
+    // 직전 값과의 비로 증분 배율을 만든다. preventDefault 로 WebView 자체 페이지
+    // 줌을 막지 않으면 뷰어 대신 앱 전체가 확대된다.
+    let prevScale = 0;
+    const onGesture = (e: Event) => {
+      const g = e as WebKitGestureEvent;
+      e.preventDefault();
+      if (e.type === "gesturestart") {
+        prevScale = g.scale > 0 ? g.scale : 1;
+        return;
+      }
+      if (e.type === "gestureend") {
+        prevScale = 0;
+        return;
+      }
+      if (!prevScale) return;
+      const p = local(g.clientX, g.clientY);
+      hRef.current.onZoom(gestureZoomFactor(g.scale, prevScale), p.x, p.y);
+      prevScale = g.scale;
+    };
+
     el.addEventListener("wheel", onWheel, { passive: false });
+    for (const type of GESTURE_EVENTS) {
+      el.addEventListener(type, onGesture, { passive: false });
+    }
     el.addEventListener("pointerdown", onPointerDown);
     el.addEventListener("pointermove", onPointerMove);
     el.addEventListener("pointerup", endPointer);
@@ -112,6 +147,7 @@ export function useViewerGesture(
 
     return () => {
       el.removeEventListener("wheel", onWheel);
+      for (const type of GESTURE_EVENTS) el.removeEventListener(type, onGesture);
       el.removeEventListener("pointerdown", onPointerDown);
       el.removeEventListener("pointermove", onPointerMove);
       el.removeEventListener("pointerup", endPointer);
