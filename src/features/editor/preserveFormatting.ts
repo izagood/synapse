@@ -82,6 +82,22 @@ export function preserveFormatting(
   roundtripped: string,
   serialized: string,
 ): string {
+  // 포맷 보존은 최선 노력이다. 아래 정렬 로직이 어떤 이유로든 실패하면
+  // 재직렬화 결과로 폴백한다 — 블록이 1:1로 대응하지 않을 때와 같은 정책이다.
+  // 예외가 호출부(에디터 onUpdate)로 새어나가면 store 갱신과 자동 저장이
+  // 통째로 중단되어 사용자 편집이 조용히 사라진다(실제 발생한 회귀).
+  try {
+    return alignAndRestore(original, roundtripped, serialized);
+  } catch {
+    return serialized;
+  }
+}
+
+function alignAndRestore(
+  original: string,
+  roundtripped: string,
+  serialized: string,
+): string {
   const O = normalizeLineEndings(original);
   const RO = normalizeLineEndings(roundtripped);
   const N = normalizeLineEndings(serialized);

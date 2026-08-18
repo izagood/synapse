@@ -49,9 +49,15 @@ function normalizeUrl(value: string): string {
   }
 }
 
-function normalizeAttr(name: string, value: string): [string, string] {
-  if (name === "href" || name === "src") return [name, normalizeUrl(value)];
-  return [name, normalizeText(value)];
+// markdown-it의 attrs 타입 선언은 [string, string][] 이지만 런타임 값은 다르다 —
+// ordered_list_open의 start(1이 아닌 숫자로 시작하는 목록)는 number로 들어온다.
+// 문자열로 가정하고 정규화하면 TypeError가 나면서 이 함수를 부르는 저장 경로
+// (onUpdate → preserveFormatting → blockSignatures)가 통째로 죽으므로,
+// 경계에서 문자열로 강제한다.
+function normalizeAttr(name: string, value: unknown): [string, string] {
+  const text = typeof value === "string" ? value : String(value);
+  if (name === "href" || name === "src") return [name, normalizeUrl(text)];
+  return [name, normalizeText(text)];
 }
 
 function normalizedContent(token: Token): string {

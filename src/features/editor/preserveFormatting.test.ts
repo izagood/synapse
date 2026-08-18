@@ -89,4 +89,25 @@ describe("preserveFormatting", () => {
     expect(result).toContain("첫째 줄 문장.\n둘째 줄 문장.");
     expect(result).toContain("*분석 일자: 2026-04-10*\n*대상 브랜치: dev (668e983fb7)*");
   });
+  // 저장 경로 회귀: 1이 아닌 숫자로 시작하는 순서 목록이 결과에 들어오면
+  // blockSignatures가 던지면서 onUpdate가 중단되고 저장이 조용히 멈췄다.
+  it("1이 아닌 숫자로 시작하는 순서 목록이 있어도 저장 경로가 살아있다", () => {
+    const original = "# 제목\n";
+    const ro = roundtrip(original);
+    const edited = ro.replace(/\n*$/, "") + "\n\n2. 둘째 항목\n\n3. 셋째 항목\n";
+
+    expect(() => preserveFormatting(original, ro, edited)).not.toThrow();
+    const result = preserveFormatting(original, ro, edited);
+    expect(result).toContain("2. 둘째 항목");
+    expect(result).toContain("3. 셋째 항목");
+    expect(result).toContain("# 제목");
+  });
+  // 정렬 로직이 실패해도 저장은 계속돼야 한다. 예외가 호출부로 새면
+  // onUpdate가 중단되어 자동 저장이 조용히 멈춘다.
+  it("정렬이 실패해도 예외 대신 재직렬화 결과로 폴백한다", () => {
+    // 서로게이트 페어가 쪼개진 문자열 등 어떤 입력이 와도 던지지 않는다.
+    const weird = "\uD800 깨진 서로게이트\n\n2. 둘째\n";
+    expect(() => preserveFormatting("# 제목\n", "# 제목", weird)).not.toThrow();
+    expect(preserveFormatting("# 제목\n", "# 제목", weird)).toContain("둘째");
+  });
 });
