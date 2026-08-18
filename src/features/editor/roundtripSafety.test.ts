@@ -70,4 +70,13 @@ describe("roundtrip safety detection", () => {
     expect(hasRoundtripContentLoss("[Synapse](https://example.com)", "Synapse")).toBe(true);
     expect(hasRoundtripContentLoss("![diagram](diagram.png)", "")).toBe(true);
   });
+  // markdown-it은 1이 아닌 숫자로 시작하는 순서 목록에만 ordered_list_open 의
+  // start 속성을 붙이는데, 그 값이 number다(타입 선언은 [string, string][]).
+  // 문자열로 가정하고 정규화하면 TypeError가 나면서 저장 경로 전체가 죽는다.
+  it("handles ordered lists that start at a number other than 1", () => {
+    expect(() => hasRoundtripContentLoss("2. 둘째\n", "2. 둘째\n")).not.toThrow();
+    expect(() => hasRoundtripContentLoss("10. 열번째\n", "10. 열번째\n")).not.toThrow();
+    expect(hasRoundtripContentLoss("2. 둘째\n", "2. 둘째\n")).toBe(false);
+    expect(hasRoundtripContentLoss("3. 셋째\n", "")).toBe(true);
+  });
 });
