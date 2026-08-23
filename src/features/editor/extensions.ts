@@ -13,6 +13,7 @@ import { SearchHighlight } from "./search";
 import { MermaidCodeBlock } from "./mermaidBlock";
 import { LinkifyUrls } from "./linkifyUrls";
 import { WikiLink } from "./wikiLink";
+import { PreserveText } from "./preserveText";
 
 // 현재 편집 중인 노트의 디렉토리 — 상대 경로 이미지를 화면에 표시할 때만 사용.
 // 문서 모델(attrs.src)에는 항상 상대 경로가 남아 md 직렬화가 오염되지 않는다.
@@ -78,7 +79,11 @@ export function editorExtensions({
           /^[a-z][a-z0-9+.-]*:/i.test(url) ? ctx.defaultValidate(url) : true,
       },
       codeBlock: false, // CodeBlockLowlight로 대체
+      text: false, // PreserveText로 대체 (평문 `<`, `>` 이스케이프 방지)
     }),
+    // 평문의 `<`, `>` 가 `&lt;`, `&gt;` 로 저장되던 문제를 막는다.
+    // 위험한 원시 HTML은 파싱 시점에 이미 제거되므로 보안 영향은 없다.
+    PreserveText,
     // CodeBlockLowlight 확장: ```mermaid 블록은 다이어그램으로 렌더링,
     // 그 외 코드 블록은 종전대로 lowlight 하이라이팅
     MermaidCodeBlock({ lowlight, errorLabel: mermaidErrorLabel }),
