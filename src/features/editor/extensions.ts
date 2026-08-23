@@ -12,6 +12,7 @@ import { ko } from "../../i18n/locales/ko";
 import { SearchHighlight } from "./search";
 import { MermaidCodeBlock } from "./mermaidBlock";
 import { LinkifyUrls } from "./linkifyUrls";
+import { WikiLink } from "./wikiLink";
 
 // 현재 편집 중인 노트의 디렉토리 — 상대 경로 이미지를 화면에 표시할 때만 사용.
 // 문서 모델(attrs.src)에는 항상 상대 경로가 남아 md 직렬화가 오염되지 않는다.
@@ -86,6 +87,9 @@ export function editorExtensions({
     // 표 보존 (FR-2.1) — 없으면 md 표가 텍스트로 뭉개진다
     TableKit.configure({ table: { resizable: false } }),
     WorkspaceImage,
+    // 위키링크 `[[대상]]` — 전용 노드가 없으면 평문으로 취급돼 `\[\[대상\]\]` 로
+    // 이스케이프되고, links.rs 가 더 이상 링크로 인식하지 못한다(자기모순).
+    WikiLink,
     // 문서 내 찾기 하이라이트 (Cmd/Ctrl+F) — md 직렬화에 관여하지 않음
     SearchHighlight,
     // 본문 속 맨 URL을 클릭 가능한 링크로 표시 — 문서 모델/직렬화에 관여하지 않음
