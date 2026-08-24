@@ -410,10 +410,15 @@ fn sanitize_label(label: &str) -> String {
     out.trim().to_string()
 }
 
-/// H1: stem(위키링크 이름)의 유효성을 검사한다.
-/// stem에 개행이 포함되어 있으면 유효하지 않은 것으로 간주.
-fn is_valid_stem(stem: &str) -> bool {
-    !stem.contains('\n')
+/// H1·M13: 이 stem을 [[위키링크]]로 방출해도 안전한가.
+/// links.rs의 wiki_target은 `|`(별칭)·`#`(앵커) 앞에서 자르고, `[`/`]`는
+/// 스캔을 깨며, 백틱·개행은 인라인 규칙과 충돌한다 — 하나라도 있으면
+/// 방출과 파싱이 비대칭이 되어 오연결/dangling이 생기므로 표준 링크로 폴백한다.
+fn is_wiki_safe_stem(stem: &str) -> bool {
+    !stem.is_empty()
+        && !stem
+            .chars()
+            .any(|c| matches!(c, '|' | '#' | '[' | ']' | '`' | '\n' | '\r'))
 }
 
 /// rel 경로를 최소한으로 percent-encode한다. synapse 자신의 링크 파서(`links.rs`)가
@@ -558,20 +563,15 @@ pub fn apply_auto_links(
         }
         let name = stem(&target).unwrap_or_default();
 
-        // H1: stem에 개행이 포함되어 있으면 표준 링크로 폴백
-        let use_wiki = is_valid_stem(&name) && by_stem.get(&name.to_lowercase()) == Some(&target);
+        // 위키링크는 (1) stem이 파서와 왕복 가능한 안전 문자로만 이뤄지고(M13·H1)
+        // (2) 이 대상으로 정확히 해석될 때(stem 충돌 없음)만 방출한다.
+        // 아니면 루트 기준 표준 링크로 폴백해 오연결을 막는다.
+        let use_wiki =
+            is_wiki_safe_stem(&name) && by_stem.get(&name.to_lowercase()) == Some(&target);
 
         let href = if use_wiki {
             format!("[[{name}]]")
         } else {
-            // M13: stem에 파서를 오해석시킬 문자가 있으면 무조건 표준 링크로 폴백
-            let needs_fallback = name.chars().any(|c| {
-                matches!(c, '|' | '#' | '[' | ']' | '`' | '\n' | '\r')
-            });
-            if !needs_fallback && !name.is_empty() {
-                // stem이 유효하고 충돌이 아닌 경우에만 wiki 링크 시도
-            }
-
             let rel = target
                 .strip_prefix(&root)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -719,6 +719,81 @@ mod tests {
                 .any(|w| w.contains("재작성을 거부했습니다")),
             "재작성 거부 경고가 있어야 함"
         );
+    }
+
+    #[test]
+    fn malicious_label_cannot_break_block_scan() {
+        // H1: 라벨에 개행+펜스를 주입해도 독립 라인으로 승격되지 않아야 한다.
+        // 승격되면 다음 apply의 스캔이 종료 마커를 펜스 안으로 오인해
+        // 블록 아래 사용자 본문이 삭제된다(감사에서 확인된 손실 경로).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("target.md"), "t");
+        let body = format!(
+            "본문\n\n{}\n{}\n\n블록 아래 사용자 본문\n",
+            AUTO_LINKS_START, AUTO_LINKS_END
+        );
+        write(&root.join("from.md"), &body);
+        let links = vec![ApplyLink {
+            to: root.join("target.md").display().to_string(),
+            label: Some("설명\n```".to_string()),
+        }];
+        let out = apply_auto_links(root, &root.join("from.md"), &body, &links).unwrap();
+        assert!(
+            !out.content.lines().any(|l| l.trim() == "```"),
+            "주입된 펜스가 독립 라인이 되면 안 됨:\n{}",
+            out.content
+        );
+        assert!(out.content.contains("블록 아래 사용자 본문"));
+        // 재적용(스캔→재작성 왕복)해도 블록 아래 본문이 보존된다
+        let out2 = apply_auto_links(root, &root.join("from.md"), &out.content, &links).unwrap();
+        assert!(out2.content.contains("블록 아래 사용자 본문"));
+    }
+
+    #[test]
+    fn four_backtick_fence_hides_documented_markers() {
+        // H2: 4-백틱 펜스 안의 ```와 마커 문서화가 진짜 블록으로 오인되면
+        // 미종결 판정 → (구정책에선) 펜스 내용과 아래 본문까지 삭제됐다.
+        let body = format!("````\n```\n{}\n```\n````\n\n진짜 본문\n", AUTO_LINKS_START);
+        let lines: Vec<&str> = body.split_inclusive('\n').collect();
+        let scan = scan_auto_block(&lines);
+        assert!(scan.first.is_none(), "펜스 안 마커가 블록으로 잡히면 안 됨");
+        assert!(!scan.unterminated);
+    }
+
+    #[test]
+    fn special_char_stem_falls_back_to_standard_link() {
+        // M13: `C# 정리.md`를 [[C# 정리]]로 방출하면 links.rs의 wiki_target이
+        // '#' 앞에서 잘라 "C"로 오연결된다 — 표준 링크로 폴백해야 한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("from.md"), "본문\n");
+        write(&root.join("C# 정리.md"), "c");
+        let links = vec![ApplyLink {
+            to: root.join("C# 정리.md").display().to_string(),
+            label: None,
+        }];
+        let out = apply_auto_links(root, &root.join("from.md"), "본문\n", &links).unwrap();
+        assert!(
+            !out.content.contains("[[C# 정리]]"),
+            "위키링크로 방출되면 안 됨:\n{}",
+            out.content
+        );
+        let found = crate::links::extract_links(&out.content);
+        let href = found
+            .iter()
+            .find_map(|(l, _)| match l {
+                crate::links::OutLink::Standard(h) => Some(h.clone()),
+                _ => None,
+            })
+            .expect("표준 링크 폴백이 있어야 함");
+        let resolved = crate::links::resolve_standard_link(
+            &href,
+            &root.join("from.md"),
+            &root.canonicalize().unwrap(),
+        )
+        .expect("폴백 href가 해석 가능해야 함");
+        assert_eq!(resolved, root.join("C# 정리.md").canonicalize().unwrap());
     }
 
     use std::fs::{self, File};
