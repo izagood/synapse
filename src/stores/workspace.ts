@@ -55,6 +55,9 @@ const autosaveDelayMs = () =>
 interface WorkspaceState {
   recent: string[];
   root: string | null;
+  /** sync/외부 변경 반영 신호 — reloadAfterSync가 올린다. 열린 PDF의 주석
+   *  훅(usePdfDraw)이 이 rev로 사이드카 재조회를 트리거한다(2차 감사 N1). */
+  drawExternalRev: number;
   tree: FileNode | null;
   loading: boolean;
   error: string | null;
@@ -192,6 +195,7 @@ interface WorkspaceState {
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   recent: [],
   root: null,
+  drawExternalRev: 0,
   tree: null,
   loading: false,
   error: null,
@@ -678,6 +682,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const { root } = get();
     if (!root) return;
     await get().refreshTree();
+    // 열린 PDF의 주석 사이드카 재조회 신호 — 문서 루프는 pdf를 건너뛰므로
+    // (바이너리), 주석 반영은 usePdfDraw가 이 rev를 보고 스스로 한다(N1).
+    set((s) => ({ drawExternalRev: s.drawExternalRev + 1 }));
     for (const path of Object.keys(get().docs)) {
       const doc = get().docs[path];
       if (!doc || doc.loading) continue;

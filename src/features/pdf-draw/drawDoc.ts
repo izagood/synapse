@@ -130,6 +130,10 @@ export interface DrawDoc {
   version: 2;
   /** 1-based 페이지 번호 → 그 페이지의 도형들(그린 순서 = z-순서) */
   pages: Record<number, Shape[]>;
+  /** 상위 버전·미지 타입 도형의 원본 JSON — 렌더링하지 않지만 직렬화 시
+   *  그대로 재방출해 왕복 무손실을 지킨다(2차 감사 N5: 조용히 버리면
+   *  획 하나만 그려도 다른 버전이 만든 주석이 영구 삭제된다). */
+  unknownShapes?: Record<number, unknown[]>;
 }
 
 export const DRAW_DOC_VERSION = 2 as const;
@@ -346,7 +350,8 @@ function serializeShape(s: Shape): Record<string, unknown> {
   }
 }
 
-/** DrawDoc → JSON 문자열. 빈 도형/빈 페이지는 저장하지 않는다. */
+/** DrawDoc → JSON 문자열. 빈 도형/빈 페이지는 저장하지 않는다.
+ *  미지 도형(unknownShapes)은 파싱 때 받은 원본 그대로 재방출한다. */
 export function serializeDrawDoc(doc: DrawDoc): string {
   const pages: Record<number, unknown[]> = {};
   for (const [page, shapes] of Object.entries(doc.pages)) {
@@ -354,13 +359,21 @@ export function serializeDrawDoc(doc: DrawDoc): string {
     if (kept.length === 0) continue; // 빈 페이지는 저장하지 않음
     pages[Number(page)] = kept.map(serializeShape);
   }
-  return JSON.stringify({ version: DRAW_DOC_VERSION, pages });
+  const out: Record<string, unknown> = { version: DRAW_DOC_VERSION, pages };
+  if (doc.unknownShapes && Object.keys(doc.unknownShapes).length > 0) {
+    out.unknownShapes = doc.unknownShapes;
+  }
+  return JSON.stringify(out);
 }
 
 /**
- * JSON 문자열 → DrawDoc. 손상/부분 손상된 입력도 PDF 열람을 막지 않도록
- * 유효하지 않은 도형은 조용히 버리고 가능한 만큼 복구한다. v1 문서는
- * 자동으로 v2 로 마이그레이션한다. 완전히 못 읽으면 빈 문서를 돌려준다.
+ * JSON 문자열 → DrawDoc. 손상 입력도 PDF 열람을 막지 않도록 가능한 만큼
+ * 복구한다. v1 문서는 자동으로 v2 로 마이그레이션한다. 완전히 못 읽으면
+ * 빈 문서를 돌려준다.
+ *
+ * 알아볼 수 없는 도형(상위 버전의 새 타입, 부분 손상)은 버리지 않고
+ * unknownShapes 에 원본 그대로 보존한다 — 다음 저장이 전체 문서를
+ * 덮어쓰므로, 버리면 "읽기 관용"이 획 하나에 "영구 삭제"로 굳는다(N5).
  */
 export function parseDrawDoc(json: string): DrawDoc {
   let raw: unknown;
@@ -370,18 +383,84 @@ export function parseDrawDoc(json: string): DrawDoc {
     return emptyDrawDoc();
   }
   if (typeof raw !== "object" || raw === null) return emptyDrawDoc();
-  const pagesRaw = (raw as { pages?: unknown }).pages;
+  const o = raw as { version?: unknown; pages?: unknown; unknownShapes?: unknown };
+  if (typeof o.version === "number" && o.version > DRAW_DOC_VERSION) {
+    console.warn(`parseDrawDoc: 지원 범위(${DRAW_DOC_VERSION})보다 새 버전 ${o.version} — 미지 데이터는 보존한다`);
+  }
+  const pagesRaw = o.pages;
   if (typeof pagesRaw !== "object" || pagesRaw === null) return emptyDrawDoc();
 
   const pages: Record<number, Shape[]> = {};
+  const unknownShapes: Record<number, unknown[]> = {};
   for (const [key, val] of Object.entries(pagesRaw as Record<string, unknown>)) {
     const page = Number(key);
     if (!Number.isInteger(page) || page < 1) continue;
     if (!Array.isArray(val)) continue;
-    const shapes = val.map(coerceShape).filter((s): s is Shape => s !== null);
-    if (shapes.length > 0) pages[page] = shapes;
+    const known: Shape[] = [];
+    const unknown: unknown[] = [];
+    for (const item of val) {
+      const shape = coerceShape(item);
+      if (shape) known.push(shape);
+      else if (typeof item === "object" && item !== null) unknown.push(item);
+    }
+    if (known.length > 0) pages[page] = known;
+    if (unknown.length > 0) unknownShapes[page] = unknown;
   }
-  return { version: DRAW_DOC_VERSION, pages };
+  // 이전 저장이 이미 unknownShapes 로 보존해 둔 것도 이어받는다
+  if (typeof o.unknownShapes === "object" && o.unknownShapes !== null) {
+    for (const [key, val] of Object.entries(o.unknownShapes as Record<string, unknown>)) {
+      const page = Number(key);
+      if (!Number.isInteger(page) || page < 1 || !Array.isArray(val)) continue;
+      unknownShapes[page] = [...(unknownShapes[page] ?? []), ...val];
+    }
+  }
+  return {
+    version: DRAW_DOC_VERSION,
+    pages,
+    ...(Object.keys(unknownShapes).length > 0 ? { unknownShapes } : {}),
+  };
+}
+
+/**
+ * 디스크본과 메모리본을 도형 id 기준으로 합친다(2차 감사 N1: sync가 가져온
+ * 외부 주석을 stale 메모리 문서가 통째로 덮어쓰지 않게).
+ * - 같은 id는 메모리(로컬) 우선 — 사용자가 방금 만진 도형을 지키는 쪽.
+ * - 디스크에만 있는 도형은 뒤에 덧붙인다(외부 추가분 보존).
+ * - 삭제는 보수적으로 다루지 않는다: 로컬이 지운 도형이 디스크에 있으면
+ *   되살아난다 — 조용한 유실보다 부활이 낫다.
+ * - unknownShapes 는 JSON 동등 기준으로 합집합.
+ */
+export function mergeDrawDocs(local: DrawDoc, disk: DrawDoc): DrawDoc {
+  const pages: Record<number, Shape[]> = {};
+  const pageNums = new Set(
+    [...Object.keys(local.pages), ...Object.keys(disk.pages)].map(Number),
+  );
+  for (const page of pageNums) {
+    const mine = local.pages[page] ?? [];
+    const ids = new Set(mine.map((s) => s.id));
+    const theirs = (disk.pages[page] ?? []).filter((s) => !ids.has(s.id));
+    const merged = [...mine, ...theirs];
+    if (merged.length > 0) pages[page] = merged;
+  }
+  const unknownShapes: Record<number, unknown[]> = {};
+  const unknownPages = new Set([
+    ...Object.keys(local.unknownShapes ?? {}).map(Number),
+    ...Object.keys(disk.unknownShapes ?? {}).map(Number),
+  ]);
+  for (const page of unknownPages) {
+    const mine = local.unknownShapes?.[page] ?? [];
+    const seen = new Set(mine.map((u) => JSON.stringify(u)));
+    const theirs = (disk.unknownShapes?.[page] ?? []).filter(
+      (u) => !seen.has(JSON.stringify(u)),
+    );
+    const merged = [...mine, ...theirs];
+    if (merged.length > 0) unknownShapes[page] = merged;
+  }
+  return {
+    version: DRAW_DOC_VERSION,
+    pages,
+    ...(Object.keys(unknownShapes).length > 0 ? { unknownShapes } : {}),
+  };
 }
 
 /** 굽기 결과 PDF 파일명. 예: `foo.pdf` → `foo (그림).pdf` */

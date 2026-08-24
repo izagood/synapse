@@ -28,6 +28,8 @@ import {
   type RectLikeShape,
   type TextShape,
   type ImageShape,
+  mergeDrawDocs,
+  type Shape,
 } from "./drawDoc";
 
 const pen = (points: number[], extra: Partial<PathShape> = {}): PathShape => ({
@@ -103,12 +105,16 @@ describe("DrawDoc 직렬화", () => {
     expect(doc.pages[-1]).toBeUndefined();
   });
 
-  it("미지 타입(상위 버전 도형)은 조용히 버린다", () => {
+  it("미지 타입(상위 버전 도형)은 렌더 대상에선 빠지되 unknownShapes에 보존된다", () => {
+    // 구정책은 조용히 버렸다 — 다음 저장이 전체 문서를 덮어쓰므로
+    // 다른 버전이 만든 주석이 영구 삭제됐다(2차 감사 N5). 정책 변경.
     const json = JSON.stringify({
       version: 99,
       pages: { 1: [{ id: "z", type: "hologram", foo: 1 }] },
     });
-    expect(isEmptyDoc(parseDrawDoc(json))).toBe(true);
+    const doc = parseDrawDoc(json);
+    expect(isEmptyDoc(doc)).toBe(true); // 렌더링할 도형은 없음
+    expect(doc.unknownShapes?.[1]).toHaveLength(1);
   });
 
   it("id 없는 도형엔 id 를 부여한다", () => {
@@ -527,5 +533,70 @@ describe("불투명도", () => {
       },
     });
     expect(parseDrawDoc(json).pages[1][0].opacity).toBe(1);
+  });
+});
+describe("N5: 미지 도형 보존", () => {
+  it("상위 버전의 미지 타입 도형이 왕복에서 보존된다", () => {
+    const json = JSON.stringify({
+      version: 3,
+      pages: {
+        1: [
+          { id: "a", type: "path", tool: "pen", color: "#000", width: 2, points: [0, 0, 10, 10] },
+          { id: "z", type: "sticker", emoji: "🔥", at: [10, 20] },
+        ],
+      },
+    });
+    const doc = parseDrawDoc(json);
+    expect(doc.unknownShapes?.[1]).toHaveLength(1);
+    // 획 하나 추가하는 시나리오와 무관하게 재직렬화가 미지 도형을 재방출한다
+    const round = parseDrawDoc(serializeDrawDoc(doc));
+    expect(round.unknownShapes?.[1]).toEqual(doc.unknownShapes?.[1]);
+    expect(round.pages[1]).toHaveLength(1);
+  });
+
+  it("부분 손상된 known 타입 도형도 버리지 않고 보존한다", () => {
+    const json = JSON.stringify({ version: 2, pages: { 1: [{ id: "b", type: "path" }] } });
+    const doc = parseDrawDoc(json);
+    expect(doc.pages[1]).toBeUndefined();
+    expect(doc.unknownShapes?.[1]).toHaveLength(1);
+    expect(serializeDrawDoc(doc)).toContain('"type":"path"');
+  });
+
+  it("이전 저장이 보존해 둔 unknownShapes를 이어받는다", () => {
+    const first = parseDrawDoc(
+      JSON.stringify({ version: 3, pages: { 2: [{ type: "hologram", id: "h" }] } }),
+    );
+    const second = parseDrawDoc(serializeDrawDoc(first));
+    expect(second.unknownShapes?.[2]).toHaveLength(1);
+  });
+});
+
+describe("N1: mergeDrawDocs", () => {
+  const shape = (id: string): Shape => ({
+    id,
+    type: "line",
+    color: "#000",
+    width: 2,
+    a: [0, 0],
+    b: [1, 1],
+  });
+
+  it("디스크에만 있는 도형은 보존되고, 같은 id는 로컬이 우선한다", () => {
+    const local: DrawDoc = {
+      version: 2,
+      pages: { 1: [shape("a"), { ...shape("b"), color: "#f00" } as Shape] },
+    };
+    const disk: DrawDoc = { version: 2, pages: { 1: [shape("b"), shape("c")], 2: [shape("d")] } };
+    const merged = mergeDrawDocs(local, disk);
+    expect(merged.pages[1].map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect((merged.pages[1][1] as { color: string }).color).toBe("#f00"); // 로컬 우선
+    expect(merged.pages[2].map((s) => s.id)).toEqual(["d"]); // 외부 추가 페이지 보존
+  });
+
+  it("unknownShapes는 JSON 동등 기준 합집합", () => {
+    const local: DrawDoc = { version: 2, pages: {}, unknownShapes: { 1: [{ t: "x" }] } };
+    const disk: DrawDoc = { version: 2, pages: {}, unknownShapes: { 1: [{ t: "x" }, { t: "y" }] } };
+    const merged = mergeDrawDocs(local, disk);
+    expect(merged.unknownShapes?.[1]).toEqual([{ t: "x" }, { t: "y" }]);
   });
 });
