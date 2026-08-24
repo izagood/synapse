@@ -169,13 +169,16 @@ impl Backend for SftpBackend {
                     file.shutdown().await.map_err(to_io)?;
                     Ok(true)
                 }
-                Err(e)
-                    if e.to_string().contains("already exists")
-                        || e.to_string().contains("EEXIST") =>
-                {
-                    Ok(false)
+                Err(e) => {
+                    // SFTPv3(OpenSSH)는 EXCL 충돌에 SSH_FX_FAILURE("Failure")만
+                    // 보내 에러 문자열로 충돌을 판별할 수 없다(2차 감사 R3) —
+                    // 존재 재검사로 판정한다. 존재하면 충돌(호출자가 " 2" 이름으로
+                    // 회피), 존재하지 않으면 실제 오류를 그대로 알린다.
+                    if sftp.try_exists(target.clone()).await.map_err(to_io)? {
+                        return Ok(false);
+                    }
+                    Err(to_io(e))
                 }
-                Err(e) => Err(to_io(e)),
             }
         })
     }
