@@ -313,6 +313,10 @@ impl GitWorkspace {
                 run_command(cmd, network_timeout_for(args))
             }
             GitExec::Remote(session) => {
+                // 원격 git은 원격 호스트의 자격증명(원격 ~/.ssh·credential helper)을
+                // 쓴다. 로컬 GitHub 토큰(auth_header)은 원격에 전달하지 않는다.
+                // 로컬 경로의 network_timeout과 대칭으로 원격 exec에도 상한을 건다
+                // (M10) — 무한 대기하면 프론트 워치독만 발화하고 백엔드가 매달린다.
                 let timeout = remote_timeout_for(args);
                 let envs = [
                     ("GIT_EDITOR", "true"),
@@ -321,7 +325,9 @@ impl GitWorkspace {
                 ];
                 let root = self.root.to_string_lossy();
                 let command = crate::ssh::remote_git_command(&root, &envs, args);
-                let result = session.exec(&command).map_err(|e| e.to_string())?;
+                let result = session
+                    .exec_with_timeout(&command, timeout)
+                    .map_err(|e| e.to_string())?;
                 Ok((
                     result.0,
                     result.1,
