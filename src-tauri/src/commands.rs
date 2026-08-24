@@ -210,7 +210,10 @@ pub async fn save_doc(
             .map_err(|e| e.to_string())?;
         // 현재 디스크 내용(없으면 None)을 읽어, base에서 갈라졌으면 3-way
         // 병합으로 흡수하고 아니면 그대로 쓴다(+ 레거시 synapse_id 지연 제거).
-        let disk = backend.read_to_string(&resolved).ok();
+        // NotFound만 None으로 처리하고, 다른 I/O 에러는 저장 실패로 반환한다.
+        let disk = backend
+            .read_to_string_if_exists(&resolved)
+            .map_err(|e| e.to_string())?;
         let final_text = synapse_core::save_merge(&base, disk.as_deref(), &content);
         backend
             .write_atomic(&resolved, final_text.as_bytes())

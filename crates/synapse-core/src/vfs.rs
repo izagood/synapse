@@ -73,6 +73,18 @@ pub trait Backend: Send + Sync {
         String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
+    fn read_to_string_if_exists(&self, path: &Path) -> io::Result<Option<String>> {
+        match self.read(path) {
+            Ok(bytes) => {
+                Ok(Some(String::from_utf8(bytes).map_err(|e| {
+                    io::Error::new(io::ErrorKind::InvalidData, e)
+                })?))
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     /// 같은 디렉토리에 임시 파일을 쓴 뒤 rename 하여 원자적으로 저장한다 (NFR-2).
     /// 크래시가 나도 기존 파일은 온전하거나 새 내용으로 완전히 교체된 상태만 남는다.
     fn write_atomic(&self, path: &Path, content: &[u8]) -> io::Result<()> {
@@ -720,5 +732,51 @@ mod tests {
         LocalBackend.write(&target, b"x").unwrap();
         let meta = LocalBackend.metadata(&target).unwrap();
         assert!(meta.is_file && !meta.is_dir && !meta.is_symlink);
+    }
+
+    #[test]
+    fn local_read_to_string_if_exists_returns_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("a.txt");
+        LocalBackend.write(&p, b"hello").unwrap();
+        assert_eq!(
+            LocalBackend.read_to_string_if_exists(&p).unwrap(),
+            Some("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn local_read_to_string_if_exists_returns_none_for_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("nonexistent.txt");
+        assert_eq!(LocalBackend.read_to_string_if_exists(&p).unwrap(), None);
+    }
+
+    #[test]
+    fn local_read_to_string_if_exists_propagates_non_notfound_errors() {
+        // NotFound만 None으로 접히고, 그 외 I/O 에러는 Err로 전파되어야 한다
+        // (읽기 실패를 "파일 없음"으로 오인하면 3-way 병합이 생략된다 — 이 함수의 존재 이유).
+        // 디렉토리를 파일로 읽으면 NotFound가 아닌 에러가 난다.
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("subdir");
+        LocalBackend.create_dir_all(&dir).unwrap();
+        let result = LocalBackend.read_to_string_if_exists(&dir);
+        assert!(result.is_err());
+        assert_ne!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn inmemory_read_to_string_if_exists() {
+        let b = InMemoryBackend::new();
+        b.create_dir_all(Path::new("/ws")).unwrap();
+        assert_eq!(
+            b.read_to_string_if_exists(Path::new("/ws/a.txt")).unwrap(),
+            None
+        );
+        b.write(Path::new("/ws/a.txt"), b"content").unwrap();
+        assert_eq!(
+            b.read_to_string_if_exists(Path::new("/ws/a.txt")).unwrap(),
+            Some("content".to_string())
+        );
     }
 }
