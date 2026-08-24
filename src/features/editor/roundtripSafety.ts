@@ -149,5 +149,11 @@ export function hasRoundtripContentLoss(original: string, serialized: string): b
     return true;
   }
 
+  const FOOTNOTE_REF_REGEX = /\[\^[^\]]+\]/;
+  const FOOTNOTE_ESCAPED_REGEX = /\\\[\^[^\]]+\\\]/;
+  if (FOOTNOTE_REF_REGEX.test(original) && FOOTNOTE_ESCAPED_REGEX.test(serialized)) {
+    return true;
+  }
+
   return false;
 }
