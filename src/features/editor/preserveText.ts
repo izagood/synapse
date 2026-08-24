@@ -23,8 +23,8 @@ export const PreserveText = Text.extend({
   addStorage() {
     return {
       markdown: {
-        serialize(state: { text(value: string, preserveNewlines?: boolean): void }, node: { text: string }) {
-          state.text(node.text, true);
+        serialize(state: { text(value: string): void }, node: { text: string }) {
+          state.text(node.text);
         },
         parse: {
           // markdown-it 이 처리한다 (기본 동작 유지)

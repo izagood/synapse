@@ -79,7 +79,12 @@ function normalizedContent(token: Token): string {
 }
 
 function tokenSignature(token: Token): Signature | null {
-  if (token.hidden || token.type === "softbreak") return null;
+  // 줄바꿈 토큰(soft/hard)은 시그니처에서 제외한다. breaks:true 전환으로
+  // 에디터는 모든 문단 내 개행을 동일하게 렌더링·직렬화(\n)하므로,
+  // 백슬래시·2칸 hard break가 개행으로 정규화되는 것은 손실이 아니라
+  // 표기 정규화다 — 미편집 블록의 원본 바이트는 preserveFormatting이 지킨다.
+  // (이걸 손실로 치면 hard break가 든 모든 기존 문서가 읽기 전용으로 잠긴다.)
+  if (token.hidden || token.type === "softbreak" || token.type === "hardbreak") return null;
 
   return {
     type: token.type,
