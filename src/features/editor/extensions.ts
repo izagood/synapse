@@ -14,6 +14,7 @@ import { MermaidCodeBlock } from "./mermaidBlock";
 import { LinkifyUrls } from "./linkifyUrls";
 import { WikiLink } from "./wikiLink";
 import { PreserveText } from "./preserveText";
+import { SoftBreak } from "./softBreak";
 
 // 현재 편집 중인 노트의 디렉토리 — 상대 경로 이미지를 화면에 표시할 때만 사용.
 // 문서 모델(attrs.src)에는 항상 상대 경로가 남아 md 직렬화가 오염되지 않는다.
@@ -66,6 +67,7 @@ export function editorExtensions({
 } = {}): AnyExtension[] {
   return [
     StarterKit.configure({
+      hardBreak: false,
       link: {
         openOnClick: false,
         // 스킴 없는 상대경로 링크(advanced/01.md 등)는 그대로 허용한다.
@@ -84,6 +86,9 @@ export function editorExtensions({
     // 평문의 `<`, `>` 가 `&lt;`, `&gt;` 로 저장되던 문제를 막는다.
     // 위험한 원시 HTML은 파싱 시점에 이미 제거되므로 보안 영향은 없다.
     PreserveText,
+    // SoftBreak: 문단 안 줄바꿈을 `\<newline>` 대신 `\n` 로 직렬화
+    // (기존 hard break 동작은 SoftBreakExtension이 대신함)
+    SoftBreak,
     // CodeBlockLowlight 확장: ```mermaid 블록은 다이어그램으로 렌더링,
     // 그 외 코드 블록은 종전대로 lowlight 하이라이팅
     MermaidCodeBlock({ lowlight, errorLabel: mermaidErrorLabel }),
@@ -106,7 +111,7 @@ export function editorExtensions({
       html: true, // 표현 불가능한 원시 HTML은 보존 (NFR-3)
       tightLists: true,
       linkify: false,
-      breaks: false,
+      breaks: true,
       transformPastedText: true,
     }),
   ];
