@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::links::{
-    collect_markdown, extract_links, resolve_standard_link, stem, stem_index, OutLink,
+    collect_markdown, extract_links, resolve_standard_link, stem, stem_index, toggle_fence, OutLink,
 };
 
 /// auto-links 관리 블록 시작/종료 마커. 블록은 기계 소유이며 내용은 항상
@@ -84,16 +84,20 @@ pub(crate) struct BlockScan {
 
 /// 코드펜스를 무시하며 첫 auto-links 블록을 찾는다. `lines`는
 /// `split_inclusive('\n')` 결과(개행 보존) 기준.
+/// H2: CommonMark 호환 펜스 파싱 적용 (links::toggle_fence 재사용).
 pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
     let mut in_fence = false;
+    let mut current_fence: Option<(char, usize)> = None;
     let mut first: Option<(usize, usize)> = None;
     let mut duplicate = false;
     let mut unterminated = false;
     let mut i = 0;
     while i < lines.len() {
         let t = lines[i].trim();
-        if t.starts_with("```") || t.starts_with("~~~") {
-            in_fence = !in_fence;
+        let (new_in_fence, new_fence) = toggle_fence(t, in_fence, current_fence);
+        if new_in_fence != in_fence {
+            in_fence = new_in_fence;
+            current_fence = new_fence;
             i += 1;
             continue;
         }
@@ -109,11 +113,14 @@ pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
             // 종료 마커 탐색(블록 안에도 펜스가 있을 수 있어 계속 토글)
             let mut j = i + 1;
             let mut fence = false;
+            let mut fence_state: Option<(char, usize)> = None;
             let mut end = None;
             while j < lines.len() {
                 let tj = lines[j].trim();
-                if tj.starts_with("```") || tj.starts_with("~~~") {
-                    fence = !fence;
+                let (new_fence, new_fence_state) = toggle_fence(tj, fence, fence_state);
+                if new_fence != fence {
+                    fence = new_fence;
+                    fence_state = new_fence_state;
                     j += 1;
                     continue;
                 }
@@ -346,6 +353,73 @@ fn render_block(items: &[String]) -> String {
     s
 }
 
+/// H1: 라벨을 무해화(sanitize)한다.
+/// - 개행 이후는 버리고 첫 줄만 사용
+/// - `-->`·`<!--` 제거
+/// - 3개 이상 연속 백틱(` ``` `) 제거
+/// - `~~~` 시퀀스 제거
+fn sanitize_label(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    let mut chars = label.chars().peekable();
+    let mut in_backticks = 0;
+    let mut tilde_count = 0;
+
+    while let Some(c) = chars.next() {
+        if c == '\n' {
+            break;
+        }
+
+        if c == '<' {
+            let rest: String = chars.clone().take(3).collect();
+            if rest.starts_with("!--") {
+                for _ in 0..3 {
+                    chars.next();
+                }
+                continue;
+            }
+        }
+
+        if c == '-' && chars.clone().take(2).collect::<String>() == "--" {
+            chars.next();
+            chars.next();
+            continue;
+        }
+
+        if c == '`' {
+            in_backticks += 1;
+            if in_backticks >= 3 {
+                continue;
+            }
+        } else {
+            in_backticks = 0;
+        }
+
+        if c == '~' {
+            tilde_count += 1;
+            if tilde_count >= 3 {
+                continue;
+            }
+        } else {
+            tilde_count = 0;
+        }
+
+        out.push(c);
+    }
+
+    out.trim().to_string()
+}
+
+/// H1·M13: 이 stem을 [[위키링크]]로 방출해도 안전한가.
+/// links.rs의 wiki_target은 `|`(별칭)·`#`(앵커) 앞에서 자르고, `[`/`]`는
+/// 스캔을 깨며, 백틱·개행은 인라인 규칙과 충돌한다 — 하나라도 있으면
+/// 방출과 파싱이 비대칭이 되어 오연결/dangling이 생기므로 표준 링크로 폴백한다.
+fn is_wiki_safe_stem(stem: &str) -> bool {
+    !stem.is_empty()
+        && !stem
+            .chars()
+            .any(|c| matches!(c, '|' | '#' | '[' | ']' | '`' | '\n' | '\r'))
+}
+
 /// rel 경로를 최소한으로 percent-encode한다. synapse 자신의 링크 파서(`links.rs`)가
 /// 오해석할 수 있는 문자(`%`, `(`, `)`, `#`, `?`, 공백)만 인코딩하고 `/`는 경로
 /// 구분자이므로 그대로 둔다. `resolve_standard_link`의 percent-decode와 정확히
@@ -364,6 +438,9 @@ fn percent_encode_path(rel: &str) -> String {
 /// auto-links 마커 블록만 `items`로 통째 재작성한다(멱등). 블록이 없고
 /// `items`가 있으면 파일 끝에 빈 줄 하나를 두고 추가한다. 마커 밖 바이트는
 /// 절대 바꾸지 않는다.
+///
+/// **H3 정책**: 종료 마커가 없는 블록은 재작성하지 않고 원본을 그대로 반환한다.
+/// 사용자의 본문이 의도치 않게 삭제되는 것을 방지한다.
 pub fn rewrite_auto_links(original: &str, items: &[String]) -> RewriteOutcome {
     let lines: Vec<&str> = original.split_inclusive('\n').collect();
     let scan = scan_auto_block(&lines);
@@ -372,7 +449,10 @@ pub fn rewrite_auto_links(original: &str, items: &[String]) -> RewriteOutcome {
         warnings.push("auto-links 블록이 여러 개 있어 첫 블록만 갱신했습니다".to_string());
     }
     if scan.unterminated {
-        warnings.push("auto-links 종료 마커가 없어 블록을 파일 끝까지로 간주했습니다".to_string());
+        return RewriteOutcome {
+            content: original.to_string(),
+            warnings: vec!["auto-links 종료 마커가 없어 재작성을 거부했습니다".to_string()],
+        };
     }
     let block = render_block(items);
     let content = match scan.first {
@@ -481,23 +561,34 @@ pub fn apply_auto_links(
             continue;
         }
         let name = stem(&target).unwrap_or_default();
-        // 위키링크가 이 대상으로 정확히 해석되면 [[stem]], 아니면(stem 충돌)
-        // 루트 기준 표준 링크로 폴백해 오연결을 막는다.
-        let href = if by_stem.get(&name.to_lowercase()) == Some(&target) {
+
+        // 위키링크는 (1) stem이 파서와 왕복 가능한 안전 문자로만 이뤄지고(M13·H1)
+        // (2) 이 대상으로 정확히 해석될 때(stem 충돌 없음)만 방출한다.
+        // 아니면 루트 기준 표준 링크로 폴백해 오연결을 막는다.
+        let use_wiki =
+            is_wiki_safe_stem(&name) && by_stem.get(&name.to_lowercase()) == Some(&target);
+
+        let href = if use_wiki {
             format!("[[{name}]]")
         } else {
             let rel = target
                 .strip_prefix(&root)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
-            // 경로에 파서를 오해석시킬 문자(%, (, ), #, ?, 공백)가 있으면
-            // percent-encode하고, 라벨의 [/]는 (/)로 치환해 라벨 파싱 깨짐을 막는다.
             let rel = percent_encode_path(&rel);
             let safe_name = name.replace('[', "(").replace(']', ")");
             format!("[{safe_name}](/{rel})")
         };
         match &link.label {
-            Some(l) if !l.trim().is_empty() => items.push(format!("- {href} — {}", l.trim())),
+            Some(l) if !l.trim().is_empty() => {
+                // H1: 라벨 무해화
+                let sanitized = sanitize_label(l);
+                if sanitized.is_empty() {
+                    items.push(format!("- {href}"));
+                } else {
+                    items.push(format!("- {href} — {}", sanitized));
+                }
+            }
             _ => items.push(format!("- {href}")),
         }
     }
@@ -616,16 +707,92 @@ mod tests {
     }
 
     #[test]
-    fn unterminated_block_extends_to_eof_and_warns() {
+    fn unterminated_block_rejected_and_preserves_content() {
+        // H3 정책: 종료 마커가 없으면 재작성 거부, 원본 전체 보존
         let body = format!("본문\n{}\n- [[old]]\n깨진 꼬리", AUTO_LINKS_START);
         let out = rewrite_auto_links(&body, &["- [[new]]".to_string()]);
-        assert!(out.content.starts_with("본문\n"));
-        assert!(out.content.contains("- [[new]]"));
+        assert_eq!(out.content, body, "원본이 그대로 보존되어야 함");
         assert!(
-            !out.content.contains("깨진 꼬리"),
-            "종료 마커 없으면 EOF까지 블록으로 간주"
+            out.warnings
+                .iter()
+                .any(|w| w.contains("재작성을 거부했습니다")),
+            "재작성 거부 경고가 있어야 함"
         );
-        assert_eq!(out.warnings.len(), 1);
+    }
+
+    #[test]
+    fn malicious_label_cannot_break_block_scan() {
+        // H1: 라벨에 개행+펜스를 주입해도 독립 라인으로 승격되지 않아야 한다.
+        // 승격되면 다음 apply의 스캔이 종료 마커를 펜스 안으로 오인해
+        // 블록 아래 사용자 본문이 삭제된다(감사에서 확인된 손실 경로).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("target.md"), "t");
+        let body = format!(
+            "본문\n\n{}\n{}\n\n블록 아래 사용자 본문\n",
+            AUTO_LINKS_START, AUTO_LINKS_END
+        );
+        write(&root.join("from.md"), &body);
+        let links = vec![ApplyLink {
+            to: root.join("target.md").display().to_string(),
+            label: Some("설명\n```".to_string()),
+        }];
+        let out = apply_auto_links(root, &root.join("from.md"), &body, &links).unwrap();
+        assert!(
+            !out.content.lines().any(|l| l.trim() == "```"),
+            "주입된 펜스가 독립 라인이 되면 안 됨:\n{}",
+            out.content
+        );
+        assert!(out.content.contains("블록 아래 사용자 본문"));
+        // 재적용(스캔→재작성 왕복)해도 블록 아래 본문이 보존된다
+        let out2 = apply_auto_links(root, &root.join("from.md"), &out.content, &links).unwrap();
+        assert!(out2.content.contains("블록 아래 사용자 본문"));
+    }
+
+    #[test]
+    fn four_backtick_fence_hides_documented_markers() {
+        // H2: 4-백틱 펜스 안의 ```와 마커 문서화가 진짜 블록으로 오인되면
+        // 미종결 판정 → (구정책에선) 펜스 내용과 아래 본문까지 삭제됐다.
+        let body = format!("````\n```\n{}\n```\n````\n\n진짜 본문\n", AUTO_LINKS_START);
+        let lines: Vec<&str> = body.split_inclusive('\n').collect();
+        let scan = scan_auto_block(&lines);
+        assert!(scan.first.is_none(), "펜스 안 마커가 블록으로 잡히면 안 됨");
+        assert!(!scan.unterminated);
+    }
+
+    #[test]
+    fn special_char_stem_falls_back_to_standard_link() {
+        // M13: `C# 정리.md`를 [[C# 정리]]로 방출하면 links.rs의 wiki_target이
+        // '#' 앞에서 잘라 "C"로 오연결된다 — 표준 링크로 폴백해야 한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(&root.join("from.md"), "본문\n");
+        write(&root.join("C# 정리.md"), "c");
+        let links = vec![ApplyLink {
+            to: root.join("C# 정리.md").display().to_string(),
+            label: None,
+        }];
+        let out = apply_auto_links(root, &root.join("from.md"), "본문\n", &links).unwrap();
+        assert!(
+            !out.content.contains("[[C# 정리]]"),
+            "위키링크로 방출되면 안 됨:\n{}",
+            out.content
+        );
+        let found = crate::links::extract_links(&out.content);
+        let href = found
+            .iter()
+            .find_map(|(l, _)| match l {
+                crate::links::OutLink::Standard(h) => Some(h.clone()),
+                _ => None,
+            })
+            .expect("표준 링크 폴백이 있어야 함");
+        let resolved = crate::links::resolve_standard_link(
+            &href,
+            &root.join("from.md"),
+            &root.canonicalize().unwrap(),
+        )
+        .expect("폴백 href가 해석 가능해야 함");
+        assert_eq!(resolved, root.join("C# 정리.md").canonicalize().unwrap());
     }
 
     use std::fs::{self, File};
