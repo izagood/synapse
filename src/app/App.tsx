@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { ipc } from "../ipc/ipc";
-import { useWorkspace } from "../stores/workspace";
+import { useWorkspace, isDirty } from "../stores/workspace";
 import { useSettings } from "../stores/settings";
 import { registerStaticCommands } from "../features/commands/staticCommands";
 import { useShortcutDispatcher } from "../features/commands/useShortcutDispatcher";
@@ -63,6 +63,35 @@ export default function App() {
     style.setProperty("--editor-font-size", `${fontSize}px`);
     style.setProperty("--editor-font-family", fontFamily || "system-ui");
   }, [fontSize, fontFamily]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const setupCloseHandler = async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        unlisten = await win.onCloseRequested(async (event) => {
+          event.preventDefault();
+          const ws = useWorkspace.getState();
+          const hasDirty = Object.keys(ws.docs).some((p) => isDirty(ws.docs[p]));
+          if (hasDirty) {
+            try {
+              await ws.flushDirty();
+            } catch (e) {
+              console.warn("onCloseRequested: flushDirty failed", e);
+            }
+          }
+          await win.destroy();
+        });
+      } catch {
+        // Not in Tauri environment (browser dev mode) — no-op
+      }
+    };
+    void setupCloseHandler();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   return (
     <>
