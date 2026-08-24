@@ -131,13 +131,16 @@ fn network_timeout_for(args: &[&str]) -> Option<Duration> {
     }
 }
 
-const SSH_EXEC_TIMEOUT_SECS: u64 = 300;
+// 원격 fetch/push는 로컬 network_timeout_for와 같은 120초 — 재시도 3회 포함
+// worst가 3×(120+120)=720초로 프론트 워치독(900초) 안에 들어온다(2차 감사 F8).
+// clone/ls-remote는 최초 1회 대용량일 수 있어 300초.
+const SSH_TRANSFER_TIMEOUT_SECS: u64 = 120;
+const SSH_CLONE_TIMEOUT_SECS: u64 = 300;
 
 fn remote_timeout_for(args: &[&str]) -> Option<Duration> {
     match args.first().copied() {
-        Some("fetch") | Some("push") | Some("clone") | Some("ls-remote") => {
-            Some(Duration::from_secs(SSH_EXEC_TIMEOUT_SECS))
-        }
+        Some("fetch") | Some("push") => Some(Duration::from_secs(SSH_TRANSFER_TIMEOUT_SECS)),
+        Some("clone") | Some("ls-remote") => Some(Duration::from_secs(SSH_CLONE_TIMEOUT_SECS)),
         _ => Some(Duration::from_secs(60)),
     }
 }
@@ -372,7 +375,12 @@ impl GitWorkspace {
     /// push(-u origin HEAD)가 실패하고 커밋이 reflog에만 남아 사실상
     /// 유실로 보인다(감사 L7) — 외부 git 사용 흔적이므로 명시적으로 알린다.
     fn ensure_on_branch(&self) -> GitResult<()> {
-        if self.current_branch()? == "HEAD" {
+        // symbolic-ref는 HEAD가 브랜치 ref를 가리키면 성공한다 — 커밋이 아직
+        // 없는 unborn HEAD(빈 저장소 clone 직후)도 브랜치 위다. 이전 구현
+        // (rev-parse --abbrev-ref)은 unborn에서 에러가 나 첫 커밋 생성을 영구
+        // 차단했다(2차 감사 R2). detached만 거부한다.
+        let (on_branch, _, _) = self.run(&["symbolic-ref", "-q", "HEAD"])?;
+        if !on_branch {
             return Err(
                 "detached HEAD 상태입니다 — 외부 git 사용 흔적입니다. 브랜치로 복귀한 뒤 동기화하세요"
                     .to_string(),
@@ -400,8 +408,25 @@ impl GitWorkspace {
             .to_string())
     }
 
+    /// 원자 쓰기 잔재(크래시가 남긴 tmp/bak)는 dirty 판정·커밋에서 제외한다
+    /// (2차 감사 F6) — 트리·워처가 숨기는 파일이라 사용자가 지울 수 없고,
+    /// sync로 전 기기에 전파되면 안 된다. is_dirty와 commit_all의 add가
+    /// 같은 제외를 써야 "dirty인데 커밋할 것 없음" 불일치가 안 생긴다.
+    const LEFTOVER_EXCLUDES: [&'static str; 2] = [
+        ":(exclude,glob)**/.*.synapse-tmp*",
+        ":(exclude,glob)**/.*.synapse-bak",
+    ];
+
     fn is_dirty(&self) -> GitResult<bool> {
-        Ok(!self.run_ok(&["status", "--porcelain"])?.trim().is_empty())
+        let out = self.run_ok(&[
+            "status",
+            "--porcelain",
+            "--",
+            ".",
+            Self::LEFTOVER_EXCLUDES[0],
+            Self::LEFTOVER_EXCLUDES[1],
+        ])?;
+        Ok(!out.trim().is_empty())
     }
 
     /// git을 처음 쓰는 사용자를 위해 리포지토리 로컬 identity를 보장한다 (FR-4.8)
@@ -423,7 +448,14 @@ impl GitWorkspace {
             return Ok(false);
         }
         self.ensure_identity()?;
-        self.run_ok(&["add", "-A"])?;
+        self.run_ok(&[
+            "add",
+            "-A",
+            "--",
+            ".",
+            Self::LEFTOVER_EXCLUDES[0],
+            Self::LEFTOVER_EXCLUDES[1],
+        ])?;
         self.run_ok(&["commit", "-m", message])?;
         Ok(true)
     }
@@ -521,11 +553,13 @@ impl GitWorkspace {
         if !self.has_remote() {
             return Ok(SyncStatus::simple(SyncState::NoRemote));
         }
-        self.ensure_on_branch()?;
-        // 로컬 구간 (락): 잔재 정리 + 병합 전 커밋(= 소실 방지 불변식)
+        // 로컬 구간 (락): 잔재 정리 + 병합 전 커밋(= 소실 방지 불변식).
+        // 브랜치 검사는 heal 이후에 한다 — 중단된 rebase 잔재는 detached HEAD를
+        // 남기는데, 먼저 거부하면 heal이 설계대로 복구할 기회가 없다(2차 감사 R2).
         {
             let _guards = self.lock_write()?;
             self.heal_in_progress()?;
+            self.ensure_on_branch()?;
             self.commit_all(commit_message)?;
         }
         // 잔재 치유는 루프 밖 한 번이면 충분하다: 루프 안의 병합은 깨끗이
@@ -978,11 +1012,11 @@ impl GitWorkspace {
         if !self.has_remote() {
             return Ok(SyncStatus::simple(SyncState::NoRemote));
         }
-        self.ensure_on_branch()?;
-        // 로컬 구간 (락): 잔재 정리 + 해결 전 커밋(= 소실 방지 불변식)
+        // 브랜치 검사는 heal 이후 — sync와 같은 이유(2차 감사 R2).
         {
             let _guards = self.lock_write()?;
             self.heal_in_progress()?;
+            self.ensure_on_branch()?;
             self.commit_all("synapse: 충돌 해결 전 저장")?;
         }
         for _attempt in 0..3 {
@@ -2171,5 +2205,83 @@ mod tests {
         assert!(err.contains("detached"), "{err}");
         // 커밋이 쌓이지 않고 워킹트리 편집은 그대로 남아 있어야 한다
         assert_eq!(read(&ws_a, "note.md"), "detached에서의 편집");
+    }
+
+    #[test]
+    fn sync_succeeds_on_unborn_head_after_empty_clone() {
+        // 빈 원격을 clone하면 HEAD는 unborn(커밋 0개)이지만 브랜치 위다 —
+        // detached로 오판해 첫 커밋 생성을 막으면 sync가 영구 실패한다(2차 감사 R2).
+        let (tmp, remote, _ws_a) = setup();
+        let ws = tmp.path().join("empty-clone");
+        GitWorkspace::clone(&remote.display().to_string(), &ws, None).unwrap();
+        let git = GitWorkspace::new(&ws, None);
+        write(&ws, "note.md", "첫 노트");
+        let st = git.sync("first").unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+    }
+
+    #[test]
+    fn sync_heals_interrupted_rebase_leftover() {
+        // 중단된 rebase 잔재는 detached HEAD를 남긴다 — 브랜치 검사가 heal보다
+        // 먼저면 설계된 자가 치유(rebase --abort)가 실행될 기회가 없다(R2).
+        let (_tmp, remote, ws_a) = setup();
+        let git_a = GitWorkspace::new(&ws_a, None);
+        write(&ws_a, "a.md", "기준");
+        git_a
+            .publish(&remote.display().to_string(), "init")
+            .unwrap();
+        write(&ws_a, "a.md", "둘째");
+        git_a.sync("second").unwrap();
+
+        let sh = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&ws_a)
+                .output()
+                .unwrap()
+        };
+        sh(&["checkout", "-b", "side", "HEAD~1"]);
+        write(&ws_a, "a.md", "충돌하는 수정");
+        git_a.commit_all("side").unwrap();
+        let out = sh(&["rebase", "main"]);
+        assert!(!out.status.success(), "rebase가 충돌로 중단되어야 함");
+        let head = sh(&["rev-parse", "--abbrev-ref", "HEAD"]);
+        assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), "HEAD");
+
+        // detached 거부 대신 heal이 잔재를 정리하고 sync가 진행된다
+        git_a.sync("after leftover").unwrap();
+        let head2 = sh(&["rev-parse", "--abbrev-ref", "HEAD"]);
+        assert_ne!(String::from_utf8_lossy(&head2.stdout).trim(), "HEAD");
+    }
+
+    #[test]
+    fn leftover_tmp_and_bak_files_are_not_committed() {
+        // 크래시가 남긴 원자 쓰기 잔재는 커밋·전파되면 안 되고(F6),
+        // is_dirty와 add의 제외가 일치해야 "dirty인데 커밋할 것 없음"으로
+        // sync가 깨지지 않는다.
+        let (_tmp, remote, ws_a) = setup();
+        let git = GitWorkspace::new(&ws_a, None);
+        write(&ws_a, "note.md", "본문");
+        git.publish(&remote.display().to_string(), "init").unwrap();
+
+        write(&ws_a, ".note.md.synapse-tmp.123-4", "tmp 잔재");
+        write(&ws_a, ".note.md.synapse-bak", "bak 잔재");
+        // 잔재만 있을 때: dirty 아님 → 커밋 시도 없이 Synced
+        let st = git.sync("no-op").unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+
+        // 실제 편집은 여전히 커밋된다
+        write(&ws_a, "note.md", "수정");
+        assert_eq!(git.sync("edit").unwrap().state, SyncState::Synced);
+
+        let out = Command::new("git")
+            .args(["ls-files"])
+            .current_dir(&ws_a)
+            .output()
+            .unwrap();
+        let files = String::from_utf8_lossy(&out.stdout);
+        assert!(!files.contains("synapse-tmp"), "{files}");
+        assert!(!files.contains("synapse-bak"), "{files}");
+        assert!(files.contains("note.md"));
     }
 }
