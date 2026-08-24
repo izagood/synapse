@@ -207,8 +207,8 @@ export function MarkdownEditor({ path }: { path: string }) {
 
     // 한글 IME 조합 도중 setContent가 발화하면 문서가 붕괴하므로
     // 조합 종료(compositionend)까지 연기한다. 조합 중이 아니면 즉시 반영.
-    // 한글 연타(음절每位 compositionend→compositionstart)의 경우 재확인해
-    // 새 조합이 시작하면 다시 연기한다.
+    // 한글 연타(음절마다 compositionend→compositionstart)의 경우 적용 직전에
+    // 재확인해 새 조합이 시작됐으면 다음 조합 종료까지 다시 연기한다.
     return deferUntilCompositionEnd(
       editor.view.dom,
       editor.view.composing,
