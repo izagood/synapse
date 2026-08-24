@@ -37,7 +37,8 @@ function TabContextMenu({
   }, [onClose]);
 
   const idx = tabs.findIndex((t) => t.path === menu.path);
-  const run = (action: () => Promise<void>) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const run = (action: () => any) => {
     onClose();
     void action();
   };

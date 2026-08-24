@@ -47,6 +47,8 @@ export const isDirty = (doc: DocState | undefined): boolean =>
 
 const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+const saveDocQueue = new Map<string, Promise<boolean>>();
+
 const autosaveDelayMs = () =>
   useSettings.getState().settings.editor.autoSaveDelayMs || 1000;
 
@@ -102,7 +104,7 @@ interface WorkspaceState {
     },
   ): Promise<{ home: string } | RemoteConnectError>;
   refreshTree(): Promise<void>;
-  closeWorkspace(): void;
+  closeWorkspace(): Promise<void>;
   /** 시작 화면의 최근 폴더 목록을 전부 비운다 */
   clearRecent(): Promise<void>;
 
@@ -121,7 +123,7 @@ interface WorkspaceState {
    */
   openFileAt(path: string): Promise<boolean>;
   setActiveTab(path: string): void;
-  closeTab(path: string): Promise<void>;
+  closeTab(path: string): Promise<boolean>;
   /** VS Code 스타일 일괄 닫기 (FR-1.7) — 미저장분은 닫기 전에 저장 */
   closeOtherTabs(path: string): Promise<void>;
   closeTabsToRight(path: string): Promise<void>;
@@ -136,7 +138,7 @@ interface WorkspaceState {
   /** n번째(1-based) 탭으로. 9는 항상 마지막 탭(VS Code 관례). 범위 밖 no-op */
   goToTab(n: number): void;
   updateContent(path: string, content: string): void;
-  saveDoc(path: string): Promise<void>;
+  saveDoc(path: string): Promise<boolean>;
   saveActive(): Promise<void>;
   /** 미저장 문서를 전부 저장 (동기화 직전 호출) */
   flushDirty(): Promise<void>;
@@ -242,7 +244,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const target = path ?? (await ipc.pickFolder());
       if (!target) {
         set({ loading: false });
-        return; // 사용자가 다이얼로그를 취소
+        return;
+      }
+      const hasDirty = Object.keys(get().docs).some((p) => isDirty(get().docs[p]));
+      if (hasDirty) {
+        try {
+          await get().flushDirty();
+        } catch (e) {
+          console.warn("openFolder: flushDirty failed, proceeding anyway", e);
+        }
       }
       const tree = await ipc.listWorkspace(target);
       const recent = await ipc.recordWorkspaceOpened(target);
@@ -328,10 +338,21 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  closeWorkspace() {
+  async closeWorkspace() {
     autosaveTimers.forEach(clearTimeout);
     autosaveTimers.clear();
-    void ipc.clearLastWorkspace(); // 다음 시작은 시작 화면
+    const hasDirty = Object.keys(get().docs).some((p) => isDirty(get().docs[p]));
+    let flushSucceeded = true;
+    if (hasDirty) {
+      try {
+        await get().flushDirty();
+      } catch {
+        flushSucceeded = false;
+        console.warn("closeWorkspace: flushDirty failed, preserving docs");
+      }
+    }
+    if (!flushSucceeded) return;
+    void ipc.clearLastWorkspace();
     set({
       root: null,
       tree: null,
@@ -453,14 +474,17 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   async closeTab(path) {
-    // 닫기 전 미저장 내용을 저장한다 (자동 저장 철학과 일관되게)
+    // 닫기 전 미저장 내용을 저장한다 (자동 저장 철학과 일관되게).
+    // 저장이 실패하면 탭·문서를 유지하고 false를 반환한다 — 실패를 무시하고
+    // 닫으면 미저장 편집분이 조용히 소멸한다(무결성 감사 H9).
     const timer = autosaveTimers.get(path);
     if (timer) {
       clearTimeout(timer);
       autosaveTimers.delete(path);
     }
     if (isDirty(get().docs[path])) {
-      await get().saveDoc(path);
+      const saved = await get().saveDoc(path);
+      if (!saved) return false;
     }
     set((s) => {
       const tabs = s.tabs.filter((t) => t.path !== path);
@@ -476,6 +500,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const recentlyClosed = [...s.recentlyClosed.filter((p) => p !== path), path].slice(-10);
       return { tabs, docs, activePath, recentlyClosed };
     });
+    return true;
   },
 
   async reopenClosedTab() {
@@ -556,58 +581,74 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   async saveDoc(path) {
-    const { root, tabs } = get();
-    const doc = get().docs[path];
-    if (!root || !doc || doc.loading || doc.content === doc.savedContent) return;
-    const snapshot = doc.content;
-    const isMarkdown = tabs.find((t) => t.path === path)?.fileType === "markdown";
-    try {
-      // 마크다운 저장은 base(마지막으로 본 디스크 = savedContent)를 함께 넘긴다.
-      // 저장 직전 디스크가 그 base에서 갈라졌으면(외부 도구·브리지·sync 병합)
-      // 백엔드가 3-way로 흡수해 미커밋 바이트를 파괴하지 않는다. 돌아온 텍스트가
-      // snapshot과 다를 수 있고(병합·synapse_id strip), 그 경우 에디터에도
-      // 반영해야 한다(아래 applyExternal 경로). 그 외 파일은 단순 쓰기.
-      const merged = isMarkdown
-        ? await ipc.saveDoc(root, path, snapshot, doc.savedContent)
-        : (await ipc.writeFile(root, path, snapshot), snapshot);
-      set((s) => {
-        const current = s.docs[path];
-        if (!current) return s; // 저장 중 탭이 닫힘
-        if (current.content === snapshot) {
-          // 저장 중 추가 입력 없음 — strip 등으로 바뀐 결과를 에디터에 반영
+    const doSave = async (): Promise<boolean> => {
+      const { root, tabs } = get();
+      const doc = get().docs[path];
+      if (!root || !doc || doc.loading || doc.content === doc.savedContent) return true;
+      const snapshot = doc.content;
+      const isMarkdown = tabs.find((t) => t.path === path)?.fileType === "markdown";
+      try {
+        // 마크다운 저장은 base(마지막으로 본 디스크 = savedContent)를 함께 넘긴다.
+        // 저장 직전 디스크가 그 base에서 갈라졌으면(외부 도구·브리지·sync 병합)
+        // 백엔드가 3-way로 흡수해 미커밋 바이트를 파괴하지 않는다. 돌아온 텍스트가
+        // snapshot과 다를 수 있고(병합·synapse_id strip), 그 경우 에디터에도
+        // 반영해야 한다(아래 applyExternal 경로). 그 외 파일은 단순 쓰기.
+        const merged = isMarkdown
+          ? await ipc.saveDoc(root, path, snapshot, doc.savedContent)
+          : (await ipc.writeFile(root, path, snapshot), snapshot);
+        set((s) => {
+          const current = s.docs[path];
+          if (!current) return s; // 저장 중 탭이 닫힘
+          if (current.content === snapshot) {
+            // 저장 중 추가 입력 없음 — strip 등으로 바뀐 결과를 에디터에 반영
+            return {
+              docs: {
+                ...s.docs,
+                [path]: {
+                  ...current,
+                  content: merged,
+                  savedContent: merged,
+                  externalRev:
+                    merged === snapshot ? current.externalRev : current.externalRev + 1,
+                  externalStale: false,
+                  error: null,
+                },
+              },
+            };
+          }
+          // 입력이 계속된 경우: savedContent를 snapshot까지만 전진시킨다.
+          // (그 사이 들어온 추가 입력은 다음 자동 저장이 그대로 처리한다)
+          // strip이 일어났다면 savedContent가 잠깐 pre-strip 텍스트(디스크와 다름)를
+          // 갖지만, 다음 자동 저장이 merged를 반영하면서 수렴한다.
           return {
             docs: {
               ...s.docs,
-              [path]: {
-                ...current,
-                content: merged,
-                savedContent: merged,
-                externalRev:
-                  merged === snapshot ? current.externalRev : current.externalRev + 1,
-                externalStale: false,
-                error: null,
-              },
+              [path]: { ...current, savedContent: snapshot, externalStale: false, error: null },
             },
           };
-        }
-        // 입력이 계속된 경우: savedContent를 snapshot까지만 전진시킨다.
-        // (그 사이 들어온 추가 입력은 다음 자동 저장이 그대로 처리한다)
-        // strip이 일어났다면 savedContent가 잠깐 pre-strip 텍스트(디스크와 다름)를
-        // 갖지만, 다음 자동 저장이 merged를 반영하면서 수렴한다.
-        return {
-          docs: {
-            ...s.docs,
-            [path]: { ...current, savedContent: snapshot, externalStale: false, error: null },
-          },
-        };
-      });
-    } catch (e) {
-      set((s) => {
-        const current = s.docs[path];
-        if (!current) return s;
-        return { docs: { ...s.docs, [path]: { ...current, error: String(e) } } };
-      });
-    }
+        });
+        return true;
+      } catch (e) {
+        set((s) => {
+          const current = s.docs[path];
+          if (!current) return s;
+          return { docs: { ...s.docs, [path]: { ...current, error: String(e) } } };
+        });
+        return false;
+      }
+    };
+
+    // 같은 path의 저장을 Promise 체인으로 직렬화한다(무결성 감사 H7).
+    // 저장이 느릴 때(원격 SFTP·sync 락 대기) 두 저장이 같은 옛 base로 겹치면
+    // 백엔드 3-way 병합이 같은 타이핑을 중복 기록한다. doSave는 실행 시점에
+    // 최신 content/savedContent를 다시 읽으므로, 대기 중 겹친 요청들은
+    // 자연스럽게 "마지막 상태 한 번 저장"으로 수렴한다.
+    const existing = saveDocQueue.get(path);
+    const newPromise = existing
+      ? existing.then(() => doSave())
+      : doSave();
+    saveDocQueue.set(path, newPromise);
+    return newPromise;
   },
 
   async saveActive() {
@@ -616,6 +657,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   async flushDirty() {
+    const failures: string[] = [];
     for (const path of Object.keys(get().docs)) {
       const timer = autosaveTimers.get(path);
       if (timer) {
@@ -623,8 +665,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         autosaveTimers.delete(path);
       }
       if (isDirty(get().docs[path])) {
-        await get().saveDoc(path);
+        const saved = await get().saveDoc(path);
+        if (!saved) failures.push(path);
       }
+    }
+    if (failures.length > 0) {
+      throw new Error(`Failed to save: ${failures.join(", ")}`);
     }
   },
 
@@ -860,7 +906,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       );
       const reopen = affected.find((t) => t.path === node.path && node.kind === "file");
       for (const t of affected) {
-        await get().closeTab(t.path);
+        const closed = await get().closeTab(t.path);
+        if (!closed) return;
       }
       const newPath = await ipc.renamePath(root, node.path, newName);
       await get().refreshTree();
@@ -897,6 +944,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const { root } = get();
     if (!root) return;
     try {
+      if (isDirty(get().docs[node.path])) {
+        const saved = await get().saveDoc(node.path);
+        if (!saved) return;
+      }
       const newName = await ipc.duplicatePath(root, node.path);
       await get().refreshTree();
       const dir = node.path.slice(0, node.path.lastIndexOf("/"));
@@ -926,7 +977,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const reopen =
         node.kind === "file" ? affected.find((t) => t.path === srcPath) : undefined;
       for (const t of affected) {
-        await get().closeTab(t.path);
+        const closed = await get().closeTab(t.path);
+        if (!closed) return;
       }
       const newPath = await ipc.movePath(root, srcPath, destDir);
       await get().refreshTree();
