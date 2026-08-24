@@ -88,9 +88,40 @@ export function preserveFormatting(
   // 통째로 중단되어 사용자 편집이 조용히 사라진다(실제 발생한 회귀).
   try {
     return alignAndRestore(original, roundtripped, serialized);
-  } catch {
+  } catch (error) {
+    reportPreserveFallback({ kind: "exception", detail: String(error) });
     return serialized;
   }
+}
+
+/** 포맷 보존을 포기하고 재직렬화 결과를 쓴 이유. */
+export type PreserveFallback =
+  | { kind: "exception"; detail: string }
+  | { kind: "blockCountMismatch"; o: number; ro: number }
+  | { kind: "unmatchedBlock"; index: number };
+
+/**
+ * 폴백이 발동했음을 밖으로 알린다.
+ *
+ * 이 세 지점은 원래 조용히 재직렬화 결과를 반환했다. 그래서 "편집하지 않은
+ * 부분이 왜 바뀌었는가"를 사후에 추적할 방법이 없었다(실제로 이 버그가
+ * 오래 발견되지 않은 이유). 최소한 흔적은 남긴다.
+ *
+ * 저장을 막지는 않는다 — 여기서 예외를 던지면 onUpdate 가 죽어 사용자 편집이
+ * 통째로 사라진다(위 주석의 실제 회귀). 차단은 편집 진입 시점에 건다.
+ */
+function reportPreserveFallback(reason: PreserveFallback): void {
+  lastFallback = reason;
+  console.warn("[synapse:preserve] 원본 포맷 보존 실패 —", reason);
+}
+
+let lastFallback: PreserveFallback | null = null;
+
+/** 테스트·디버깅용: 마지막으로 발동한 폴백 사유. */
+export function takeLastPreserveFallback(): PreserveFallback | null {
+  const v = lastFallback;
+  lastFallback = null;
+  return v;
 }
 
 function alignAndRestore(
@@ -107,7 +138,12 @@ function alignAndRestore(
   const roB = blockSignatures(RO);
   const nB = blockSignatures(N);
   // O 와 RO 의 블록이 1:1 로 대응하지 않으면(드묾) 안전하게 재직렬화 결과를 쓴다.
-  if (oB.length === 0 || oB.length !== roB.length || nB.length === 0) return serialized;
+  // 주의: 이 폴백은 문서 **전체**의 보존을 포기한다 — 블록 하나가 어긋나도
+  // 손대지 않은 나머지 블록까지 재직렬화본으로 덮인다.
+  if (oB.length === 0 || oB.length !== roB.length || nB.length === 0) {
+    reportPreserveFallback({ kind: "blockCountMismatch", o: oB.length, ro: roB.length });
+    return serialized;
+  }
 
   const oOff = lineOffsets(O);
   const roOff = lineOffsets(RO);
@@ -121,7 +157,11 @@ function alignAndRestore(
   // 첫 블록 앞의 선행 텍스트(선행 빈 줄 등)는 원본 것을 유지.
   let out = O.slice(0, oOff[oB[0].startLine]);
   for (let j = 0; j < nB.length; j++) {
-    const oi = matchForN[j]; // RO 인덱스 == O 인덱스 (1:1 대응)
+    // RO 인덱스 == O 인덱스 (1:1 대응). -1 이면 편집·신규 블록이라 재직렬화본을 쓴다.
+    // blockContent 가 정확 문자열 일치라, 한 단어만 고쳐도 그 블록 전체가 여기로 온다
+    // (블록 안의 손대지 않은 인라인 바이트도 함께 정규화된다).
+    const oi = matchForN[j];
+    if (oi < 0) reportPreserveFallback({ kind: "unmatchedBlock", index: j });
     out += oi >= 0 ? blockSegment(O, oOff, oB, oi) : blockSegment(N, nOff, nB, j);
   }
   return out;
