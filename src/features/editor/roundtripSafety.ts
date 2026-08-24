@@ -143,19 +143,78 @@ export function blockSignatures(markdown: string): BlockSignature[] {
   return blocks;
 }
 
-const REF_DEF_REGEX = /^\[([^\]]+)\]:\s+(.+)$/;
+// ── 아래 감지들은 파서 비교(blockSignatures)가 구조적으로 못 잡는 손상을
+//    raw 원문 검사로 보완한다. 이 검사의 오탐은 "정상 문서 영구 읽기 전용"
+//    이므로(2차 감사에서 오탐 4종 실측), 두 원칙을 지킨다:
+//    ① 코드펜스·코드스팬 안은 바이트 그대로 보존되는 영역 — 먼저 가린다.
+//    ② 패턴은 실제 손상이 일어나는 문맥(표, 정의 문법)으로 좁힌다.
 
-function extractRefDefs(markdown: string): Map<string, string> {
-  const defs = new Map<string, string>();
+/** 코드펜스(```/~~~, 문자·길이 매칭)와 인라인 코드스팬을 가린다.
+ *  줄 구조는 유지해 라인 기반 검사(^ 앵커, 표 문맥)가 계속 동작한다. */
+function maskCodeRegions(markdown: string): string {
   const lines = normalizeLineEndings(markdown).split("\n");
-  for (const line of lines) {
-    const match = line.match(REF_DEF_REGEX);
-    if (match) {
-      defs.set(match[1], match[2]);
+  let fence: { ch: string; len: number } | null = null;
+  const out = lines.map((line) => {
+    const t = line.trimStart();
+    const m = t.match(/^(`{3,}|~{3,})/);
+    if (fence) {
+      if (m && m[1][0] === fence.ch && m[1].length >= fence.len && t.slice(m[1].length).trim() === "") {
+        fence = null;
+      }
+      return "";
     }
+    if (m) {
+      fence = { ch: m[1][0], len: m[1].length };
+      return "";
+    }
+    return line.replace(/(`+)[^`\n]*?\1/g, (s) => " ".repeat(s.length));
+  });
+  return out.join("\n");
+}
+
+// reference 정의: 선행 공백 0~3칸(CommonMark). 목적지는 공백 없는 한 토큰
+// (+선택적 따옴표 제목)일 때만 — `[10:30]: 회의 메모` 같은 여러 단어 목적지는
+// 정의가 아니라 평문으로 안정 왕복하므로 제외한다(오탐 F3). `[^…]`는 각주.
+const REF_DEF_REGEX =
+  /^ {0,3}\[([^\]^][^\]]*)\]:[ \t]+(\S+(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?)[ \t]*$/;
+
+function extractRefDefs(masked: string): Map<string, string> {
+  const defs = new Map<string, string>();
+  for (const line of masked.split("\n")) {
+    const match = line.match(REF_DEF_REGEX);
+    if (match) defs.set(match[1], match[2]);
   }
   return defs;
 }
+
+/** 표 문맥의 raw 별칭 위키링크(`| [[a|b]] |`) — 파서가 파이프에서 열을
+ *  절단해 감지 양쪽이 똑같이 손상되는 구조적 맹점이라 사전 검사로만 잡는다.
+ *  매치 지점 단위로 판정한다: 문서 다른 곳의 `\[\[` 리터럴이 검사를 끄지
+ *  않고(미탐 M1), 이스케이프된 링크(`\[\[…\]\]`)와 표 밖 산문 파이프는
+ *  걸리지 않는다. 표 문맥 = 인접한 구분행(`| --- |`)이 있는 행. */
+function hasRawTableCellAliasWikilink(masked: string): boolean {
+  const CELL = /\|[^\S\n]*(?<!\\)\[\[[^\]\n]*\|[^\]\n]*\]\]/;
+  const DELIM = /^\s*\|?[\s:|]*-{3,}[\s:|-]*\|?\s*$/;
+  const lines = masked.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (!CELL.test(lines[i])) continue;
+    // 헤더 행: 바로 아래가 구분행
+    if (i + 1 < lines.length && DELIM.test(lines[i + 1])) return true;
+    // 본문 행: 파이프로 시작하는 행을 거슬러 올라가면 구분행이 나온다
+    for (let j = i - 1; j >= 0 && /^\s*\|/.test(lines[j]); j--) {
+      if (DELIM.test(lines[j])) return true;
+    }
+  }
+  return false;
+}
+
+// 각주: 원본에 각주 "정의"(`[^x]:` 줄)가 실제로 있을 때만 검사한다 —
+// 정규식 문자클래스 언급(`[^abc]`)이나 정의 없는 참조는 평문으로 안정
+// 왕복하므로 잠그지 않는다(오탐 F4). 참조는 이스케이프되지 않은 것만
+// 센다 — 사용자가 이미 `\[^x\]`로 쓴 리터럴은 손상이 아니다(오탐 F1).
+const FOOTNOTE_DEF_REGEX = /^ {0,3}\[\^[^\]]+\]:/m;
+const FOOTNOTE_REF_REGEX = /(?<!\\)\[\^[^\]]+\]/;
+const FOOTNOTE_ESCAPED_REGEX = /\\\[\^[^\]]+\\\]/;
 
 export function hasRoundtripContentLoss(original: string, serialized: string): boolean {
   if (normalizeLineEndings(original) === normalizeLineEndings(serialized)) return false;
@@ -163,22 +222,24 @@ export function hasRoundtripContentLoss(original: string, serialized: string): b
   const b = blockSignatures(serialized).map((b) => b.sig);
   if (JSON.stringify(a) !== JSON.stringify(b)) return true;
 
-  const originalDefs = extractRefDefs(original);
-  const serializedDefs = extractRefDefs(serialized);
+  const maskedOriginal = maskCodeRegions(original);
+  const maskedSerialized = maskCodeRegions(serialized);
+
+  const originalDefs = extractRefDefs(maskedOriginal);
   if (originalDefs.size > 0) {
+    const serializedDefs = extractRefDefs(maskedSerialized);
     for (const [key, value] of originalDefs) {
       if (serializedDefs.get(key) !== value) return true;
     }
   }
 
-  const TABLE_CELL_WIKILINK_REGEX = /\|\s*\[\[[^\]]*\|[^\]]*\]\]/;
-  if (TABLE_CELL_WIKILINK_REGEX.test(original) && !original.includes("\\[\\[")) {
-    return true;
-  }
+  if (hasRawTableCellAliasWikilink(maskedOriginal)) return true;
 
-  const FOOTNOTE_REF_REGEX = /\[\^[^\]]+\]/;
-  const FOOTNOTE_ESCAPED_REGEX = /\\\[\^[^\]]+\\\]/;
-  if (FOOTNOTE_REF_REGEX.test(original) && FOOTNOTE_ESCAPED_REGEX.test(serialized)) {
+  if (
+    FOOTNOTE_DEF_REGEX.test(maskedOriginal) &&
+    FOOTNOTE_REF_REGEX.test(maskedOriginal) &&
+    FOOTNOTE_ESCAPED_REGEX.test(maskedSerialized)
+  ) {
     return true;
   }
 
