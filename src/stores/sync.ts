@@ -177,8 +177,13 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   async refreshStatus(root) {
     try {
       const status = await ipc.syncStatus(root);
+      const currentStatus = get().status;
+      const isCurrentlyConflict = currentStatus?.state === "conflict";
+      const isResolved = status.state === "synced";
+      if (isCurrentlyConflict && !isResolved) {
+        return;
+      }
       set({ status });
-      // 충돌이면 diff 데이터를 함께 채운다(이미 충돌 중이면 매 폴링마다 새로 받지 않음)
       if (status.state === "conflict") {
         if (get().conflictPreview.length === 0) {
           set({ conflictPreview: await loadPreviewFor(root, status) });
