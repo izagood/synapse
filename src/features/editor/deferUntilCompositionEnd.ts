@@ -7,23 +7,44 @@ export function deferUntilCompositionEnd(
   target: EventTarget,
   isComposing: boolean,
   apply: () => void,
+): (() => void) | void;
+export function deferUntilCompositionEnd(
+  target: EventTarget,
+  isComposing: boolean,
+  apply: () => void,
+  getIsComposing: () => boolean,
+): (() => void) | void;
+export function deferUntilCompositionEnd(
+  target: EventTarget,
+  isComposing: boolean,
+  apply: () => void,
+  getIsComposing?: () => boolean,
 ): (() => void) | void {
   if (!isComposing) {
     apply();
     return;
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let retryCount = 0;
+  const maxRetries = 10;
   const onEnd = () => {
     target.removeEventListener("compositionend", onEnd);
-    // ProseMirror는 compositionend 시 view.composing을 동기적으로 false로
-    // 바꾸지만 실제 composition 정리(flush)는 다음 틱으로 미룬다. 그 정리
-    // 이후에 setContent가 적용되도록 한 틱(매크로태스크) 미뤄, PM이 아직
-    // flush를 대기 중인 창에서 문서를 바꾸지 않게 한다.
-    timer = setTimeout(apply, 0);
+    timer = setTimeout(applyWithComposingCheck, 0);
   };
   target.addEventListener("compositionend", onEnd);
-  return () => {
+  const cleanup = () => {
     target.removeEventListener("compositionend", onEnd);
     if (timer !== undefined) clearTimeout(timer);
   };
+
+  const applyWithComposingCheck = () => {
+    if (getIsComposing && getIsComposing() && retryCount < maxRetries) {
+      retryCount++;
+      timer = setTimeout(applyWithComposingCheck, 0);
+      return;
+    }
+    apply();
+  };
+
+  return cleanup;
 }

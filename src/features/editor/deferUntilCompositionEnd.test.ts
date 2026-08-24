@@ -57,4 +57,36 @@ describe("deferUntilCompositionEnd", () => {
     vi.runAllTimers();
     expect(apply).not.toHaveBeenCalled();
   });
+
+  it("compositionend 직후 새 조합이 시작되면(getIsComposing=true) 재연기한다", () => {
+    vi.useFakeTimers();
+    const target = new EventTarget();
+    const apply = vi.fn();
+    let callCount = 0;
+    const getIsComposing = vi.fn(() => {
+      callCount++;
+      return callCount < 3;
+    });
+
+    deferUntilCompositionEnd(target, true, apply, getIsComposing);
+    expect(apply).not.toHaveBeenCalled();
+
+    target.dispatchEvent(new Event("compositionend"));
+    expect(apply).not.toHaveBeenCalled();
+
+    vi.runAllTimers();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(getIsComposing).toHaveBeenCalledTimes(3);
+  });
+
+  it("getIsComposing 없이도 동작한다 (하위 호환성)", () => {
+    vi.useFakeTimers();
+    const target = new EventTarget();
+    const apply = vi.fn();
+    deferUntilCompositionEnd(target, true, apply);
+
+    target.dispatchEvent(new Event("compositionend"));
+    vi.runAllTimers();
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
 });
