@@ -769,8 +769,12 @@ mod tests {
     fn local_write_atomic_writes_content_and_leaves_no_tmp() {
         let tmp = tempfile::tempdir().unwrap();
         let target = tmp.path().join("note.md");
-        LocalBackend.write_atomic(&target, "첫 내용".as_bytes()).unwrap();
-        LocalBackend.write_atomic(&target, "덮어쓴 내용".as_bytes()).unwrap();
+        LocalBackend
+            .write_atomic(&target, "첫 내용".as_bytes())
+            .unwrap();
+        LocalBackend
+            .write_atomic(&target, "덮어쓴 내용".as_bytes())
+            .unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "덮어쓴 내용");
         let leftovers: Vec<_> = fs::read_dir(tmp.path())
             .unwrap()
@@ -804,7 +808,10 @@ mod tests {
         t1.join().unwrap();
         t2.join().unwrap();
         let out = fs::read(&target).unwrap();
-        assert!(out == a || out == b, "혼합·절단 없이 한쪽의 완전한 내용이어야 함");
+        assert!(
+            out == a || out == b,
+            "혼합·절단 없이 한쪽의 완전한 내용이어야 함"
+        );
         let leftovers: Vec<_> = fs::read_dir(tmp.path())
             .unwrap()
             .filter_map(|e| e.ok())
