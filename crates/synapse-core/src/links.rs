@@ -432,6 +432,7 @@ pub(crate) fn stem(path: &Path) -> Option<String> {
 ///   공백이라, URL 조각(`…/#anchor`)은 앞이 `/`라 자연히 제외된다.
 /// - 숫자로만 된 토큰(`#123`)은 이슈 번호로 보고 제외한다.
 /// - 코드 펜스(``` / ~~~) 내부는 건너뛴다. 인라인 코드 내부는 허용(알려진 한계).
+///
 /// H2: CommonMark 호환 펜스 파싱 적용.
 pub fn extract_tags(content: &str) -> Vec<String> {
     let mut tags: Vec<String> = Vec::new();
