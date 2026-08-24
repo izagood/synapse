@@ -357,6 +357,30 @@ impl GitWorkspace {
         cmd.output().is_ok()
     }
 
+    /// 이 워크스페이스에서 git을 실행할 수 있는가. 원격(SSH) vault는 git이
+    /// **원격 호스트**에서 실행되므로 로컬 git 유무와 무관하다 — 로컬만
+    /// 검사하면 git 없는 기기에서 원격 sync가 NoGit으로 오판된다(감사 L6).
+    /// 원격 호스트에 git이 없으면 각 명령의 에러가 그대로 표면화된다.
+    fn git_ready(&self) -> bool {
+        match &self.exec {
+            GitExec::Remote(_) => true,
+            GitExec::Local => Self::git_available(),
+        }
+    }
+
+    /// 브랜치 위에 있는지 확인한다. detached HEAD 위에 커밋을 쌓으면
+    /// push(-u origin HEAD)가 실패하고 커밋이 reflog에만 남아 사실상
+    /// 유실로 보인다(감사 L7) — 외부 git 사용 흔적이므로 명시적으로 알린다.
+    fn ensure_on_branch(&self) -> GitResult<()> {
+        if self.current_branch()? == "HEAD" {
+            return Err(
+                "detached HEAD 상태입니다 — 외부 git 사용 흔적입니다. 브랜치로 복귀한 뒤 동기화하세요"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
     pub fn is_repo(&self) -> bool {
         self.run(&["rev-parse", "--is-inside-work-tree"])
             .map(|(ok, out, _)| ok && out.trim() == "true")
@@ -436,7 +460,7 @@ impl GitWorkspace {
 
     /// 네트워크 없이 현재 로컬 상태만 본다 (상태바 폴링용)
     pub fn status(&self) -> SyncStatus {
-        if !Self::git_available() {
+        if !self.git_ready() {
             return SyncStatus::simple(SyncState::NoGit);
         }
         if !self.is_repo() {
@@ -488,7 +512,7 @@ impl GitWorkspace {
     /// `auto_resolve_merge`가 문자 단위 3-way 병합으로 자동 해소하며,
     /// 자동 해소가 불가능한 충돌(삭제/수정 등)만 abort 후 Conflict로 보고한다.
     pub fn sync(&self, commit_message: &str) -> GitResult<SyncStatus> {
-        if !Self::git_available() {
+        if !self.git_ready() {
             return Ok(SyncStatus::simple(SyncState::NoGit));
         }
         if !self.is_repo() {
@@ -497,6 +521,7 @@ impl GitWorkspace {
         if !self.has_remote() {
             return Ok(SyncStatus::simple(SyncState::NoRemote));
         }
+        self.ensure_on_branch()?;
         // 로컬 구간 (락): 잔재 정리 + 병합 전 커밋(= 소실 방지 불변식)
         {
             let _guards = self.lock_write()?;
@@ -944,7 +969,7 @@ impl GitWorkspace {
     /// 병합 커밋 완결 → push. push 레이스(non-ff)는 fetch부터 재시도해
     /// 최신 업스트림에 다시 병합·해소한다. 하드 실패는 Err로 표면화한다.
     pub fn resolve_conflicts(&self, choice: ConflictChoice) -> GitResult<SyncStatus> {
-        if !Self::git_available() {
+        if !self.git_ready() {
             return Ok(SyncStatus::simple(SyncState::NoGit));
         }
         if !self.is_repo() {
@@ -953,6 +978,7 @@ impl GitWorkspace {
         if !self.has_remote() {
             return Ok(SyncStatus::simple(SyncState::NoRemote));
         }
+        self.ensure_on_branch()?;
         // 로컬 구간 (락): 잔재 정리 + 해결 전 커밋(= 소실 방지 불변식)
         {
             let _guards = self.lock_write()?;
@@ -1017,7 +1043,7 @@ impl GitWorkspace {
     /// 내 버전은 로컬 `HEAD`, 원격 버전은 업스트림 ref에서 읽는다. 최신 원격을
     /// 반영하기 위해 먼저 fetch 한다. 어느 한쪽에서 삭제된 파일은 None이 된다.
     pub fn conflict_preview(&self) -> GitResult<Vec<ConflictPreview>> {
-        if !Self::git_available() || !self.is_repo() {
+        if !self.git_ready() || !self.is_repo() {
             return Ok(vec![]);
         }
         // 업스트림 내용을 정확히 보려면 최신 상태로 fetch (락 불필요: 워킹트리 안 만짐)
@@ -1075,7 +1101,7 @@ impl GitWorkspace {
     ///
     /// `rel_path`는 워크스페이스 루트 기준 상대 경로(git pathspec)다.
     pub fn file_history(&self, rel_path: &str) -> GitResult<Vec<FileCommit>> {
-        if !Self::git_available() || !self.is_repo() {
+        if !self.git_ready() || !self.is_repo() {
             return Ok(vec![]);
         }
         // 레코드/필드 구분자로 잘 안 쓰이는 제어문자를 써서 메시지에 개행이
@@ -1098,7 +1124,7 @@ impl GitWorkspace {
     /// 특정 리비전 시점의 파일 내용. `git show <rev>:<path>` 류.
     /// 해당 리비전에 파일이 없으면 에러를 돌려준다.
     pub fn file_at_revision(&self, rel_path: &str, rev: &str) -> GitResult<String> {
-        if !Self::git_available() {
+        if !self.git_ready() {
             return Err("git이 설치되어 있지 않습니다".to_string());
         }
         if !self.is_repo() {
@@ -2122,5 +2148,28 @@ mod tests {
         );
         // 삭제/수정 충돌: KeepRemote → 원격 수정본 복원
         assert_eq!(read(&b, "z-del.md"), "A의 수정");
+    }
+
+    #[test]
+    fn sync_refuses_on_detached_head() {
+        // detached HEAD 위에 커밋을 쌓으면 push가 실패하고 커밋이 reflog에만
+        // 남아 사실상 유실로 보인다(L7) — sync가 진입을 거부해야 한다.
+        let (_tmp, remote, ws_a) = setup();
+        let git = GitWorkspace::new(&ws_a, None);
+        write(&ws_a, "note.md", "본문");
+        git.publish(&remote.display().to_string(), "init").unwrap();
+
+        let out = Command::new("git")
+            .args(["checkout", "--detach"])
+            .current_dir(&ws_a)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+
+        write(&ws_a, "note.md", "detached에서의 편집");
+        let err = git.sync("detached").unwrap_err();
+        assert!(err.contains("detached"), "{err}");
+        // 커밋이 쌓이지 않고 워킹트리 편집은 그대로 남아 있어야 한다
+        assert_eq!(read(&ws_a, "note.md"), "detached에서의 편집");
     }
 }

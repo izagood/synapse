@@ -228,8 +228,12 @@ export const useSync = create<SyncStoreState>((set, get) => ({
   },
 
   async resolveConflict(root, choice) {
+    // syncNow와 동일한 재진입 가드 — 진행 중 자동 sync와 겹치지 않게 한다 (L5)
+    if (get().syncing) return;
     set({ syncing: true, error: null });
     try {
+      // "내 버전 유지"가 에디터의 미저장 키 입력까지 포함하도록 먼저 저장한다 (L5)
+      await useWorkspace.getState().flushDirty();
       const language = useSettings.getState().settings.appearance.language;
       const label = translate(language, "sync.timeoutLabelConflict");
       const status = await withTimeout(
