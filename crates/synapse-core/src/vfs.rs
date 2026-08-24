@@ -75,9 +75,11 @@ pub trait Backend: Send + Sync {
 
     fn read_to_string_if_exists(&self, path: &Path) -> io::Result<Option<String>> {
         match self.read(path) {
-            Ok(bytes) => Ok(Some(
-                String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-            )),
+            Ok(bytes) => {
+                Ok(Some(String::from_utf8(bytes).map_err(|e| {
+                    io::Error::new(io::ErrorKind::InvalidData, e)
+                })?))
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         }
@@ -767,7 +769,10 @@ mod tests {
     fn inmemory_read_to_string_if_exists() {
         let b = InMemoryBackend::new();
         b.create_dir_all(Path::new("/ws")).unwrap();
-        assert_eq!(b.read_to_string_if_exists(Path::new("/ws/a.txt")).unwrap(), None);
+        assert_eq!(
+            b.read_to_string_if_exists(Path::new("/ws/a.txt")).unwrap(),
+            None
+        );
         b.write(Path::new("/ws/a.txt"), b"content").unwrap();
         assert_eq!(
             b.read_to_string_if_exists(Path::new("/ws/a.txt")).unwrap(),

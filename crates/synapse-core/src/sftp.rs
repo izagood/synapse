@@ -169,7 +169,12 @@ impl Backend for SftpBackend {
                     file.shutdown().await.map_err(to_io)?;
                     Ok(true)
                 }
-                Err(e) if e.to_string().contains("already exists") || e.to_string().contains("EEXIST") => Ok(false),
+                Err(e)
+                    if e.to_string().contains("already exists")
+                        || e.to_string().contains("EEXIST") =>
+                {
+                    Ok(false)
+                }
                 Err(e) => Err(to_io(e)),
             }
         })
