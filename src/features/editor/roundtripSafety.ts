@@ -142,5 +142,12 @@ export function hasRoundtripContentLoss(original: string, serialized: string): b
   if (normalizeLineEndings(original) === normalizeLineEndings(serialized)) return false;
   const a = blockSignatures(original).map((b) => b.sig);
   const b = blockSignatures(serialized).map((b) => b.sig);
-  return JSON.stringify(a) !== JSON.stringify(b);
+  if (JSON.stringify(a) !== JSON.stringify(b)) return true;
+
+  const TABLE_CELL_WIKILINK_REGEX = /\|\s*\[\[[^\]]*\|[^\]]*\]\]/;
+  if (TABLE_CELL_WIKILINK_REGEX.test(original) && !original.includes("\\[\\[")) {
+    return true;
+  }
+
+  return false;
 }
