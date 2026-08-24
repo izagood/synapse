@@ -4981,7 +4981,7 @@ dependencies = [
 
 [[package]]
 name = "synapse"
-version = "0.5.39"
+version = "0.5.40"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
