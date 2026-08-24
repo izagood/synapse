@@ -383,6 +383,49 @@ impl Backend for LocalBackend {
         fs::write(path, bytes)
     }
 
+    /// 로컬 원자적 쓰기(내구성 보강판). 기본 구현과 두 가지가 다르다:
+    /// ① tmp 파일명에 프로세스·시퀀스 고유 suffix를 붙인다 — 고정 이름이면
+    ///    두 창(프로세스)이 같은 파일을 동시에 저장할 때 서로의 tmp를
+    ///    truncate/rename 해 반쪽 파일이 본 파일로 승격될 수 있다(감사 M2 부수).
+    /// ② rename 전에 tmp 데이터를 fsync(sync_all) 한다 — rename의 원자성은
+    ///    크래시 시 내구성을 보장하지 않아, 정전 직후 "rename 메타데이터만
+    ///    남고 내용은 빈/부분 파일"이 될 수 있다(감사 M3). 부모 디렉토리
+    ///    fsync는 best-effort(유닉스 한정, 실패 무시). 자동저장 debounce(1초)
+    ///    빈도에서 fsync 비용은 무시 가능하다.
+    fn write_atomic(&self, path: &Path, content: &[u8]) -> io::Result<()> {
+        use std::io::Write as _;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+        let parent = path.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "path has no parent directory")
+        })?;
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?
+            .to_string_lossy();
+        let tmp = parent.join(format!(
+            ".{file_name}.synapse-tmp.{}-{}",
+            std::process::id(),
+            TMP_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        {
+            let mut f = fs::File::create(&tmp)?;
+            f.write_all(content)?;
+            f.sync_all()?;
+        }
+        if let Err(e) = fs::rename(&tmp, path) {
+            // 원본(path)은 건드리지 않았으므로 tmp만 정리하고 에러를 알린다.
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
+        }
+        #[cfg(unix)]
+        if let Ok(dir) = fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
+    }
+
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         fs::rename(from, to)
     }
@@ -720,5 +763,53 @@ mod tests {
         LocalBackend.write(&target, b"x").unwrap();
         let meta = LocalBackend.metadata(&target).unwrap();
         assert!(meta.is_file && !meta.is_dir && !meta.is_symlink);
+    }
+
+    #[test]
+    fn local_write_atomic_writes_content_and_leaves_no_tmp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("note.md");
+        LocalBackend.write_atomic(&target, "첫 내용".as_bytes()).unwrap();
+        LocalBackend.write_atomic(&target, "덮어쓴 내용".as_bytes()).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "덮어쓴 내용");
+        let leftovers: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains("synapse-tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "tmp 잔재가 남으면 안 됨");
+    }
+
+    #[test]
+    fn local_write_atomic_concurrent_writers_never_interleave() {
+        // 고정 tmp 이름이면 두 쓰기가 서로의 tmp를 truncate해 반쪽 파일이
+        // 본 파일로 승격될 수 있다 — 고유 tmp 이름으로 항상 어느 한쪽의
+        // 완전한 내용만 남아야 한다.
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("note.md");
+        let a = vec![b'a'; 256 * 1024];
+        let b = vec![b'b'; 256 * 1024];
+        let (pa, pb) = (target.clone(), target.clone());
+        let (ca, cb) = (a.clone(), b.clone());
+        let t1 = std::thread::spawn(move || {
+            for _ in 0..30 {
+                LocalBackend.write_atomic(&pa, &ca).unwrap();
+            }
+        });
+        let t2 = std::thread::spawn(move || {
+            for _ in 0..30 {
+                LocalBackend.write_atomic(&pb, &cb).unwrap();
+            }
+        });
+        t1.join().unwrap();
+        t2.join().unwrap();
+        let out = fs::read(&target).unwrap();
+        assert!(out == a || out == b, "혼합·절단 없이 한쪽의 완전한 내용이어야 함");
+        let leftovers: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains("synapse-tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "tmp 잔재가 남으면 안 됨");
     }
 }
