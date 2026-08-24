@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::links::{
-    collect_markdown, extract_links, resolve_standard_link, stem, stem_index, toggle_fence,
-    OutLink,
+    collect_markdown, extract_links, resolve_standard_link, stem, stem_index, toggle_fence, OutLink,
 };
 
 /// auto-links 관리 블록 시작/종료 마커. 블록은 기계 소유이며 내용은 항상

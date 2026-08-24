@@ -167,4 +167,3 @@ pub fn github_logout() -> Result<(), String> {
     }
     Ok(())
 }
-
