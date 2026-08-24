@@ -7,7 +7,14 @@ export interface SplitDocument {
   body: string;
 }
 
-const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+// 두 가지 경계를 구분한다 (무결성 감사 M12·L1):
+// - 붙은 `---\n---` 는 빈 frontmatter다 (옵시디언 호환).
+// - 여는 `---` 바로 다음 줄이 빈 줄이면 frontmatter가 아니다 — 수평선 2개로
+//   시작하는 문서를 에디터가 `---\n\n---` 로 정규화해 저장하는데, 이걸
+//   frontmatter로 오인하면 다음 열기에서 그 구간이 비표시·동결된다
+//   (사용자에겐 내용 증발로 보임).
+const FRONTMATTER_RE =
+  /^---\r?\n(?:---[ \t]*(?:\r?\n|$)|(?![ \t]*\r?\n)[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$))/;
 
 export function splitFrontmatter(text: string): SplitDocument {
   const match = text.match(FRONTMATTER_RE);
