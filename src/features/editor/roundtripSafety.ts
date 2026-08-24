@@ -138,11 +138,33 @@ export function blockSignatures(markdown: string): BlockSignature[] {
   return blocks;
 }
 
+const REF_DEF_REGEX = /^\[([^\]]+)\]:\s+(.+)$/;
+
+function extractRefDefs(markdown: string): Map<string, string> {
+  const defs = new Map<string, string>();
+  const lines = normalizeLineEndings(markdown).split("\n");
+  for (const line of lines) {
+    const match = line.match(REF_DEF_REGEX);
+    if (match) {
+      defs.set(match[1], match[2]);
+    }
+  }
+  return defs;
+}
+
 export function hasRoundtripContentLoss(original: string, serialized: string): boolean {
   if (normalizeLineEndings(original) === normalizeLineEndings(serialized)) return false;
   const a = blockSignatures(original).map((b) => b.sig);
   const b = blockSignatures(serialized).map((b) => b.sig);
   if (JSON.stringify(a) !== JSON.stringify(b)) return true;
+
+  const originalDefs = extractRefDefs(original);
+  const serializedDefs = extractRefDefs(serialized);
+  if (originalDefs.size > 0) {
+    for (const [key, value] of originalDefs) {
+      if (serializedDefs.get(key) !== value) return true;
+    }
+  }
 
   const TABLE_CELL_WIKILINK_REGEX = /\|\s*\[\[[^\]]*\|[^\]]*\]\]/;
   if (TABLE_CELL_WIKILINK_REGEX.test(original) && !original.includes("\\[\\[")) {
