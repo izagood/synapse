@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ErrorBoundary } from "./ErrorBoundary";
 import "./styles.css";
 
 // HTML5 드래그앤드롭 사용을 위해 Tauri의 dragDropEnabled를 꺼둔 상태이므로,
@@ -11,6 +12,8 @@ window.addEventListener("drop", (e) => e.preventDefault());
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );
