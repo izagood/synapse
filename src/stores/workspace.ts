@@ -474,6 +474,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   async closeTab(path) {
+    // 닫기 전 미저장 내용을 저장한다 (자동 저장 철학과 일관되게).
+    // 저장이 실패하면 탭·문서를 유지하고 false를 반환한다 — 실패를 무시하고
+    // 닫으면 미저장 편집분이 조용히 소멸한다(무결성 감사 H9).
     const timer = autosaveTimers.get(path);
     if (timer) {
       clearTimeout(timer);
@@ -492,6 +495,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         const idx = s.tabs.findIndex((t) => t.path === path);
         activePath = tabs[Math.min(idx, tabs.length - 1)]?.path ?? null;
       }
+      // 재열기(⌘⇧T)용 스택 — 중복은 제거 후 최신으로, 최대 10개 유지.
+      // closeTabDiscard(삭제된 파일 정리)는 파일이 이미 없으므로 push하지 않는다.
       const recentlyClosed = [...s.recentlyClosed.filter((p) => p !== path), path].slice(-10);
       return { tabs, docs, activePath, recentlyClosed };
     });
@@ -583,13 +588,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const snapshot = doc.content;
       const isMarkdown = tabs.find((t) => t.path === path)?.fileType === "markdown";
       try {
+        // 마크다운 저장은 base(마지막으로 본 디스크 = savedContent)를 함께 넘긴다.
+        // 저장 직전 디스크가 그 base에서 갈라졌으면(외부 도구·브리지·sync 병합)
+        // 백엔드가 3-way로 흡수해 미커밋 바이트를 파괴하지 않는다. 돌아온 텍스트가
+        // snapshot과 다를 수 있고(병합·synapse_id strip), 그 경우 에디터에도
+        // 반영해야 한다(아래 applyExternal 경로). 그 외 파일은 단순 쓰기.
         const merged = isMarkdown
           ? await ipc.saveDoc(root, path, snapshot, doc.savedContent)
           : (await ipc.writeFile(root, path, snapshot), snapshot);
         set((s) => {
           const current = s.docs[path];
-          if (!current) return s;
+          if (!current) return s; // 저장 중 탭이 닫힘
           if (current.content === snapshot) {
+            // 저장 중 추가 입력 없음 — strip 등으로 바뀐 결과를 에디터에 반영
             return {
               docs: {
                 ...s.docs,
@@ -605,6 +616,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
               },
             };
           }
+          // 입력이 계속된 경우: savedContent를 snapshot까지만 전진시킨다.
+          // (그 사이 들어온 추가 입력은 다음 자동 저장이 그대로 처리한다)
+          // strip이 일어났다면 savedContent가 잠깐 pre-strip 텍스트(디스크와 다름)를
+          // 갖지만, 다음 자동 저장이 merged를 반영하면서 수렴한다.
           return {
             docs: {
               ...s.docs,
@@ -623,6 +638,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       }
     };
 
+    // 같은 path의 저장을 Promise 체인으로 직렬화한다(무결성 감사 H7).
+    // 저장이 느릴 때(원격 SFTP·sync 락 대기) 두 저장이 같은 옛 base로 겹치면
+    // 백엔드 3-way 병합이 같은 타이핑을 중복 기록한다. doSave는 실행 시점에
+    // 최신 content/savedContent를 다시 읽으므로, 대기 중 겹친 요청들은
+    // 자연스럽게 "마지막 상태 한 번 저장"으로 수렴한다.
     const existing = saveDocQueue.get(path);
     const newPromise = existing
       ? existing.then(() => doSave())
