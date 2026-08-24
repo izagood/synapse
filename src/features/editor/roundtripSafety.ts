@@ -79,7 +79,12 @@ function normalizedContent(token: Token): string {
 }
 
 function tokenSignature(token: Token): Signature | null {
-  if (token.hidden || token.type === "softbreak") return null;
+  // 줄바꿈 토큰(soft/hard)은 시그니처에서 제외한다. breaks:true 전환으로
+  // 에디터는 모든 문단 내 개행을 동일하게 렌더링·직렬화(\n)하므로,
+  // 백슬래시·2칸 hard break가 개행으로 정규화되는 것은 손실이 아니라
+  // 표기 정규화다 — 미편집 블록의 원본 바이트는 preserveFormatting이 지킨다.
+  // (이걸 손실로 치면 hard break가 든 모든 기존 문서가 읽기 전용으로 잠긴다.)
+  if (token.hidden || token.type === "softbreak" || token.type === "hardbreak") return null;
 
   return {
     type: token.type,
@@ -138,9 +143,44 @@ export function blockSignatures(markdown: string): BlockSignature[] {
   return blocks;
 }
 
+const REF_DEF_REGEX = /^\[([^\]]+)\]:\s+(.+)$/;
+
+function extractRefDefs(markdown: string): Map<string, string> {
+  const defs = new Map<string, string>();
+  const lines = normalizeLineEndings(markdown).split("\n");
+  for (const line of lines) {
+    const match = line.match(REF_DEF_REGEX);
+    if (match) {
+      defs.set(match[1], match[2]);
+    }
+  }
+  return defs;
+}
+
 export function hasRoundtripContentLoss(original: string, serialized: string): boolean {
   if (normalizeLineEndings(original) === normalizeLineEndings(serialized)) return false;
   const a = blockSignatures(original).map((b) => b.sig);
   const b = blockSignatures(serialized).map((b) => b.sig);
-  return JSON.stringify(a) !== JSON.stringify(b);
+  if (JSON.stringify(a) !== JSON.stringify(b)) return true;
+
+  const originalDefs = extractRefDefs(original);
+  const serializedDefs = extractRefDefs(serialized);
+  if (originalDefs.size > 0) {
+    for (const [key, value] of originalDefs) {
+      if (serializedDefs.get(key) !== value) return true;
+    }
+  }
+
+  const TABLE_CELL_WIKILINK_REGEX = /\|\s*\[\[[^\]]*\|[^\]]*\]\]/;
+  if (TABLE_CELL_WIKILINK_REGEX.test(original) && !original.includes("\\[\\[")) {
+    return true;
+  }
+
+  const FOOTNOTE_REF_REGEX = /\[\^[^\]]+\]/;
+  const FOOTNOTE_ESCAPED_REGEX = /\\\[\^[^\]]+\\\]/;
+  if (FOOTNOTE_REF_REGEX.test(original) && FOOTNOTE_ESCAPED_REGEX.test(serialized)) {
+    return true;
+  }
+
+  return false;
 }
