@@ -157,20 +157,26 @@ impl Backend for SftpBackend {
         let target = posix(path);
         runtime().block_on(async {
             let sftp = self.sftp();
-            // SFTPv3는 EEXIST를 명확히 구분하지 않으므로 존재 검사로 충돌을 판정한다.
-            if sftp.try_exists(target.clone()).await.map_err(to_io)? {
-                return Ok(false);
-            }
-            let mut file = sftp
+            match sftp
                 .open_with_flags(
-                    target,
-                    OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE,
+                    target.clone(),
+                    OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE | OpenFlags::EXCLUDE,
                 )
                 .await
-                .map_err(to_io)?;
-            file.write_all(bytes).await.map_err(to_io)?;
-            file.shutdown().await.map_err(to_io)?;
-            Ok(true)
+            {
+                Ok(mut file) => {
+                    file.write_all(bytes).await.map_err(to_io)?;
+                    file.shutdown().await.map_err(to_io)?;
+                    Ok(true)
+                }
+                Err(e)
+                    if e.to_string().contains("already exists")
+                        || e.to_string().contains("EEXIST") =>
+                {
+                    Ok(false)
+                }
+                Err(e) => Err(to_io(e)),
+            }
         })
     }
 
@@ -191,9 +197,9 @@ impl Backend for SftpBackend {
         })
     }
 
-    /// SFTP의 rename은 POSIX가 아니어서 대상이 존재하면 실패할 수 있다. 그래서
-    /// 기본 구현(tmp→rename) 대신, 충돌 시 대상을 지우고 다시 rename 한다.
-    /// 이 폴백 구간에서는 원자성이 약화된다(SFTP 한계).
+    /// SFTP 원자적 쓰기: tmp → rename. 충돌 시 dst를 백업으로 보존한 뒤
+    /// 새 내용을 dst로 rename하고 성공 시 백업을 지운다. 실패하면 백업을 복원한다.
+    /// tmp는 절대 지우지 않는다 — 2차 실패 시에도 tmp에 새 내용이 남아 있게 한다.
     fn write_atomic(&self, path: &Path, content: &[u8]) -> io::Result<()> {
         let parent = path.parent().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "path has no parent directory")
@@ -203,20 +209,27 @@ impl Backend for SftpBackend {
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?
             .to_string_lossy();
         let tmp = posix(&parent.join(format!(".{file_name}.synapse-tmp")));
+        let bak = posix(&parent.join(format!(".{file_name}.synapse-bak")));
         let dst = posix(path);
         runtime().block_on(async {
             let sftp = self.sftp();
-            // tmp는 항상 새 파일이므로 CREATE가 필요하다(create = CREATE|TRUNCATE|WRITE).
-            // sftp.write()는 WRITE만으로 열어 새 파일에서 No such file로 실패한다.
             let mut file = sftp.create(tmp.clone()).await.map_err(to_io)?;
             file.write_all(content).await.map_err(to_io)?;
             file.shutdown().await.map_err(to_io)?;
-            if sftp.rename(tmp.clone(), dst.clone()).await.is_err() {
-                let _ = sftp.remove_file(dst.clone()).await;
-                if let Err(e) = sftp.rename(tmp.clone(), dst).await {
-                    let _ = sftp.remove_file(tmp).await;
-                    return Err(to_io(e));
+            if let Err(e) = sftp.rename(tmp.clone(), dst.clone()).await {
+                // 이전 크래시가 남긴 stale bak이 있으면 rename(dst→bak)이 영구히
+                // 실패해 이후 모든 저장이 막힌다. 지금 정본은 dst이므로 지워도 안전하다.
+                let _ = sftp.remove_file(bak.clone()).await;
+                let _ = sftp.rename(dst.clone(), bak.clone()).await;
+                if let Err(e2) = sftp.rename(tmp.clone(), dst.clone()).await {
+                    // dst가 사라진 채 끝나지 않도록 백업을 복원한다. tmp는 지우지 않는다.
+                    let _ = sftp.rename(bak.clone(), dst).await;
+                    return Err(io::Error::other(format!(
+                        "write_atomic failed: tmp={}, bak={}, errors: {}, {}",
+                        tmp, bak, e, e2
+                    )));
                 }
+                let _ = sftp.remove_file(bak).await;
             }
             Ok(())
         })

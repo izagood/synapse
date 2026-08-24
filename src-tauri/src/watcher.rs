@@ -69,26 +69,25 @@ pub fn start_watching(
 
     let app_for_cb = app.clone();
     let base_for_cb = base.clone();
-    let mut watcher =
-        notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            let Ok(event) = res else { return };
-            // 생성·수정·삭제만 관심 대상 (액세스/메타데이터-only는 무시).
-            if !matches!(
-                event.kind,
-                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-            ) {
-                return;
-            }
-            let paths: Vec<String> = event
-                .paths
-                .iter()
-                .filter_map(|p| relevant_rel_path(&base_for_cb, p))
-                .collect();
-            if !paths.is_empty() {
-                let _ = app_for_cb.emit(EVENT_NAME, FilesChanged { paths });
-            }
-        })
-        .map_err(|e| e.to_string())?;
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(event) = res else { return };
+        // 생성·수정·삭제만 관심 대상 (액세스/메타데이터-only는 무시).
+        if !matches!(
+            event.kind,
+            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+        ) {
+            return;
+        }
+        let paths: Vec<String> = event
+            .paths
+            .iter()
+            .filter_map(|p| relevant_rel_path(&base_for_cb, p))
+            .collect();
+        if !paths.is_empty() {
+            let _ = app_for_cb.emit(EVENT_NAME, FilesChanged { paths });
+        }
+    })
+    .map_err(|e| e.to_string())?;
 
     watcher
         .watch(&base, RecursiveMode::Recursive)

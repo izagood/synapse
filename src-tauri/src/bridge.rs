@@ -208,7 +208,10 @@ fn handle_conn(stream: TcpStream, inner: &BridgeInner) -> std::io::Result<()> {
             let name = name.trim();
             if name.eq_ignore_ascii_case("authorization") {
                 let v = value.trim();
-                if let Some(tok) = v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")) {
+                if let Some(tok) = v
+                    .strip_prefix("Bearer ")
+                    .or_else(|| v.strip_prefix("bearer "))
+                {
                     bearer = Some(tok.trim().to_string());
                 }
             } else if name.eq_ignore_ascii_case("content-length") {
@@ -228,7 +231,9 @@ fn handle_conn(stream: TcpStream, inner: &BridgeInner) -> std::io::Result<()> {
 
     let mut stream = reader.into_inner();
     match (method, path) {
-        ("GET", "/health") => write_response(&mut stream, 200, "application/json", b"{\"ok\":true}"),
+        ("GET", "/health") => {
+            write_response(&mut stream, 200, "application/json", b"{\"ok\":true}")
+        }
         ("GET", "/live") => match bearer.as_deref().and_then(|t| inner.live_for_token(t)) {
             Some(live) => {
                 let body = serde_json::to_vec(&live).unwrap_or_else(|_| b"{}".to_vec());
