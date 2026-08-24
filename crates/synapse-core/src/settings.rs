@@ -19,6 +19,9 @@ pub struct Appearance {
     /// 활성 테마 위에 덮어쓰는 사용자 색상 (키→hex). 비어 있으면 테마 기본값.
     /// 프런트가 보낸 그대로 저장만 한다(코어는 색을 해석하지 않는다).
     pub custom_colors: BTreeMap<String, String>,
+    /// 캔버스 도구(excalidraw) 전용 테마. 앱 테마와 별개.
+    #[serde(rename = "canvasTheme")]
+    pub canvas_theme: String, // "auto" | "light" | "dark"
 }
 
 impl Default for Appearance {
@@ -27,6 +30,7 @@ impl Default for Appearance {
             theme: "system".into(),
             language: "ko".into(),
             custom_colors: BTreeMap::new(),
+            canvas_theme: "light".into(),
         }
     }
 }
@@ -188,6 +192,7 @@ mod tests {
         assert!(json.contains("\"intervalMinutes\""));
         assert!(json.contains("\"confirmDelete\""));
         assert!(json.contains("\"customColors\""));
+        assert!(json.contains("\"canvasTheme\""));
     }
 
     #[test]
@@ -304,5 +309,27 @@ mod tests {
         assert_eq!(s.appearance.theme, "dark");
         assert_eq!(s.editor.font_size, 18);
         assert_eq!(s.sync, SyncSettings::default());
+    }
+
+    #[test]
+    fn canvas_theme_defaults_to_light() {
+        let s = Settings::default();
+        assert_eq!(s.appearance.canvas_theme, "light");
+    }
+
+    #[test]
+    fn canvas_theme_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        s.appearance.canvas_theme = "dark".into();
+        save_settings(dir.path(), &s).unwrap();
+        assert_eq!(load_settings(dir.path()).appearance.canvas_theme, "dark");
+    }
+
+    #[test]
+    fn old_settings_without_canvas_theme_default_to_light() {
+        let legacy = r#"{"appearance":{"theme":"dark"}}"#;
+        let s: Settings = serde_json::from_str(legacy).unwrap_or_default();
+        assert_eq!(s.appearance.canvas_theme, "light");
     }
 }
