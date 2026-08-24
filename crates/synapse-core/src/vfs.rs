@@ -751,20 +751,16 @@ mod tests {
     }
 
     #[test]
-    fn local_read_to_string_if_exists_returns_err_for_permission_denied() {
+    fn local_read_to_string_if_exists_propagates_non_notfound_errors() {
+        // NotFound만 None으로 접히고, 그 외 I/O 에러는 Err로 전파되어야 한다
+        // (읽기 실패를 "파일 없음"으로 오인하면 3-way 병합이 생략된다 — 이 함수의 존재 이유).
+        // 디렉토리를 파일로 읽으면 NotFound가 아닌 에러가 난다.
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("subdir");
         LocalBackend.create_dir_all(&dir).unwrap();
-        let p = dir.join("file.txt");
-        LocalBackend.write(&p, b"content").unwrap();
-        let mut perms = std::fs::metadata(&p).unwrap().permissions();
-        perms.set_readonly(true);
-        std::fs::set_permissions(&p, perms).unwrap();
-        let result = LocalBackend.read_to_string_if_exists(&p);
-        std::fs::set_permissions(&p, std::fs::metadata(&dir).unwrap().permissions()).unwrap();
-        // Note: on root user Linux, permissions don't apply - test passes if result is either err or ok
-        // (we just verify the function doesn't panic or hang)
-        let _ = result;
+        let result = LocalBackend.read_to_string_if_exists(&dir);
+        assert!(result.is_err());
+        assert_ne!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
     }
 
     #[test]

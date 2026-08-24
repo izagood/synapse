@@ -193,7 +193,7 @@ impl Backend for SftpBackend {
     }
 
     /// SFTP 원자적 쓰기: tmp → rename. 충돌 시 dst를 백업으로 보존한 뒤
-    /// 새 내용을dst로 rename하고 성공 시 백업을 지운다. 어떤 실패든 백업에서 복구한다.
+    /// 새 내용을 dst로 rename하고 성공 시 백업을 지운다. 실패하면 백업을 복원한다.
     /// tmp는 절대 지우지 않는다 — 2차 실패 시에도 tmp에 새 내용이 남아 있게 한다.
     fn write_atomic(&self, path: &Path, content: &[u8]) -> io::Result<()> {
         let parent = path.parent().ok_or_else(|| {
@@ -212,8 +212,13 @@ impl Backend for SftpBackend {
             file.write_all(content).await.map_err(to_io)?;
             file.shutdown().await.map_err(to_io)?;
             if let Err(e) = sftp.rename(tmp.clone(), dst.clone()).await {
+                // 이전 크래시가 남긴 stale bak이 있으면 rename(dst→bak)이 영구히
+                // 실패해 이후 모든 저장이 막힌다. 지금 정본은 dst이므로 지워도 안전하다.
+                let _ = sftp.remove_file(bak.clone()).await;
                 let _ = sftp.rename(dst.clone(), bak.clone()).await;
-                if let Err(e2) = sftp.rename(tmp.clone(), dst).await {
+                if let Err(e2) = sftp.rename(tmp.clone(), dst.clone()).await {
+                    // dst가 사라진 채 끝나지 않도록 백업을 복원한다. tmp는 지우지 않는다.
+                    let _ = sftp.rename(bak.clone(), dst).await;
                     return Err(io::Error::other(format!(
                         "write_atomic failed: tmp={}, bak={}, errors: {}, {}",
                         tmp, bak, e, e2
