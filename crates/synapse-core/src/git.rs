@@ -322,7 +322,11 @@ impl GitWorkspace {
                 let root = self.root.to_string_lossy();
                 let command = crate::ssh::remote_git_command(&root, &envs, args);
                 let result = session.exec(&command).map_err(|e| e.to_string())?;
-                Ok((result.0, result.1, String::from_utf8_lossy(&result.2).into_owned()))
+                Ok((
+                    result.0,
+                    result.1,
+                    String::from_utf8_lossy(&result.2).into_owned(),
+                ))
             }
         }
     }
@@ -518,7 +522,8 @@ impl GitWorkspace {
                         if !ok {
                             let files = self.conflicted_files()?;
                             if self.auto_resolve_merge().is_err() {
-                                let Ok((abort_ok, _, abort_err)) = self.run(&["merge", "--abort"]) else {
+                                let Ok((abort_ok, _, abort_err)) = self.run(&["merge", "--abort"])
+                                else {
                                     return Err("병합 충돌 자동 해소 실패 + abort 실패".to_string());
                                 };
                                 if !abort_ok {
@@ -963,7 +968,8 @@ impl GitWorkspace {
                     if !ok {
                         let files = self.conflicted_files()?;
                         if files.is_empty() {
-                            let Ok((abort_ok, _, abort_err)) = self.run(&["merge", "--abort"]) else {
+                            let Ok((abort_ok, _, abort_err)) = self.run(&["merge", "--abort"])
+                            else {
                                 return Err("병합 충돌 해결 실패: merge abort 실패".to_string());
                             };
                             if !abort_ok {
@@ -1398,7 +1404,9 @@ mod tests {
         fs::remove_file(b.join("shared.md")).unwrap();
         ws(&b).commit_all("b 로컬 삭제").unwrap();
 
-        ws(&b).resolve_conflicts(ConflictChoice::KeepRemote).unwrap();
+        ws(&b)
+            .resolve_conflicts(ConflictChoice::KeepRemote)
+            .unwrap();
         // KeepRemote: 원격 수정본이 살아남
         assert_eq!(read(&b, "shared.md"), "A의 수정");
     }
@@ -2095,7 +2103,9 @@ mod tests {
         fs::remove_file(b.join("z-del.md")).unwrap();
         ws(&b).commit_all("b: 텍스트 수정 + 삭제").unwrap();
 
-        let st = ws(&b).resolve_conflicts(ConflictChoice::KeepRemote).unwrap();
+        let st = ws(&b)
+            .resolve_conflicts(ConflictChoice::KeepRemote)
+            .unwrap();
         assert_eq!(st.state, SyncState::Synced);
 
         // 텍스트 충돌: 자동 병합 — 파일이 살아 있고 양쪽 편집이 모두 남는다

@@ -89,7 +89,11 @@ pub fn bridge_publish_discovery(
     discovery::upsert(
         &mut map,
         &root,
-        BridgeEntry { port, token, pid: std::process::id() },
+        BridgeEntry {
+            port,
+            token,
+            pid: std::process::id(),
+        },
     );
     save_map(&map)
 }
@@ -133,7 +137,9 @@ pub fn bridge_unpublish_discovery(
 
 /// 앱 시작 시: 죽은 pid의 항목을 청소한다(크래시 잔재).
 pub fn sweep_stale_discovery() {
-    let Ok(_g) = bridge_json_lock().lock() else { return };
+    let Ok(_g) = bridge_json_lock().lock() else {
+        return;
+    };
     let mut map = load_map();
     let before = map.len();
     map.retain(|_, e| pid_alive(e.pid));
@@ -154,7 +160,11 @@ pub fn resolve_sidecar_path() -> Option<PathBuf> {
     }
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let name = if cfg!(windows) { "synapse-mcp.exe" } else { "synapse-mcp" };
+    let name = if cfg!(windows) {
+        "synapse-mcp.exe"
+    } else {
+        "synapse-mcp"
+    };
     let cand = dir.join(name);
     cand.exists().then_some(cand)
 }
@@ -165,7 +175,9 @@ pub fn provision_workspace_mcp(root: &str) {
     if root.starts_with("ssh://") {
         return;
     }
-    let Some(sidecar) = resolve_sidecar_path() else { return };
+    let Some(sidecar) = resolve_sidecar_path() else {
+        return;
+    };
     let sidecar = sidecar.to_string_lossy().to_string();
     let root_path = std::path::Path::new(root);
 
