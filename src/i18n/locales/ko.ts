@@ -247,6 +247,9 @@ export const ko = {
     emptyProperties: "속성이 없습니다",
     lossyWarning:
       "이 문서에는 에디터가 완전히 보존하지 못하는 요소(HTML 등)가 있습니다. 편집하면 해당 부분이 손실될 수 있으니 소스 모드 사용을 권장합니다. (편집하지 않으면 파일은 변경되지 않습니다)",
+    lossyReadonly:
+      "이 문서에는 에디터가 완전히 보존하지 못하는 요소가 있어 읽기 전용입니다. 원본이 손상되지 않도록 소스 모드에서 편집하세요.",
+    openSourceMode: "소스 모드로 편집",
     dismissWarning: "닫기",
     mermaidError: "다이어그램 오류",
     find: {

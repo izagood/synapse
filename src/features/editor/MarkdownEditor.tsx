@@ -18,7 +18,18 @@ import { deferUntilCompositionEnd } from "./deferUntilCompositionEnd";
 // 라운드트립 안전장치 (NFR-3):
 // 1. 사용자가 실제로 편집하기 전에는 절대 파일을 다시 쓰지 않는다 —
 //    undo로 원래 상태로 돌아오면 디스크의 원본 텍스트가 그대로 유지된다.
-// 2. 에디터 변환이 원본 내용을 보존하지 못하면(미지원 HTML 등) 경고 배너를 띄운다.
+// 2. 에디터 변환이 원본 내용을 보존하지 못하면(미지원 HTML 등) 위지윅 편집을
+//    **읽기 전용으로 잠그고** 소스 모드로 유도한다.
+//
+//    경고만 띄우고 편집을 허용하면 손실된 직렬화 결과가 그대로 디스크에 쓰인다.
+//    저장은 사용자가 저장을 눌러야 일어나는 일이 아니다 —
+//    updateContent 가 자동저장 타이머를 걸고(workspace.ts), sync 도
+//    syncNow → flushDirty 로 모든 dirty 문서를 강제 저장한다(sync.ts).
+//    그래서 차단은 updateContent 로 들어가기 **전에** 걸려야 한다.
+//    편집 자체를 막는 것이 가장 확실한 지점이다.
+//
+//    소스 모드(SourceEditor)는 직렬화기를 거치지 않는 원문 textarea 이므로
+//    이 문서도 계속 편집할 수 있다 — 편집 수단을 뺏는 것이 아니라 옮기는 것이다.
 export function MarkdownEditor({ path }: { path: string }) {
   const doc = useWorkspace((s) => s.docs[path]);
   const updateContent = useWorkspace((s) => s.updateContent);
@@ -39,8 +50,10 @@ export function MarkdownEditor({ path }: { path: string }) {
   const baseline = useRef<string | null>(null);
   // 외부 머지 적용 중에는 onUpdate를 무시한다(사용자 편집으로 오인한 저장 루프 방지).
   const applyingExternal = useRef(false);
+  // 변환 손실이 감지되면 위지윅 편집을 잠근다(읽기 전용). 배너는 닫을 수 없다 —
+  // 무시하고 편집을 이어가면 손실본이 저장되므로, 알림이 아니라 상태 표시다.
   const [lossy, setLossy] = useState(false);
-  const [dismissedWarning, setDismissedWarning] = useState(false);
+  const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
 
   // 상대 경로 이미지 표시용 기준 디렉토리 (직렬화에는 영향 없음)
   setImageBaseDir(path.slice(0, path.lastIndexOf("/")));
@@ -56,7 +69,9 @@ export function MarkdownEditor({ path }: { path: string }) {
     autofocus: autofocusOnMount,
     onCreate({ editor }) {
       baseline.current = getMarkdown(editor);
-      // 로드 직후 직렬화 결과에서 이미 내용이 사라졌다면 변환 손실 경고
+      // 로드 직후 직렬화 결과에서 이미 내용이 사라졌다면 변환 손실로 판정한다.
+      // 배너만 띄우고 편집을 허용하면 손실본이 자동저장·sync 로 디스크에 박히므로
+      // 위지윅 편집을 잠근다(아래 effect 가 editable 을 반영).
       setLossy(hasRoundtripContentLoss(initial.body, baseline.current));
     },
     editorProps: {
@@ -141,6 +156,14 @@ export function MarkdownEditor({ path }: { path: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // 변환 손실이 감지된 문서는 위지윅 편집을 잠근다.
+  // onUpdate 자체가 발생하지 않으므로 updateContent → 자동저장 → sync 강제 저장
+  // 경로가 통째로 차단된다. 읽기·복사·검색은 그대로 되고, 편집은 소스 모드에서 한다.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.setEditable(!lossy);
+  }, [editor, lossy]);
+
   // 외부 리로드 반영: store의 content가 에디터 밖에서 바뀌면(저장 결과 반영,
   // sync 후 깨끗한 문서 리로드 등) 새 내용을 전체 교체로 적용하고 커서를
   // (범위 안으로) 복원한다. 라이브 머지는 없다 — 편집 중인 문서는 sync가
@@ -175,8 +198,9 @@ export function MarkdownEditor({ path }: { path: string }) {
       fmRef.current = split.frontmatter;
       keepNlRef.current = /\n$/.test(split.body);
       baseline.current = getMarkdown(editor);
+      // 외부 리로드로 내용이 바뀌었으니 손실 여부를 다시 판정한다.
+      // (손실이 해소되면 위지윅 편집이 자동으로 다시 열린다)
       setLossy(hasRoundtripContentLoss(split.body, baseline.current));
-      setDismissedWarning(false);
     };
 
     // 한글 IME 조합 도중 setContent가 발화하면 문서가 붕괴하므로
@@ -200,11 +224,11 @@ export function MarkdownEditor({ path }: { path: string }) {
           }}
         />
       )}
-      {lossy && !dismissedWarning && (
+      {lossy && (
         <div className="lossy-banner">
-          <span>⚠️ {t("editor.lossyWarning")}</span>
-          <button onClick={() => setDismissedWarning(true)} title={t("editor.dismissWarning")}>
-            ×
+          <span>⚠️ {t("editor.lossyReadonly")}</span>
+          <button className="lossy-banner-action" onClick={toggleSourceMode}>
+            {t("editor.openSourceMode")}
           </button>
         </div>
       )}

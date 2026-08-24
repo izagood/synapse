@@ -1530,6 +1530,15 @@ body.resizing-sidebar {
   background: var(--bg-hover);
 }
 
+/* 손실 문서의 유일한 편집 경로 — 닫기 버튼이 아니라 행동 버튼이라 강조한다 */
+.lossy-banner .lossy-banner-action {
+  flex: none;
+  color: var(--fg);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: var(--bg-panel);
+  white-space: nowrap;
+}
+
 .tiptap img {
   max-width: 100%;
   border-radius: 6px;
