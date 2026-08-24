@@ -748,3 +748,30 @@ describe("workspace store (mock ipc)", () => {
     });
   });
 });
+
+describe("파일 생성의 유일성 보장 (무결성 감사 M5)", () => {
+  beforeEach(async () => {
+    mockSessionControl.states.clear();
+    mockSessionControl.lastWorkspace = null;
+    useWorkspace.getState().closeWorkspace();
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+  });
+
+  it("드로잉 생성이 백엔드 유일 경로를 쓴다 — 이름 충돌 시 ' 2'로 비켜 간다", async () => {
+    // 프론트 트리 스냅샷 기반 유일성 검사는 트리가 낡은 사이 생긴 파일을
+    // 덮어쓴다 — 반드시 백엔드 write_unique(존재-검사+생성 원자적)를 지나야 한다.
+    // drawio 생성과 HTML 내보내기도 같은 헬퍼(createTextFileUnique)를 지난다
+    // (HTML 내보내기는 tiptap Editor가 jsdom을 요구해 이 node 테스트에선 제외).
+    const uniqueSpy = vi.spyOn(ipc, "writeBinaryUnique");
+    const writeSpy = vi.spyOn(ipc, "writeFile");
+    await useWorkspace.getState().createDrawing();
+    await useWorkspace.getState().createDrawing();
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(uniqueSpy).toHaveBeenCalledTimes(2);
+    const names = await Promise.all(uniqueSpy.mock.results.map((r) => r.value as Promise<string>));
+    expect(names[0]).toBe("드로잉.excalidraw");
+    expect(names[1]).toBe("드로잉 2.excalidraw");
+    expect(useWorkspace.getState().error).toBeNull();
+  });
+
+});

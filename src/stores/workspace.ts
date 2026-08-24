@@ -777,8 +777,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const { root, tree } = get();
     if (!root || !tree) return;
     try {
-      const path = uniqueFilePath(dir ?? root, collectFilePaths(tree), "드로잉", "excalidraw");
-      await ipc.writeFile(root, path, emptySceneJson());
+      const path = await createTextFileUnique(root, dir ?? root, "드로잉.excalidraw", emptySceneJson());
       await get().refreshTree();
       await get().openFile({
         path,
@@ -795,8 +794,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const { root, tree } = get();
     if (!root || !tree) return;
     try {
-      const path = uniqueFilePath(dir ?? root, collectFilePaths(tree), "다이어그램", "drawio");
-      await ipc.writeFile(root, path, emptyDrawioXml());
+      const path = await createTextFileUnique(root, dir ?? root, "다이어그램.drawio", emptyDrawioXml());
       await get().refreshTree();
       await get().openFile({
         path,
@@ -841,8 +839,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const html = markdownToStandaloneHtml(content, {
         title: titleFromPath(target),
       });
-      const outPath = htmlExportPath(target);
-      await ipc.writeFile(root, outPath, html);
+      // 같은 이름의 기존 .html(사용자가 직접 만든 것 포함)을 무확인으로
+      // 덮어쓰지 않도록 백엔드 유일 경로로 쓴다 — 존재하면 " 2"로 비켜 간다.
+      const desired = htmlExportPath(target);
+      const slash = desired.lastIndexOf("/");
+      const outPath = await createTextFileUnique(
+        root,
+        desired.slice(0, slash),
+        desired.slice(slash + 1),
+        html,
+      );
       await get().refreshTree();
       return outPath;
     } catch (e) {
@@ -1035,13 +1041,19 @@ function collectFilePaths(tree: FileNode, into = new Set<string>()): Set<string>
  * dir 안에서 겹치지 않는 `<baseName>.<ext>` 계열 경로를 고른다 — 이름이 이미 있으면
  * `<baseName> 2.<ext>`, `<baseName> 3.<ext>` … 로 비켜 간다 (create_unique_note의 프론트 판).
  */
-function uniqueFilePath(dir: string, existing: Set<string>, baseName: string, ext: string): string {
-  const base = `${dir}/${baseName}`;
-  let candidate = `${base}.${ext}`;
-  for (let i = 2; existing.has(candidate); i++) {
-    candidate = `${base} ${i}.${ext}`;
-  }
-  return candidate;
+async function createTextFileUnique(
+  root: string,
+  dir: string,
+  desiredName: string,
+  text: string,
+): Promise<string> {
+  // 유일성 검사를 프론트의 트리 스냅샷으로 하면 트리가 낡은 사이(외부 도구·
+  // 에이전트·sync가 같은 이름을 생성) 기존 파일을 조용히 덮어쓴다(감사 M5).
+  // 존재-검사와 생성이 원자적인 백엔드 write_unique 경로만 사용한다 —
+  // 충돌 시 " 2" 이름으로 비켜 가고, 실제 사용된 이름이 돌아온다.
+  const base64 = arrayBufferToBase64(new TextEncoder().encode(text).buffer as ArrayBuffer);
+  const name = await ipc.writeBinaryUnique(root, dir, desiredName, base64);
+  return `${dir}/${name}`;
 }
 
 /** 저장된 세션의 탭들을 다시 연다 — 사라진 파일은 건너뛴다 */
