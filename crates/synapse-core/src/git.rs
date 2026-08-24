@@ -781,9 +781,13 @@ impl GitWorkspace {
     /// 완결한다. 텍스트는 문자 단위 3-way 병합(양쪽 편집 보존), 바이너리와
     /// `.synapse/draw/` 주석 사이드카는 양쪽 보존(theirs가 원래 이름, ours는
     /// conflict 사본), 그 밖의 `.synapse/`(레거시)는 삭제로 해소한다.
-    /// 자동 해소 대상이 아니면(삭제/수정) Err — 호출자가 abort 후 Conflict로
-    /// 보고한다(3택 UI 폴백).
+    /// 자동 해소 대상이 아닌 파일(삭제/수정)이 하나라도 있으면 Err — 호출자가
+    /// abort 후 Conflict로 보고하거나(sync), 남은 충돌에만 3택을 적용한다
+    /// (resolve_conflicts). 단 fail-fast가 아니라 **해소 가능한 파일은 전부
+    /// 해소한 뒤** Err를 반환한다 — 첫 삭제/수정에서 중단하면 정렬상 뒤의
+    /// 텍스트 충돌이 3택 take_side로 넘어가 사용자 편집을 잃는다(H12).
     fn auto_resolve_merge(&self) -> GitResult<()> {
+        let mut unresolvable: Vec<String> = Vec::new();
         let data_prefix = format!("{DATA_DIR}/");
         let draw_prefix = format!("{DATA_DIR}/draw/");
         for path in self.conflicted_files()? {
@@ -824,9 +828,16 @@ impl GitWorkspace {
                         self.keep_both(&path, &o, &t)?;
                     }
                 },
-                // 삭제/수정 충돌은 자동 해결하지 않는다 → 3택 UI로 폴백
-                _ => return Err(format!("삭제/수정 충돌은 자동 해결하지 않습니다: {path}")),
+                // 삭제/수정 충돌은 자동 해결하지 않는다 → 3택 UI로 폴백.
+                // 여기서 바로 반환하지 않고 나머지 파일을 계속 해소한다.
+                _ => unresolvable.push(path),
             }
+        }
+        if !unresolvable.is_empty() {
+            return Err(format!(
+                "삭제/수정 충돌은 자동 해결하지 않습니다: {}",
+                unresolvable.join(", ")
+            ));
         }
         self.commit_merge()
     }
@@ -965,7 +976,13 @@ impl GitWorkspace {
                             return Err(format!("git merge 실패: {}", merge_err.trim()));
                         }
                         if self.auto_resolve_merge().is_err() {
-                            self.apply_choice(choice, &files)?;
+                            // auto_resolve가 이미 해소·스테이징한 파일은 conflict
+                            // stage가 비워져 있다 — 원래 목록(files)에 3택을 적용하면
+                            // stage_bytes가 (None, None)을 돌려줘 take_side(None)=rm,
+                            // 즉 자동 병합된 파일이 삭제된다. 반드시 **아직 충돌로
+                            // 남은 파일**에만 적용한다.
+                            let remaining = self.conflicted_files()?;
+                            self.apply_choice(choice, &remaining)?;
                             self.commit_merge()?;
                         }
                     }
@@ -2055,7 +2072,39 @@ mod tests {
     // ----------------------------------------------------------------
     // 혼합 충돌: 텍스트 충돌 자동 해소 + 삭제/수정 충돌 3택 (H12)
     // ----------------------------------------------------------------
-    // H12 테스트는 sync()의 혼합 충돌 리포트에서 이미 검증됨:
-    // sync_auto_merges_concurrent_md_edits가 텍스트 병합을,
-    // conflict_detected_and_repo_left_clean이 삭제/수정 충돌 감지를 검증한다.
+
+    #[test]
+    fn mixed_conflict_auto_merges_text_and_applies_choice_to_delete_only() {
+        // H12의 핵심 시나리오: 텍스트 충돌(a-text.md, 정렬상 앞)과 삭제/수정
+        // 충돌(z-del.md, 정렬상 뒤)이 한 병합에 섞였을 때 —
+        //  · 텍스트 충돌은 자동 병합돼 양쪽 편집이 보존되고 (3택 대상이 아님)
+        //  · 3택(KeepRemote)은 삭제/수정 충돌에만 적용된다.
+        // 회귀 방지 2종: ① 3택이 텍스트 파일까지 원격본으로 대체(원래 H12),
+        // ② 스테이징이 끝난 파일에 3택이 겹쳐 take_side(None)=rm으로
+        //   자동 병합본이 삭제되는 경우(리뷰에서 발견).
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "a-text.md", "기준");
+        write(&a, "z-del.md", "기준");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+
+        write(&a, "a-text.md", "기준 그리고 A의 추가");
+        write(&a, "z-del.md", "A의 수정");
+        ws(&a).sync("a").unwrap();
+        write(&b, "a-text.md", "B의 추가 그리고 기준");
+        fs::remove_file(b.join("z-del.md")).unwrap();
+        ws(&b).commit_all("b: 텍스트 수정 + 삭제").unwrap();
+
+        let st = ws(&b).resolve_conflicts(ConflictChoice::KeepRemote).unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+
+        // 텍스트 충돌: 자동 병합 — 파일이 살아 있고 양쪽 편집이 모두 남는다
+        let merged = read(&b, "a-text.md");
+        assert!(
+            merged.contains("A의 추가") && merged.contains("B의 추가"),
+            "양쪽 편집이 보존되어야 함: {merged}"
+        );
+        // 삭제/수정 충돌: KeepRemote → 원격 수정본 복원
+        assert_eq!(read(&b, "z-del.md"), "A의 수정");
+    }
 }
