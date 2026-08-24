@@ -189,4 +189,32 @@ describe("sync store (mock ipc)", () => {
     await useSync.getState().refreshStatus(ROOT);
     expect(useSync.getState().status?.state).toBe("synced");
   });
+
+  it("resolveConflict: syncing 중 재진입은 no-op (L5)", async () => {
+    mockSyncControl.login = "mock-user";
+    mockSyncControl.hasRemote = true;
+    useSync.setState({ syncing: true });
+    const spy = vi.spyOn(ipc, "resolveConflict");
+    await useSync.getState().resolveConflict(ROOT, "keepMine");
+    expect(spy).not.toHaveBeenCalled();
+    useSync.setState({ syncing: false });
+  });
+
+  it("resolveConflict가 해소 전에 미저장 편집을 flush한다 (L5)", async () => {
+    mockSyncControl.login = "mock-user";
+    mockSyncControl.hasRemote = true;
+    const { useWorkspace } = await import("./workspace");
+    const flushSpy = vi.spyOn(useWorkspace.getState(), "flushDirty");
+    const order: string[] = [];
+    flushSpy.mockImplementation(async () => {
+      order.push("flush");
+    });
+    vi.spyOn(ipc, "resolveConflict").mockImplementation(async () => {
+      order.push("resolve");
+      return { state: "synced", ahead: 0, behind: 0, conflictFiles: [] };
+    });
+    await useSync.getState().resolveConflict(ROOT, "keepMine");
+    // "내 버전 유지"가 미저장 키 입력까지 포함하려면 flush가 해소보다 먼저여야 한다
+    expect(order).toEqual(["flush", "resolve"]);
+  });
 });
