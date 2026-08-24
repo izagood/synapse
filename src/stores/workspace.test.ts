@@ -453,6 +453,71 @@ describe("workspace store (mock ipc)", () => {
     expect(await ipc.readFile(MOCK_ROOT, b)).toContain("B 수정");
   });
 
+  it("H7: saveDoc serializes overlapping saves per path", async () => {
+    vi.useFakeTimers();
+    try {
+      await useWorkspace.getState().openFile(findNode("README.md"));
+      const path = useWorkspace.getState().activePath!;
+
+      const saveSpy = vi.spyOn(ipc, "saveDoc").mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve("merged"), 50)),
+      );
+
+      useWorkspace.getState().updateContent(path, "첫 번째 수정");
+      useWorkspace.getState().updateContent(path, "두 번째 수정");
+
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.runAllTimersAsync();
+
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      saveSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("H9: closeTab preserves document when saveDoc fails", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "저장될 내용");
+
+    vi.spyOn(ipc, "saveDoc").mockRejectedValueOnce(new Error("disk full"));
+
+    const closed = await useWorkspace.getState().closeTab(path);
+    expect(closed).toBe(false);
+    expect(useWorkspace.getState().tabs.some((t) => t.path === path)).toBe(true);
+    expect(useWorkspace.getState().docs[path]).toBeDefined();
+    expect(useWorkspace.getState().docs[path]?.content).toBe("저장될 내용");
+  });
+
+  it("M1: duplicateEntry flushes dirty before duplicating", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "복제 전 수정 내용");
+
+    vi.spyOn(ipc, "saveDoc").mockResolvedValueOnce("merged");
+
+    await useWorkspace.getState().duplicateEntry({ path });
+
+    expect(ipc.saveDoc).toHaveBeenCalled();
+    const s = useWorkspace.getState();
+    expect(s.activePath).toContain("README 2.md");
+  });
+
+  it("M16: openFolder flushes dirty before switching (continues on failure)", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    useWorkspace.getState().updateContent(path, "切替前 수정");
+
+    vi.spyOn(ipc, "saveDoc").mockRejectedValueOnce(new Error("boom"));
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it("reloadAfterSync applies remote changes to clean open docs", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     const path = useWorkspace.getState().activePath!;

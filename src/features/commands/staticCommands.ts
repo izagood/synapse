@@ -39,7 +39,7 @@ const defs: CommandDef[] = [
         return;
       }
       const { activePath, closeTab } = ws();
-      if (activePath) return closeTab(activePath);
+      if (activePath) void closeTab(activePath);
     },
   },
   {
