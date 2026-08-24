@@ -54,6 +54,67 @@ pub fn legacy_pdf_draw_sidecar(pdf: &Path) -> PathBuf {
     PathBuf::from(p)
 }
 
+/// 파일/폴더 조작(rename·move·delete·duplicate)에 맞춰 PDF 주석 사이드카를
+/// 동반 처리한다(2차 감사 N3). 사이드카는 `.synapse/draw/<rel>.draw.json`에
+/// 상대 경로로 미러링되므로, 본 파일만 옮기면 ① 주석이 화면에서 소멸하고
+/// ② 삭제 후 같은 경로에 동명 PDF가 생기면 죽은 주석이 부활한다.
+///
+/// 주석은 부속 데이터다: 어떤 실패도 본 조작을 되돌리지 않는다(best-effort,
+/// Err 반환 없음). 사이드카가 없으면 조용히 통과한다.
+///
+/// - `old_rel`: 조작 **전** vault 상대 경로(호출자가 조작 전에 계산해 둔다 —
+///   조작 후에는 canonicalize가 불가능하다).
+/// - `new_rel`: rename/move/duplicate 결과의 상대 경로. delete는 None.
+/// - `was_dir`: 폴더 조작이면 미러 디렉토리 전체를 옮기거나 지운다.
+/// - `copy`: duplicate처럼 원본 사이드카를 남겨야 하면 true.
+pub fn relocate_pdf_draw_sidecar(
+    backend: &dyn Backend,
+    root: &Path,
+    old_rel: &str,
+    new_rel: Option<&str>,
+    was_dir: bool,
+    copy: bool,
+) {
+    let Ok(root_canon) = backend.canonicalize(root) else {
+        return;
+    };
+    let base = root_canon.join(DATA_DIR).join("draw");
+    let mirror = |rel: &str, dir: bool| -> PathBuf {
+        if dir {
+            base.join(rel)
+        } else {
+            base.join(format!("{rel}.draw.json"))
+        }
+    };
+    let old = mirror(old_rel, was_dir);
+    if backend.metadata(&old).is_err() {
+        return; // 주석 없음 — 대부분의 파일이 여기서 끝난다
+    }
+    match new_rel {
+        None => {
+            // delete: 부활 방지를 위해 미러도 지운다
+            let _ = if was_dir {
+                backend.remove_dir_all(&old)
+            } else {
+                backend.remove_file(&old)
+            };
+        }
+        Some(new_rel) => {
+            let target = mirror(new_rel, was_dir);
+            if let Some(parent) = target.parent() {
+                let _ = backend.create_dir_all(parent);
+            }
+            if copy && !was_dir {
+                if let Ok(bytes) = backend.read(&old) {
+                    let _ = backend.write(&target, &bytes);
+                }
+            } else {
+                let _ = backend.rename(&old, &target);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +212,90 @@ mod tests {
         let link = root.join("link.md");
         std::os::unix::fs::symlink(&outside, &link).unwrap();
         assert!(ensure_within(&root, &link).is_err());
+    }
+
+    #[test]
+    fn relocate_sidecar_follows_file_rename() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/a.pdf"), b"pdf").unwrap();
+        let mirror = root.join(".synapse/draw/docs");
+        fs::create_dir_all(&mirror).unwrap();
+        fs::write(mirror.join("a.pdf.draw.json"), b"{}").unwrap();
+
+        fs::rename(root.join("docs/a.pdf"), root.join("docs/b.pdf")).unwrap();
+        relocate_pdf_draw_sidecar(
+            &LocalBackend,
+            root,
+            "docs/a.pdf",
+            Some("docs/b.pdf"),
+            false,
+            false,
+        );
+
+        assert!(!mirror.join("a.pdf.draw.json").exists());
+        assert!(mirror.join("b.pdf.draw.json").exists());
+    }
+
+    #[test]
+    fn relocate_sidecar_mirrors_folder_move() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("a/sub")).unwrap();
+        fs::create_dir_all(root.join("b")).unwrap();
+        let mirror = root.join(".synapse/draw/a/sub");
+        fs::create_dir_all(&mirror).unwrap();
+        fs::write(mirror.join("x.pdf.draw.json"), b"{}").unwrap();
+
+        fs::rename(root.join("a/sub"), root.join("b/sub")).unwrap();
+        relocate_pdf_draw_sidecar(&LocalBackend, root, "a/sub", Some("b/sub"), true, false);
+
+        assert!(!root.join(".synapse/draw/a/sub").exists());
+        assert!(root.join(".synapse/draw/b/sub/x.pdf.draw.json").exists());
+    }
+
+    #[test]
+    fn relocate_sidecar_delete_prevents_resurrection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mirror = root.join(".synapse/draw");
+        fs::create_dir_all(&mirror).unwrap();
+        fs::write(mirror.join("a.pdf.draw.json"), b"{}").unwrap();
+
+        relocate_pdf_draw_sidecar(&LocalBackend, root, "a.pdf", None, false, false);
+        // 같은 이름의 새 PDF가 생겨도 죽은 주석이 연결되지 않는다
+        assert!(!mirror.join("a.pdf.draw.json").exists());
+    }
+
+    #[test]
+    fn relocate_sidecar_duplicate_copies_and_keeps_original() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mirror = root.join(".synapse/draw");
+        fs::create_dir_all(&mirror).unwrap();
+        fs::write(mirror.join("a.pdf.draw.json"), b"{\"v\":1}").unwrap();
+
+        relocate_pdf_draw_sidecar(&LocalBackend, root, "a.pdf", Some("a 2.pdf"), false, true);
+        assert!(mirror.join("a.pdf.draw.json").exists());
+        assert_eq!(
+            fs::read(mirror.join("a 2.pdf.draw.json")).unwrap(),
+            b"{\"v\":1}"
+        );
+    }
+
+    #[test]
+    fn relocate_sidecar_noop_without_sidecar() {
+        let tmp = tempfile::tempdir().unwrap();
+        // 사이드카·미러 디렉토리 자체가 없어도 조용히 통과한다
+        relocate_pdf_draw_sidecar(
+            &LocalBackend,
+            tmp.path(),
+            "a.pdf",
+            Some("b.pdf"),
+            false,
+            false,
+        );
+        assert!(!tmp.path().join(".synapse").exists());
     }
 }

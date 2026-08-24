@@ -461,9 +461,28 @@ pub async fn rename_path(
         if resolved == root_path {
             return Err("워크스페이스 루트는 이름을 바꿀 수 없습니다".to_string());
         }
+        // 주석 사이드카 동반 이동 준비 — rel은 조작 전에만 계산 가능하다(N3)
+        let was_dir = backend.metadata(&resolved).map(|m| m.is_dir).unwrap_or(false);
+        let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
         let renamed = backend
             .rename_entry(&resolved, &new_name)
             .map_err(|e| e.to_string())?;
+        if let (Some(old_rel), Ok(new_rel)) =
+            (old_rel, backend.rel_path_within(&root_path, &renamed))
+        {
+            synapse_core::relocate_pdf_draw_sidecar(
+                &*backend, &root_path, &old_rel, Some(&new_rel), was_dir, false,
+            );
+        }
+        if !was_dir {
+            // 레거시(PDF 옆) 사이드카도 함께 — read_pdf_draw의 폴백 대상이라
+            // 남겨두면 옛 이름으로 주석이 잔존한다
+            let old_legacy = synapse_core::legacy_pdf_draw_sidecar(&resolved);
+            if backend.metadata(&old_legacy).is_ok() {
+                let new_legacy = synapse_core::legacy_pdf_draw_sidecar(&renamed);
+                let _ = backend.rename(&old_legacy, &new_legacy);
+            }
+        }
         Ok(path_to_uri(&root_loc, &renamed.to_string_lossy()))
     })
     .await
@@ -527,11 +546,25 @@ pub async fn delete_path(
             return Err("워크스페이스 루트는 삭제할 수 없습니다".to_string());
         }
         let meta = backend.metadata(&resolved).map_err(|e| e.to_string())?;
+        // 주석 사이드카 rel·레거시 경로는 삭제 전에 계산해 둔다(N3)
+        let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
+        let legacy = (!meta.is_dir).then(|| synapse_core::legacy_pdf_draw_sidecar(&resolved));
         if meta.is_dir {
-            backend.remove_dir_all(&resolved).map_err(|e| e.to_string())
+            backend.remove_dir_all(&resolved).map_err(|e| e.to_string())?;
         } else {
-            backend.remove_file(&resolved).map_err(|e| e.to_string())
+            backend.remove_file(&resolved).map_err(|e| e.to_string())?;
         }
+        // 같은 경로에 동명 PDF가 다시 생겨도 죽은 주석이 부활하지 않도록
+        // 미러·레거시 사이드카를 함께 지운다
+        if let Some(old_rel) = old_rel {
+            synapse_core::relocate_pdf_draw_sidecar(
+                &*backend, &root_path, &old_rel, None, meta.is_dir, false,
+            );
+        }
+        if let Some(legacy) = legacy {
+            let _ = backend.remove_file(&legacy);
+        }
+        Ok(())
     })
     .await
 }
@@ -551,7 +584,21 @@ pub async fn duplicate_path(
         let resolved = backend
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
-        backend.duplicate_file(&resolved).map_err(|e| e.to_string())
+        let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
+        let new_name = backend.duplicate_file(&resolved).map_err(|e| e.to_string())?;
+        // 사본에도 주석을 복제한다(N3) — 원본 사이드카는 그대로 둔다
+        if let Some(old_rel) = old_rel {
+            let new_abs = resolved
+                .parent()
+                .map(|p| p.join(&new_name))
+                .unwrap_or_else(|| resolved.clone());
+            if let Ok(new_rel) = backend.rel_path_within(&root_path, &new_abs) {
+                synapse_core::relocate_pdf_draw_sidecar(
+                    &*backend, &root_path, &old_rel, Some(&new_rel), false, true,
+                );
+            }
+        }
+        Ok(new_name)
     })
     .await
 }
@@ -587,7 +634,23 @@ pub async fn move_path(
         if !meta.is_dir {
             return Err("대상이 폴더가 아닙니다".to_string());
         }
+        let was_dir = backend.metadata(&src).map(|m| m.is_dir).unwrap_or(false);
+        let old_rel = backend.rel_path_within(&root_path, &src).ok();
         let moved = backend.move_entry(&src, &dest).map_err(|e| e.to_string())?;
+        if let (Some(old_rel), Ok(new_rel)) =
+            (old_rel, backend.rel_path_within(&root_path, &moved))
+        {
+            synapse_core::relocate_pdf_draw_sidecar(
+                &*backend, &root_path, &old_rel, Some(&new_rel), was_dir, false,
+            );
+        }
+        if !was_dir {
+            let old_legacy = synapse_core::legacy_pdf_draw_sidecar(&src);
+            if backend.metadata(&old_legacy).is_ok() {
+                let new_legacy = synapse_core::legacy_pdf_draw_sidecar(&moved);
+                let _ = backend.rename(&old_legacy, &new_legacy);
+            }
+        }
         Ok(path_to_uri(&root_loc, &moved.to_string_lossy()))
     })
     .await
