@@ -36,17 +36,120 @@ pub enum OutLink {
     Wiki(String),
 }
 
+/// CommonMark 호환 코드펜스 파싱을 위한 펜스 상태.
+/// - `Open { char, length }`: 펜스 시작 (char: '`' 또는 '~', length: 3 이상)
+/// - `Close { char, length }`: 펜스 종료 (같은 문자, 같은 길이 이상)
+/// - `None`: 펜스선이 아님
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FenceState {
+    Open { char: char, length: usize },
+    Close { char: char, length: usize },
+    None,
+}
+
+/// CommonMark 호환 펜스 파싱. 3개 이상 연속 backtick 또는 tilde를 펜스로 인식.
+/// 닫는 펜스는 같은 문자이고 길이가 같거나 더 길어야 함.
+pub fn parse_fence(line: &str) -> FenceState {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return FenceState::None;
+    }
+
+    let chars: Vec<char> = trimmed.chars().take(10).collect();
+    if chars.len() < 3 {
+        return FenceState::None;
+    }
+
+    let fence_char = chars[0];
+    if fence_char != '`' && fence_char != '~' {
+        return FenceState::None;
+    }
+
+    let mut length = 0;
+    for c in &chars {
+        if *c == fence_char {
+            length += 1;
+        } else {
+            break;
+        }
+    }
+
+    if length >= 3 {
+        FenceState::Open {
+            char: fence_char,
+            length,
+        }
+    } else {
+        FenceState::None
+    }
+}
+
+/// 펜스 토글 처리 (CommonMark 호환). 여는 펜스면 입장, 닫는 펜스면 퇴장.
+/// 닫는 펜스는 같은 문자·같은 길이 이상이어야 유효.
+/// H2: CommonMark 규칙 - 3+ backticks/tildes는 펜스.
+/// 이미 펜스 안에 있으면 같은 문자·길이 이상으로 닫음.
+pub fn toggle_fence(
+    line: &str,
+    in_fence: bool,
+    current_fence: Option<(char, usize)>,
+) -> (bool, Option<(char, usize)>) {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return (in_fence, current_fence);
+    }
+
+    let chars: Vec<char> = trimmed.chars().take(10).collect();
+    if chars.len() < 3 {
+        return (in_fence, current_fence);
+    }
+
+    let fence_char = chars[0];
+    if fence_char != '`' && fence_char != '~' {
+        return (in_fence, current_fence);
+    }
+
+    let mut length = 0;
+    for c in &chars {
+        if *c == fence_char {
+            length += 1;
+        } else {
+            break;
+        }
+    }
+
+    if length < 3 {
+        return (in_fence, current_fence);
+    }
+
+    // 3+ backticks/tildes: 펜스 라인
+    if !in_fence {
+        // 여는 펜스
+        (true, Some((fence_char, length)))
+    } else {
+        // 안에 있는데 같은 문자·길이 이상이면 닫는 펜스
+        if let Some((open_char, open_length)) = current_fence {
+            if fence_char == open_char && length >= open_length {
+                return (false, None);
+            }
+        }
+        // 그 외: 펜스 계속 (중첩 무시)
+        (in_fence, current_fence)
+    }
+}
+
 /// 코드펜스(``` ... ```)·인라인 코드(`...`)를 무시하면서 본문에서 링크를 추출한다.
+/// H2: CommonMark 호환 펜스 파싱 적용.
 ///
 /// 줄 단위로 (링크, 그 줄 텍스트)를 돌려준다. 줄 텍스트는 백링크 스니펫에 쓰인다.
 pub fn extract_links(body: &str) -> Vec<(OutLink, String)> {
     let mut out = Vec::new();
     let mut in_fence = false;
+    let mut current_fence: Option<(char, usize)> = None;
     for line in body.lines() {
-        let trimmed = line.trim_start();
-        // 코드펜스 토글 (``` 또는 ~~~)
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
+        let (new_in_fence, new_fence) = toggle_fence(line, in_fence, current_fence);
+        if new_in_fence != in_fence {
+            in_fence = new_in_fence;
+            current_fence = new_fence;
             continue;
         }
         if in_fence {
@@ -329,14 +432,17 @@ pub(crate) fn stem(path: &Path) -> Option<String> {
 ///   공백이라, URL 조각(`…/#anchor`)은 앞이 `/`라 자연히 제외된다.
 /// - 숫자로만 된 토큰(`#123`)은 이슈 번호로 보고 제외한다.
 /// - 코드 펜스(``` / ~~~) 내부는 건너뛴다. 인라인 코드 내부는 허용(알려진 한계).
+/// H2: CommonMark 호환 펜스 파싱 적용.
 pub fn extract_tags(content: &str) -> Vec<String> {
     let mut tags: Vec<String> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut in_fence = false;
+    let mut current_fence: Option<(char, usize)> = None;
     for line in content.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
+        let (new_in_fence, new_fence) = toggle_fence(line, in_fence, current_fence);
+        if new_in_fence != in_fence {
+            in_fence = new_in_fence;
+            current_fence = new_fence;
             continue;
         }
         if in_fence {
