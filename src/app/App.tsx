@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { ipc } from "../ipc/ipc";
 import { useWorkspace, isDirty } from "../stores/workspace";
+import { flushAllPdfDraws } from "../features/pdf-draw/usePdfDraw";
 import { useSettings } from "../stores/settings";
 import { registerStaticCommands } from "../features/commands/staticCommands";
 import { useShortcutDispatcher } from "../features/commands/useShortcutDispatcher";
@@ -80,6 +81,13 @@ export default function App() {
             } catch (e) {
               console.warn("onCloseRequested: flushDirty failed", e);
             }
+          }
+          // PDF 주석 dirty는 docs 밖(usePdfDraw 내부)이고, destroy는 React
+          // 언마운트 cleanup을 태우지 않는다 — 별도로 flush한다(2차 감사 N2).
+          try {
+            await flushAllPdfDraws();
+          } catch (e) {
+            console.warn("onCloseRequested: flushAllPdfDraws failed", e);
           }
           await win.destroy();
         });

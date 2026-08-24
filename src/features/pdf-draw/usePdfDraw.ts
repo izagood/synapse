@@ -7,6 +7,7 @@ import {
   eraseShapesAt,
   HIGHLIGHTER_OPACITY,
   isNonEmptyShape,
+  mergeDrawDocs,
   newShapeId,
   parseDrawDoc,
   serializeDrawDoc,
@@ -22,6 +23,16 @@ const UNDO_LIMIT = 60;
 const DEFAULT_COLOR = "#e02424";
 const DEFAULT_WIDTH = 3; // scale 1(pt) 기준
 const RECENT_COLOR_LIMIT = 8;
+
+// 열려 있는 PDF들의 flush를 훅 밖에서 모아 부르기 위한 레지스트리(2차 감사 N2).
+// 앱 종료(onCloseRequested)는 React 언마운트를 태우지 않아, md의 flushDirty와
+// 달리 주석 dirty가 훅 내부 ref에 갇혀 마지막 획들이 유실됐다.
+const drawFlushRegistry = new Map<string, () => Promise<void>>();
+
+/** 열려 있는 모든 PDF의 미저장 주석을 저장한다(clean이면 no-op). */
+export async function flushAllPdfDraws(): Promise<void> {
+  await Promise.allSettled(Array.from(drawFlushRegistry.values()).map((f) => f()));
+}
 
 export interface PdfDrawApi {
   tool: ToolKind;
@@ -130,6 +141,9 @@ export function usePdfDraw(path: string): PdfDrawApi {
     setRecentColors((prev) => [c, ...prev.filter((x) => x !== c)].slice(0, RECENT_COLOR_LIMIT));
   }, []);
 
+  // 마지막으로 디스크와 일치한다고 아는 직렬화본 — 외부 변경 감지 기준(N1).
+  const lastDiskJsonRef = useRef<string | null>(null);
+
   // ---- 영속화 ----
   const flushSave = useCallback(async () => {
     if (saveTimerRef.current) {
@@ -142,12 +156,21 @@ export function usePdfDraw(path: string): PdfDrawApi {
     setDirty(false);
     try {
       await ipc.writePdfDraw(root, path, json);
+      lastDiskJsonRef.current = json;
     } catch {
       // 저장 실패 시 다시 dirty 로 두어 다음 변경/언마운트 때 재시도
       dirtyRef.current = true;
       setDirty(true);
     }
   }, [root, path]);
+
+  // 종료 flush 레지스트리 등록(N2). cleanup은 이 path의 클로저로 해제된다.
+  useEffect(() => {
+    drawFlushRegistry.set(path, flushSave);
+    return () => {
+      drawFlushRegistry.delete(path);
+    };
+  }, [path, flushSave]);
 
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true;
@@ -156,11 +179,11 @@ export function usePdfDraw(path: string): PdfDrawApi {
     saveTimerRef.current = setTimeout(() => void flushSave(), AUTOSAVE_MS);
   }, [flushSave]);
 
-  // path 변경 시 사이드카 로드. 직전 문서는 저장 후 교체.
+  // path 변경 시 사이드카 로드. 직전 문서의 미저장분은 아래 언마운트 effect의
+  // cleanup(옛 path 클로저)이 이미 옛 path로 저장했다 — 여기서 flushSave를
+  // 부르면 새 path 클로저라 옛 문서가 **새 PDF의 사이드카**에 쓰인다(N7).
   useEffect(() => {
     let cancelled = false;
-    // 이전 path 의 미저장분을 먼저 비운다.
-    void flushSave();
     docRef.current = emptyDrawDoc();
     undoRef.current = [];
     redoRef.current = [];
@@ -173,30 +196,79 @@ export function usePdfDraw(path: string): PdfDrawApi {
       .then((json) => {
         if (cancelled) return;
         docRef.current = parseDrawDoc(json);
+        lastDiskJsonRef.current = json;
         setShapeCount(countShapes(docRef.current));
       })
       .catch(() => {
         // 사이드카 없음(=주석 없는 PDF)은 정상.
         if (!cancelled) {
           docRef.current = emptyDrawDoc();
+          lastDiskJsonRef.current = null;
           setShapeCount(0);
         }
       });
     return () => {
       cancelled = true;
     };
-    // path/root 가 바뀔 때만 재로딩. flushSave 는 그 둘에만 의존.
-  }, [root, path, flushSave]);
+  }, [root, path]);
 
-  // 언마운트 시 미저장분 저장(베스트 에포트).
+  // 언마운트/path 전환 시 미저장분 저장(베스트 에포트) — 이 cleanup은 항상
+  // **옛 path의 클로저**로 실행되므로 옛 문서가 옛 사이드카로 간다. 저장 후
+  // dirtyRef를 리셋해, 이어지는 새 path의 effect들이 옛 문서를 새 사이드카에
+  // 다시 쓰는 교차 오염을 막는다(N7).
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       if (dirtyRef.current && root) {
         void ipc.writePdfDraw(root, path, serializeDrawDoc(docRef.current));
+        dirtyRef.current = false;
       }
     };
   }, [root, path]);
+
+  // sync/외부 변경 반영(N1): reloadAfterSync가 drawExternalRev를 올리면
+  // 디스크 사이드카를 다시 읽어 —
+  //  · 우리가 마지막으로 안 디스크본과 같으면 no-op
+  //  · clean이면 디스크본으로 교체(undo 스택은 새 기준으로 리셋)
+  //  · dirty면 도형 id 기준 union 병합(외부 추가분 보존, 같은 id는 로컬 우선)
+  //    후 저장을 예약해 병합 결과를 영속화한다.
+  // 이 경로가 없으면 기기 B에서 획 하나만 그려도 기기 A가 sync로 보낸 주석
+  // 전체가 덮여 유실·전파된다.
+  const drawExternalRev = useWorkspace((s) => s.drawExternalRev);
+  const appliedDrawRevRef = useRef(drawExternalRev);
+  useEffect(() => {
+    if (drawExternalRev === appliedDrawRevRef.current) return;
+    appliedDrawRevRef.current = drawExternalRev;
+    if (!root) return;
+    let cancelled = false;
+    ipc
+      .readPdfDraw(root, path)
+      .then((json) => {
+        if (cancelled || json === lastDiskJsonRef.current) return;
+        const disk = parseDrawDoc(json);
+        lastDiskJsonRef.current = json;
+        if (!dirtyRef.current) {
+          docRef.current = disk;
+          undoRef.current = [];
+          redoRef.current = [];
+          setCanRedo(false);
+          setSelection(null);
+          setShapeCount(countShapes(docRef.current));
+          bumpRevision();
+        } else {
+          docRef.current = mergeDrawDocs(docRef.current, disk);
+          setShapeCount(countShapes(docRef.current));
+          bumpRevision();
+          scheduleSave();
+        }
+      })
+      .catch(() => {
+        // 사이드카가 사라졌을 수 있다(원격 삭제 등) — 로컬 문서는 유지한다.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drawExternalRev, root, path, bumpRevision, scheduleSave]);
 
   // ---- 변경 연산 ----
   // 새 사용자 변경 직전에 호출 → undo 스택에 스냅샷을 쌓고 redo 스택은 무효화한다.
