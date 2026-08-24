@@ -150,4 +150,43 @@ describe("sync store (mock ipc)", () => {
     await useSync.getState().logout();
     expect(useSync.getState().login).toBeNull();
   });
+
+  it("refreshStatus: conflict 상태에서 폴링이 상태를 덮어쓰지 않음", async () => {
+    mockSyncControl.login = "mock-user";
+    mockSyncControl.hasRemote = true;
+    mockSyncControl.conflictOnNextSync = true;
+
+    await useSync.getState().syncNow(ROOT);
+    expect(useSync.getState().status?.state).toBe("conflict");
+
+    useSync.getState().conflictPreview = [
+      { path: "README.md", mine: "내 내용", theirs: "원격 내용" },
+    ];
+
+    vi.spyOn(ipc, "syncStatus").mockResolvedValue({
+      state: "pending",
+      ahead: 0,
+      behind: 0,
+      conflictFiles: [],
+    });
+
+    await useSync.getState().refreshStatus(ROOT);
+    expect(useSync.getState().status?.state).toBe("conflict");
+    expect(useSync.getState().conflictPreview).toHaveLength(1);
+  });
+
+  it("refreshStatus: conflict 해소 후에는 상태 업데이트됨", async () => {
+    mockSyncControl.login = "mock-user";
+    mockSyncControl.hasRemote = true;
+
+    vi.spyOn(ipc, "syncStatus").mockResolvedValue({
+      state: "synced",
+      ahead: 0,
+      behind: 0,
+      conflictFiles: [],
+    });
+
+    await useSync.getState().refreshStatus(ROOT);
+    expect(useSync.getState().status?.state).toBe("synced");
+  });
 });

@@ -205,6 +205,29 @@ impl SshSession {
         runtime().block_on(self.exec_async(command))
     }
 
+    /// exec에 상한 시간을 건다. 초과하면 에러를 반환하고 원격 프로세스는
+    /// 세션 채널이 닫히며 정리된다 — 로컬 run_command의 kill과 달리 즉시
+    /// 종료를 보장하진 않지만, 호출자가 무한히 매달리는 것은 막는다.
+    pub fn exec_with_timeout(
+        &self,
+        command: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(bool, Vec<u8>, Vec<u8>), SshError> {
+        runtime().block_on(async {
+            match timeout {
+                Some(dur) => tokio::time::timeout(dur, self.exec_async(command))
+                    .await
+                    .map_err(|_| {
+                        SshError::Sftp(format!(
+                            "원격 명령이 {}초 안에 끝나지 않았습니다",
+                            dur.as_secs()
+                        ))
+                    })?,
+                None => self.exec_async(command).await,
+            }
+        })
+    }
+
     async fn exec_async(&self, command: &str) -> Result<(bool, Vec<u8>, Vec<u8>), SshError> {
         use russh::ChannelMsg;
         let mut channel = self

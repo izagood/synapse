@@ -131,6 +131,17 @@ fn network_timeout_for(args: &[&str]) -> Option<Duration> {
     }
 }
 
+const SSH_EXEC_TIMEOUT_SECS: u64 = 300;
+
+fn remote_timeout_for(args: &[&str]) -> Option<Duration> {
+    match args.first().copied() {
+        Some("fetch") | Some("push") | Some("clone") | Some("ls-remote") => {
+            Some(Duration::from_secs(SSH_EXEC_TIMEOUT_SECS))
+        }
+        _ => Some(Duration::from_secs(60)),
+    }
+}
+
 /// Windows에서 GUI 앱(`windows_subsystem = "windows"`)이 콘솔 자식 프로세스
 /// (`git` 등)를 spawn할 때마다 콘솔 창이 깜빡이는 것을 막는다.
 /// `CREATE_NO_WINDOW`(0x0800_0000). 다른 OS에선 콘솔 창 개념이 없어 무동작.
@@ -304,6 +315,9 @@ impl GitWorkspace {
             GitExec::Remote(session) => {
                 // 원격 git은 원격 호스트의 자격증명(원격 ~/.ssh·credential helper)을
                 // 쓴다. 로컬 GitHub 토큰(auth_header)은 원격에 전달하지 않는다.
+                // 로컬 경로의 network_timeout과 대칭으로 원격 exec에도 상한을 건다
+                // (M10) — 무한 대기하면 프론트 워치독만 발화하고 백엔드가 매달린다.
+                let timeout = remote_timeout_for(args);
                 let envs = [
                     ("GIT_EDITOR", "true"),
                     ("GIT_TERMINAL_PROMPT", "0"),
@@ -311,8 +325,14 @@ impl GitWorkspace {
                 ];
                 let root = self.root.to_string_lossy();
                 let command = crate::ssh::remote_git_command(&root, &envs, args);
-                let (ok, stdout, stderr) = session.exec(&command).map_err(|e| e.to_string())?;
-                Ok((ok, stdout, String::from_utf8_lossy(&stderr).into_owned()))
+                let result = session
+                    .exec_with_timeout(&command, timeout)
+                    .map_err(|e| e.to_string())?;
+                Ok((
+                    result.0,
+                    result.1,
+                    String::from_utf8_lossy(&result.2).into_owned(),
+                ))
             }
         }
     }
@@ -505,22 +525,30 @@ impl GitWorkspace {
                     let (_, behind) = self.ahead_behind()?;
                     if behind > 0 {
                         let (ok, _, merge_err) = self.run(&["merge", "--no-edit", &upstream])?;
-                        if !ok && self.auto_resolve_merge().is_err() {
+                        if !ok {
                             let files = self.conflicted_files()?;
-                            let _ = self.run(&["merge", "--abort"]);
-                            if files.is_empty() {
-                                // merge가 시작조차 못 한 경우(미추적 파일 덮어쓰기
-                                // 등) — 빈 충돌 목록으로 오도하지 말고 git의 원인을
-                                // 그대로 알린다
-                                return Err(format!("git merge 실패: {}", merge_err.trim()));
+                            if self.auto_resolve_merge().is_err() {
+                                let Ok((abort_ok, _, abort_err)) = self.run(&["merge", "--abort"])
+                                else {
+                                    return Err("병합 충돌 자동 해소 실패 + abort 실패".to_string());
+                                };
+                                if !abort_ok {
+                                    return Err(format!(
+                                        "병합 충돌 자동 해소 실패 + abort 실패: {}",
+                                        abort_err.trim()
+                                    ));
+                                }
+                                if files.is_empty() {
+                                    return Err(format!("git merge 실패: {}", merge_err.trim()));
+                                }
+                                return Ok(SyncStatus {
+                                    state: SyncState::Conflict,
+                                    ahead: 0,
+                                    behind,
+                                    conflict_files: files,
+                                    message: None,
+                                });
                             }
-                            return Ok(SyncStatus {
-                                state: SyncState::Conflict,
-                                ahead: 0,
-                                behind,
-                                conflict_files: files,
-                                message: None,
-                            });
                         }
                     }
                 }
@@ -764,9 +792,13 @@ impl GitWorkspace {
     /// 완결한다. 텍스트는 문자 단위 3-way 병합(양쪽 편집 보존), 바이너리와
     /// `.synapse/draw/` 주석 사이드카는 양쪽 보존(theirs가 원래 이름, ours는
     /// conflict 사본), 그 밖의 `.synapse/`(레거시)는 삭제로 해소한다.
-    /// 자동 해소 대상이 아니면(삭제/수정) Err — 호출자가 abort 후 Conflict로
-    /// 보고한다(3택 UI 폴백).
+    /// 자동 해소 대상이 아닌 파일(삭제/수정)이 하나라도 있으면 Err — 호출자가
+    /// abort 후 Conflict로 보고하거나(sync), 남은 충돌에만 3택을 적용한다
+    /// (resolve_conflicts). 단 fail-fast가 아니라 **해소 가능한 파일은 전부
+    /// 해소한 뒤** Err를 반환한다 — 첫 삭제/수정에서 중단하면 정렬상 뒤의
+    /// 텍스트 충돌이 3택 take_side로 넘어가 사용자 편집을 잃는다(H12).
     fn auto_resolve_merge(&self) -> GitResult<()> {
+        let mut unresolvable: Vec<String> = Vec::new();
         let data_prefix = format!("{DATA_DIR}/");
         let draw_prefix = format!("{DATA_DIR}/draw/");
         for path in self.conflicted_files()? {
@@ -807,9 +839,16 @@ impl GitWorkspace {
                         self.keep_both(&path, &o, &t)?;
                     }
                 },
-                // 삭제/수정 충돌은 자동 해결하지 않는다 → 3택 UI로 폴백
-                _ => return Err(format!("삭제/수정 충돌은 자동 해결하지 않습니다: {path}")),
+                // 삭제/수정 충돌은 자동 해결하지 않는다 → 3택 UI로 폴백.
+                // 여기서 바로 반환하지 않고 나머지 파일을 계속 해소한다.
+                _ => unresolvable.push(path),
             }
+        }
+        if !unresolvable.is_empty() {
+            return Err(format!(
+                "삭제/수정 충돌은 자동 해결하지 않습니다: {}",
+                unresolvable.join(", ")
+            ));
         }
         self.commit_merge()
     }
@@ -935,13 +974,29 @@ impl GitWorkspace {
                     if !ok {
                         let files = self.conflicted_files()?;
                         if files.is_empty() {
-                            // merge가 시작조차 못 함(미추적 파일 덮어쓰기 등) —
-                            // sync와 동일하게 abort 후 원인을 그대로 알린다
-                            let _ = self.run(&["merge", "--abort"]);
+                            let Ok((abort_ok, _, abort_err)) = self.run(&["merge", "--abort"])
+                            else {
+                                return Err("병합 충돌 해결 실패: merge abort 실패".to_string());
+                            };
+                            if !abort_ok {
+                                return Err(format!(
+                                    "병합 충돌 해결 실패: merge {} + abort 실패: {}",
+                                    merge_err.trim(),
+                                    abort_err.trim()
+                                ));
+                            }
                             return Err(format!("git merge 실패: {}", merge_err.trim()));
                         }
-                        self.apply_choice(choice, &files)?;
-                        self.commit_merge()?;
+                        if self.auto_resolve_merge().is_err() {
+                            // auto_resolve가 이미 해소·스테이징한 파일은 conflict
+                            // stage가 비워져 있다 — 원래 목록(files)에 3택을 적용하면
+                            // stage_bytes가 (None, None)을 돌려줘 take_side(None)=rm,
+                            // 즉 자동 병합된 파일이 삭제된다. 반드시 **아직 충돌로
+                            // 남은 파일**에만 적용한다.
+                            let remaining = self.conflicted_files()?;
+                            self.apply_choice(choice, &remaining)?;
+                            self.commit_merge()?;
+                        }
                     }
                     // ok면 fast-forward이거나 충돌 없이 병합됨 — 해소할 것이 없다
                 }
@@ -1319,82 +1374,67 @@ mod tests {
     }
 
     #[test]
-    fn resolve_keep_mine_wins_on_remote() {
-        let (tmp, remote, ws_a) = setup();
-        let git_a = GitWorkspace::new(&ws_a, None);
-        write(&ws_a, "shared.md", "기준");
-        git_a
-            .publish(&remote.display().to_string(), "init")
-            .unwrap();
+    fn resolve_keep_mine_wins_on_delete_modify_conflict() {
+        // 삭제/수정 충돌은 auto_resolve_merge가 실패하므로 3택이 적용된다
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "shared.md", "기준");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
 
-        let ws_b = tmp.path().join("clone-b");
-        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
-        let git_b = GitWorkspace::new(&ws_b, None);
-
-        write(&ws_a, "shared.md", "A의 수정");
-        git_a.sync("A").unwrap();
-        // B를 갈라진 로컬 커밋으로 둔다 (resolve_conflicts가 자체 fetch+rebase 한다)
-        write(&ws_b, "shared.md", "B의 수정");
-        git_b.commit_all("B").unwrap();
+        // A: 수정, B: 삭제 -> 삭제/수정 충돌
+        write(&a, "shared.md", "A의 수정");
+        ws(&a).sync("a").unwrap();
+        fs::remove_file(b.join("shared.md")).unwrap();
+        ws(&b).commit_all("b 로컬 삭제").unwrap();
 
         assert_eq!(
-            git_b
+            ws(&b)
                 .resolve_conflicts(ConflictChoice::KeepMine)
                 .unwrap()
                 .state,
             SyncState::Synced
         );
-        git_a.sync("A pull").unwrap();
-        assert_eq!(read(&ws_a, "shared.md"), "B의 수정");
+        // KeepMine: 내 삭제 유지
+        assert!(!b.join("shared.md").exists());
     }
 
     #[test]
-    fn resolve_keep_remote_discards_mine() {
-        let (tmp, remote, ws_a) = setup();
-        let git_a = GitWorkspace::new(&ws_a, None);
-        write(&ws_a, "shared.md", "기준");
-        git_a
-            .publish(&remote.display().to_string(), "init")
+    fn resolve_keep_remote_on_delete_modify_conflict() {
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "shared.md", "기준");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+
+        write(&a, "shared.md", "A의 수정");
+        ws(&a).sync("a").unwrap();
+        fs::remove_file(b.join("shared.md")).unwrap();
+        ws(&b).commit_all("b 로컬 삭제").unwrap();
+
+        ws(&b)
+            .resolve_conflicts(ConflictChoice::KeepRemote)
             .unwrap();
-
-        let ws_b = tmp.path().join("clone-b");
-        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
-        let git_b = GitWorkspace::new(&ws_b, None);
-
-        write(&ws_a, "shared.md", "A의 수정");
-        git_a.sync("A").unwrap();
-        write(&ws_b, "shared.md", "B의 수정");
-        git_b.commit_all("B").unwrap();
-
-        git_b.resolve_conflicts(ConflictChoice::KeepRemote).unwrap();
-        assert_eq!(read(&ws_b, "shared.md"), "A의 수정");
+        // KeepRemote: 원격 수정본이 살아남
+        assert_eq!(read(&b, "shared.md"), "A의 수정");
     }
 
     #[test]
-    fn resolve_keep_both_preserves_local_as_conflict_copy() {
-        let (tmp, remote, ws_a) = setup();
-        let git_a = GitWorkspace::new(&ws_a, None);
-        write(&ws_a, "shared.md", "기준");
-        git_a
-            .publish(&remote.display().to_string(), "init")
-            .unwrap();
+    fn resolve_keep_both_on_delete_modify_conflict() {
+        // 삭제/수정 충돌은 auto_resolve_merge가 실패하므로 3택이 적용된다
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "shared.md", "기준");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
 
-        let ws_b = tmp.path().join("clone-b");
-        GitWorkspace::clone(&remote.display().to_string(), &ws_b, None).unwrap();
-        let git_b = GitWorkspace::new(&ws_b, None);
+        // A: 수정, B: 삭제 -> 삭제/수정 충돌
+        write(&a, "shared.md", "A의 수정");
+        ws(&a).sync("a").unwrap();
+        fs::remove_file(b.join("shared.md")).unwrap();
+        ws(&b).commit_all("b 로컬 삭제").unwrap();
 
-        write(&ws_a, "shared.md", "A의 수정");
-        git_a.sync("A").unwrap();
-        write(&ws_b, "shared.md", "B의 수정");
-        git_b.commit_all("B").unwrap();
-
-        git_b.resolve_conflicts(ConflictChoice::KeepBoth).unwrap();
-        assert_eq!(read(&ws_b, "shared.md"), "A의 수정");
-        assert_eq!(read(&ws_b, "shared (conflict).md"), "B의 수정");
-
-        // 사본까지 원격에 반영되어 A에서도 보인다
-        git_a.sync("A pull").unwrap();
-        assert_eq!(read(&ws_a, "shared (conflict).md"), "B의 수정");
+        let st = ws(&b).resolve_conflicts(ConflictChoice::KeepBoth).unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+        // KeepBoth: 원격 수정이 원래 이름, 로컬 삭제로 사본 만들 파일이 없음
+        assert_eq!(read(&b, "shared.md"), "A의 수정");
     }
 
     // 삭제/수정 충돌은 이 브랜치에서 sync가 Conflict로 보고하는 유일한 종류다
@@ -2041,5 +2081,46 @@ mod tests {
         write(plain.path(), "note.md", "x");
         let git2 = GitWorkspace::new(plain.path(), None);
         assert!(git2.file_history("note.md").unwrap().is_empty());
+    }
+
+    // ----------------------------------------------------------------
+    // 혼합 충돌: 텍스트 충돌 자동 해소 + 삭제/수정 충돌 3택 (H12)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn mixed_conflict_auto_merges_text_and_applies_choice_to_delete_only() {
+        // H12의 핵심 시나리오: 텍스트 충돌(a-text.md, 정렬상 앞)과 삭제/수정
+        // 충돌(z-del.md, 정렬상 뒤)이 한 병합에 섞였을 때 —
+        //  · 텍스트 충돌은 자동 병합돼 양쪽 편집이 보존되고 (3택 대상이 아님)
+        //  · 3택(KeepRemote)은 삭제/수정 충돌에만 적용된다.
+        // 회귀 방지 2종: ① 3택이 텍스트 파일까지 원격본으로 대체(원래 H12),
+        // ② 스테이징이 끝난 파일에 3택이 겹쳐 take_side(None)=rm으로
+        //   자동 병합본이 삭제되는 경우(리뷰에서 발견).
+        let (_tmp, a, b) = setup_two_clones();
+        write(&a, "a-text.md", "기준");
+        write(&a, "z-del.md", "기준");
+        ws(&a).sync("init").unwrap();
+        ws(&b).sync("pull").unwrap();
+
+        write(&a, "a-text.md", "기준 그리고 A의 추가");
+        write(&a, "z-del.md", "A의 수정");
+        ws(&a).sync("a").unwrap();
+        write(&b, "a-text.md", "B의 추가 그리고 기준");
+        fs::remove_file(b.join("z-del.md")).unwrap();
+        ws(&b).commit_all("b: 텍스트 수정 + 삭제").unwrap();
+
+        let st = ws(&b)
+            .resolve_conflicts(ConflictChoice::KeepRemote)
+            .unwrap();
+        assert_eq!(st.state, SyncState::Synced);
+
+        // 텍스트 충돌: 자동 병합 — 파일이 살아 있고 양쪽 편집이 모두 남는다
+        let merged = read(&b, "a-text.md");
+        assert!(
+            merged.contains("A의 추가") && merged.contains("B의 추가"),
+            "양쪽 편집이 보존되어야 함: {merged}"
+        );
+        // 삭제/수정 충돌: KeepRemote → 원격 수정본 복원
+        assert_eq!(read(&b, "z-del.md"), "A의 수정");
     }
 }
