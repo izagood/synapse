@@ -98,6 +98,12 @@ pub async fn write_file(
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
     crate::sync::run_blocking(move || {
+        // 워킹트리를 만지는 쓰기는 전부 workspace_write_lock으로 직렬화한다
+        // (fs_io 주석의 불변식). 이 락 없이는 sync의 자가 치유 reset --hard와
+        // 경합해 방금 쓴 파일이 커밋도 안 된 채 HEAD로 되돌려질 수 있다(감사 M2).
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_writable_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
@@ -158,6 +164,10 @@ pub async fn write_pdf_draw(
     let root_path = fs_path(&root_loc);
     let pdf = fs_path(&pdf_loc);
     crate::sync::run_blocking(move || {
+        // write_file과 같은 이유로 워킹트리 쓰기 락을 잡는다(감사 M2).
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let sidecar = synapse_core::pdf_draw_sidecar_path(&*backend, &root_path, &pdf)
             .map_err(|e| e.to_string())?;
         // ensure_writable_within이 부모를 canonicalize하므로 디렉토리를 먼저 만든다.
@@ -418,6 +428,10 @@ pub async fn write_binary_unique(
     let dir_path = fs_path(&dir_loc);
     let bytes = synapse_core::fs_io::base64_decode(&data_base64)?;
     crate::sync::run_blocking(move || {
+        // write_file과 같은 이유로 워킹트리 쓰기 락을 잡는다(감사 M2).
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let dir = backend
             .ensure_within(&root_path, &dir_path)
             .map_err(|e| e.to_string())?;
