@@ -823,3 +823,79 @@ describe("파일 생성의 유일성 보장 (무결성 감사 M5)", () => {
   });
 
 });
+
+describe("M7: 다중 창 경로 변경 반영", () => {
+  beforeEach(async () => {
+    mockSessionControl.states.clear();
+    mockSessionControl.lastWorkspace = null;
+    useWorkspace.getState().closeWorkspace();
+    await useWorkspace.getState().openFolder(MOCK_ROOT);
+  });
+
+  it("다른 창의 rename을 받으면 탭·문서 경로가 재매핑되고 dirty 내용이 유지된다", async () => {
+    const node = findNode("README.md");
+    await useWorkspace.getState().openFile(node);
+    const from = node.path;
+    const to = `${MOCK_ROOT}/renamed.md`;
+    useWorkspace.getState().updateContent(from, "미저장 편집");
+
+    useWorkspace.getState().applyExternalPathChange({
+      kind: "rename",
+      from,
+      to,
+      root: MOCK_ROOT,
+    });
+
+    const s = useWorkspace.getState();
+    expect(s.docs[from]).toBeUndefined();
+    expect(s.docs[to]?.content).toBe("미저장 편집"); // 편집이 살아 있어야 한다
+    expect(s.tabs.some((t) => t.path === to)).toBe(true);
+    expect(s.tabs.some((t) => t.path === from)).toBe(false);
+    expect(s.activePath).toBe(to);
+  });
+
+  it("폴더 move면 그 아래 열린 문서들도 함께 재매핑된다", async () => {
+    const node = findNode("README.md");
+    await useWorkspace.getState().openFile(node);
+    const rel = node.path.slice(MOCK_ROOT.length);
+    useWorkspace.getState().applyExternalPathChange({
+      kind: "move",
+      from: MOCK_ROOT,
+      to: "/moved/notes",
+      root: MOCK_ROOT,
+    });
+    expect(useWorkspace.getState().docs[`/moved/notes${rel}`]).toBeDefined();
+  });
+
+  it("다른 창의 delete를 받으면 저장하지 않고 탭을 닫는다(파일 부활 방지)", async () => {
+    const node = findNode("README.md");
+    await useWorkspace.getState().openFile(node);
+    useWorkspace.getState().updateContent(node.path, "지워질 편집");
+    const saveSpy = vi.spyOn(ipc, "saveDoc");
+
+    useWorkspace.getState().applyExternalPathChange({
+      kind: "delete",
+      from: node.path,
+      to: null,
+      root: MOCK_ROOT,
+    });
+
+    expect(useWorkspace.getState().docs[node.path]).toBeUndefined();
+    expect(useWorkspace.getState().tabs.some((t) => t.path === node.path)).toBe(false);
+    expect(saveSpy).not.toHaveBeenCalled(); // 지워진 파일을 되살리면 안 된다
+  });
+
+  it("이 창과 무관한 경로면 아무것도 하지 않는다(조작한 창 자신의 이벤트 포함)", async () => {
+    const node = findNode("README.md");
+    await useWorkspace.getState().openFile(node);
+    const before = useWorkspace.getState().tabs.length;
+    useWorkspace.getState().applyExternalPathChange({
+      kind: "rename",
+      from: `${MOCK_ROOT}/없는파일.md`,
+      to: `${MOCK_ROOT}/다른이름.md`,
+      root: MOCK_ROOT,
+    });
+    expect(useWorkspace.getState().tabs.length).toBe(before);
+    expect(useWorkspace.getState().docs[node.path]).toBeDefined();
+  });
+});

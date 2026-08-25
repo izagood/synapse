@@ -12,6 +12,7 @@
 //! 원격(ssh://) 워크스페이스는 OS 워처로 감시할 수 없으므로 무동작이다
 //! (기존 동기화 폴링이 변경을 가져온다).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -19,7 +20,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use synapse_core::location::Location;
 use synapse_core::watch::relevant_rel_path;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{Emitter, State, WebviewWindow};
 
 const EVENT_NAME: &str = "workspace:files-changed";
 
@@ -36,38 +37,55 @@ struct WatchHandle {
     _watcher: RecommendedWatcher,
 }
 
+/// 창 라벨 → 그 창의 감시 핸들.
+///
+/// 앱 전역 슬롯 하나였을 때는 창 B가 다른 폴더를 열면 창 A의 감시가 교체되고,
+/// 창 하나가 닫히며 부른 `stop_watching`이 생존한 창의 감시까지 끊었다(감사 N11).
+/// 창마다 따로 들고, 이벤트도 그 창에만 보낸다.
 #[derive(Default)]
-pub struct WatcherState(Mutex<Option<WatchHandle>>);
+pub struct WatcherState(Mutex<HashMap<String, WatchHandle>>);
 
-/// 워크스페이스 루트 감시를 시작한다(기존 감시는 교체). 로컬 폴더만 감시하며,
-/// 원격/파싱 실패 시 기존 감시를 정리하고 조용히 반환한다.
+impl WatcherState {
+    /// 창이 닫힐 때 그 창의 감시를 정리한다(핸들을 drop하면 OS 감시가 멈춘다).
+    pub fn drop_window(&self, label: &str) {
+        if let Ok(mut map) = self.0.lock() {
+            map.remove(label);
+        }
+    }
+}
+
+/// 이 **창**의 워크스페이스 루트 감시를 시작한다(그 창의 기존 감시는 교체).
+/// 로컬 폴더만 감시하며, 원격/파싱 실패 시 그 창의 감시만 정리하고 반환한다.
 #[tauri::command]
 pub fn start_watching(
-    app: AppHandle,
+    window: WebviewWindow,
     state: State<'_, WatcherState>,
     root: String,
 ) -> Result<(), String> {
+    let label = window.label().to_string();
     let base: PathBuf = match Location::parse(&root) {
         Ok(Location::Local(p)) => p,
-        // 원격이거나 파싱 실패 → 워처 대상 아님. 이전 감시만 정리.
+        // 원격이거나 파싱 실패 → 워처 대상 아님. 이 창의 이전 감시만 정리.
         _ => {
-            *state.0.lock().unwrap() = None;
+            state.drop_window(&label);
             return Ok(());
         }
     };
 
-    // 이미 같은 루트를 감시 중이면 그대로 둔다(중복 watch 방지).
+    // 이 창이 이미 같은 루트를 감시 중이면 그대로 둔다(중복 watch 방지).
     if state
         .0
         .lock()
         .unwrap()
-        .as_ref()
+        .get(&label)
         .is_some_and(|h| h.root == root)
     {
         return Ok(());
     }
 
-    let app_for_cb = app.clone();
+    // 이벤트는 **요청한 창에만** 보낸다. 전역 브로드캐스트였을 때는 창 A가
+    // 창 B 폴더의 변경을 받아 자기 루트 기준으로 잘못 리로드했다(N11).
+    let window_for_cb = window.clone();
     let base_for_cb = base.clone();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
@@ -84,7 +102,8 @@ pub fn start_watching(
             .filter_map(|p| relevant_rel_path(&base_for_cb, p))
             .collect();
         if !paths.is_empty() {
-            let _ = app_for_cb.emit(EVENT_NAME, FilesChanged { paths });
+            // 창이 이미 닫혔으면 조용히 무시된다.
+            let _ = window_for_cb.emit(EVENT_NAME, FilesChanged { paths });
         }
     })
     .map_err(|e| e.to_string())?;
@@ -93,16 +112,20 @@ pub fn start_watching(
         .watch(&base, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
-    *state.0.lock().unwrap() = Some(WatchHandle {
-        root,
-        _watcher: watcher,
-    });
+    state.0.lock().unwrap().insert(
+        label,
+        WatchHandle {
+            root,
+            _watcher: watcher,
+        },
+    );
     Ok(())
 }
 
-/// 감시를 중단한다(idempotent). 워크스페이스를 닫을 때 호출한다.
+/// 이 **창**의 감시를 중단한다(idempotent). 워크스페이스를 닫을 때 호출한다.
+/// 다른 창의 감시는 건드리지 않는다(N11).
 #[tauri::command]
-pub fn stop_watching(state: State<'_, WatcherState>) -> Result<(), String> {
-    *state.0.lock().unwrap() = None;
+pub fn stop_watching(window: WebviewWindow, state: State<'_, WatcherState>) -> Result<(), String> {
+    state.drop_window(window.label());
     Ok(())
 }
