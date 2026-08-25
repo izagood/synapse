@@ -6,6 +6,11 @@ export const ko = {
     loading: "불러오는 중…",
     retry: "다시 확인",
   },
+  crash: {
+    title: "문제가 발생했습니다",
+    description: "화면을 그리는 중 오류가 났습니다. 문서는 마지막 저장 상태로 안전합니다.",
+    restart: "다시 시작",
+  },
   start: {
     tagline: "AI-native notes, plain Markdown",
     gettingStarted: "시작하기",

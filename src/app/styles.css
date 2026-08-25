@@ -4034,3 +4034,41 @@ body.resizing-sidebar {
   font-style: italic;
   opacity: 0.9;
 }
+
+/* ----- 렌더 크래시 화면 (ErrorBoundary — 빈 화면 대신 원인과 복구 수단) ----- */
+.crash-screen {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.crash-screen h1 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.crash-screen p {
+  margin: 0;
+  opacity: 0.8;
+  font-size: 0.9rem;
+}
+
+.crash-detail {
+  max-width: 640px;
+  max-height: 200px;
+  overflow: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
