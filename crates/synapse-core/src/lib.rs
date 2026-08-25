@@ -59,8 +59,8 @@ pub use mcp_provision::{
 pub use merge::{merge_agent_edit, merge_three_way, save_merge};
 pub use migrate::remove_collab_dir;
 pub use paths::{
-    ensure_within, legacy_pdf_draw_sidecar, pdf_draw_sidecar_path, rel_path_within,
-    relocate_pdf_draw_sidecar,
+    ensure_within, legacy_pdf_draw_sidecar, move_pdf_draw_sidecar_to, pdf_draw_mirror_path,
+    pdf_draw_sidecar_path, rel_path_within, relocate_pdf_draw_sidecar,
 };
 pub use registry::{clear_recent, recent_workspaces, record_opened};
 pub use remote_shell::{shell_join, ssh_shell_argv};

@@ -2,9 +2,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use synapse_core::{path_to_uri, urify_tree, Backlink, FileNode, LinkGraph, Location};
-use trash;
 
 use crate::remote::{backend_for, fs_path, require_local, RemoteState};
+
+/// 삭제 시 PDF 주석 사이드카를 함께 넣는 휴지통 하위 폴더. 본 파일과 이름이
+/// 충돌하지 않도록 별도 네임스페이스에 둔다.
+const SIDECAR_TRASH_SUBDIR: &str = "__annotations__";
 
 /// 위치 문자열(로컬 경로 또는 ssh:// URI)을 [`Location`]으로 파싱한다.
 fn parse_loc(s: &str) -> Result<Location, String> {
@@ -473,7 +476,7 @@ pub async fn rename_path(
         if resolved == root_path {
             return Err("워크스페이스 루트는 이름을 바꿀 수 없습니다".to_string());
         }
-        // 주석 사이드카 동반 이동 준비 — rel은 조작 전에만 계산 가능한다(N3)
+        // 주석 사이드카 동반 이동 준비 — rel은 조작 전에만 계산 가능하다(N3)
         let was_dir = backend.metadata(&resolved).map(|m| m.is_dir).unwrap_or(false);
         let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
         let renamed = backend
@@ -562,35 +565,60 @@ pub async fn delete_path(
             return Err("워크스페이스 루트는 삭제할 수 없습니다".to_string());
         }
         let meta = backend.metadata(&resolved).map_err(|e| e.to_string())?;
+        // 주석 사이드카 rel·레거시 경로는 삭제 전에 계산해 둔다(N3)
         let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
         let legacy = (!meta.is_dir).then(|| synapse_core::legacy_pdf_draw_sidecar(&resolved));
 
+        // 휴지통은 sync로 전파되면 안 되고, 오래된 것은 스스로 비워야 한다(M6).
+        // 둘 다 best-effort — 실패해도 삭제 자체를 막지 않는다.
         let now = std::time::SystemTime::now();
-        let _ = synapse_core::purge_old_trash(&root_path, now);
-        let _ = synapse_core::ensure_trash_exclude(&root_path);
+        synapse_core::purge_old_trash(&*backend, &root_path, now);
+        let _ = synapse_core::ensure_trash_exclude(&*backend, &root_path);
 
         if is_local {
-            if meta.is_dir {
-                trash::delete(&resolved).map_err(|e| e.to_string())?;
-            } else {
-                trash::delete(&resolved).map_err(|e| e.to_string())?;
-            }
+            // 로컬은 OS 휴지통(파일·폴더 동일 API) — 사용자가 익숙한 곳에서 복구한다.
+            trash::delete(&resolved).map_err(|e| e.to_string())?;
         } else {
-            let rel_path = old_rel.ok_or("상대 경로를 구할 수 없습니다")?;
+            // 원격(SFTP)엔 OS 휴지통이 없다 — 워크스페이스 안 휴지통으로 옮긴다.
+            let rel_path = old_rel.clone().ok_or("상대 경로를 구할 수 없습니다")?;
             let trash_dest = synapse_core::trash_path_for(&root_path, &rel_path, now);
             if let Some(parent) = trash_dest.parent() {
                 backend.create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            backend.rename(&resolved, &trash_dest).map_err(|e| e.to_string())?;
+            backend
+                .rename(&resolved, &trash_dest)
+                .map_err(|e| e.to_string())?;
         }
 
+        // PDF 주석 사이드카도 함께 휴지통으로 보낸다(M6 × N3). 영구 삭제하면
+        // 휴지통에서 PDF를 되살려도 주석만 사라진다 — 같은 경로에 동명 PDF가
+        // 다시 생겼을 때 죽은 주석이 부활하지 않는다는 N3의 목적도 그대로
+        // 지켜진다(원래 위치에서는 사라지므로).
         if let Some(old_rel) = old_rel {
-            synapse_core::relocate_pdf_draw_sidecar(
-                &*backend, &root_path, &old_rel, None, meta.is_dir, false,
+            let dest = synapse_core::trash_path_for(
+                &root_path,
+                &format!("{SIDECAR_TRASH_SUBDIR}/{old_rel}"),
+                now,
+            );
+            synapse_core::move_pdf_draw_sidecar_to(
+                &*backend, &root_path, &old_rel, &dest, meta.is_dir,
             );
         }
         if let Some(legacy) = legacy {
-            let _ = backend.remove_file(&legacy);
+            if backend.metadata(&legacy).is_ok() {
+                let name = legacy.file_name().map(|n| n.to_string_lossy().into_owned());
+                if let Some(name) = name {
+                    let dest = synapse_core::trash_path_for(
+                        &root_path,
+                        &format!("{SIDECAR_TRASH_SUBDIR}/{name}"),
+                        now,
+                    );
+                    if let Some(parent) = dest.parent() {
+                        let _ = backend.create_dir_all(parent);
+                    }
+                    let _ = backend.rename(&legacy, &dest);
+                }
+            }
         }
         Ok(())
     })
