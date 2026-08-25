@@ -192,7 +192,7 @@ fn top_keywords(body_lower: &str, k: usize) -> HashSet<String> {
 }
 
 /// 내용을 (auto 블록 밖, auto 블록 안)으로 나눈다.
-/// 모든 auto-links 블록을 "안쪽"으로 취급한다(L9-1候选人 억제 버그 수정).
+/// 모든 auto-links 블록을 "안쪽"으로 취급한다(L9-1: 두 번째 블록의 링크가 후보를 잘못 억제하던 버그 수정).
 fn split_auto_block(content: &str) -> (String, String) {
     let lines: Vec<&str> = content.split_inclusive('\n').collect();
     let scan = scan_auto_block(&lines);
@@ -791,6 +791,59 @@ mod tests {
         let scan = scan_auto_block(&lines);
         assert!(scan.first.is_none(), "펜스 안 마커가 블록으로 잡히면 안 됨");
         assert!(!scan.unterminated);
+    }
+
+    #[test]
+    fn l9_all_auto_blocks_count_as_inside() {
+        // 중복 블록이 있으면 두 번째 블록의 링크가 "사람이 쓴 링크"로 계산돼
+        // 후보를 잘못 억제했다(L9-1). 모든 블록이 안쪽으로 잡혀야 한다.
+        let body = format!(
+            "본문\n\n{}\n- [[a]]\n{}\n\n가운데 사람 글\n\n{}\n- [[b]]\n{}\n\n끝\n",
+            AUTO_LINKS_START, AUTO_LINKS_END, AUTO_LINKS_START, AUTO_LINKS_END
+        );
+        let (outside, inside) = split_auto_block(&body);
+        assert!(
+            inside.contains("[[a]]") && inside.contains("[[b]]"),
+            "inside={inside}"
+        );
+        assert!(
+            !outside.contains("[[a]]") && !outside.contains("[[b]]"),
+            "outside={outside}"
+        );
+        assert!(outside.contains("가운데 사람 글") && outside.contains("끝"));
+    }
+
+    #[test]
+    fn l9_block_follows_document_eol() {
+        // CRLF 문서에 LF 블록을 넣으면 EOL이 섞인다(L9-2).
+        let body = "본문\r\n\r\n둘째 줄\r\n";
+        let out = rewrite_auto_links(body, &["- [[x]]".to_string()]);
+        let added = &out.content[body.len()..];
+        assert!(added.contains("\r\n"), "CRLF 문서엔 CRLF로 삽입: {added:?}");
+        assert!(
+            !added.replace("\r\n", "").contains('\n'),
+            "LF 단독 개행이 섞이면 안 된다: {added:?}"
+        );
+    }
+
+    #[test]
+    fn l9_links_survive_odd_backticks_in_line() {
+        // 홀수 백틱 줄에서 링크를 통째로 버리면 인덱싱이 누락된다(L9-3).
+        // 짝이 맞는 코드 스팬 안은 여전히 무시해야 한다.
+        let found = crate::links::extract_links("가격은 `100 원 그리고 [[노트]] 참고\n");
+        assert!(
+            found
+                .iter()
+                .any(|(l, _)| matches!(l, crate::links::OutLink::Wiki(t) if t == "노트")),
+            "홀수 백틱 줄의 링크는 살아야 한다: {found:?}"
+        );
+        let in_code = crate::links::extract_links("`[[코드안]]` 설명\n");
+        assert!(
+            !in_code
+                .iter()
+                .any(|(l, _)| matches!(l, crate::links::OutLink::Wiki(t) if t == "코드안")),
+            "짝이 맞는 코드 스팬 안은 무시: {in_code:?}"
+        );
     }
 
     #[test]

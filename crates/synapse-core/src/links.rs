@@ -171,7 +171,7 @@ fn links_in_line(line: &str) -> Vec<OutLink> {
     let n = chars.len();
     while i < n {
         let c = chars[i];
-        // 인라인 코드 시작: 연속 백틱计数. 맞는 페어 있으면 건너뛰고, 없으면 그냥 문자.
+        // 인라인 코드 시작: 연속 백틱 개수를 센다. 맞는 페어 있으면 건너뛰고, 없으면 그냥 문자.
         if c == '`' {
             let mut j = i + 1;
             while j < n && chars[j] == '`' && j < i + 10 {
