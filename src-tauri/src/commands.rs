@@ -5,6 +5,10 @@ use synapse_core::{path_to_uri, urify_tree, Backlink, FileNode, LinkGraph, Locat
 
 use crate::remote::{backend_for, fs_path, require_local, RemoteState};
 
+/// 삭제 시 PDF 주석 사이드카를 함께 넣는 휴지통 하위 폴더. 본 파일과 이름이
+/// 충돌하지 않도록 별도 네임스페이스에 둔다.
+const SIDECAR_TRASH_SUBDIR: &str = "__annotations__";
+
 /// 위치 문자열(로컬 경로 또는 ssh:// URI)을 [`Location`]으로 파싱한다.
 fn parse_loc(s: &str) -> Result<Location, String> {
     Location::parse(s).map_err(|e| e.to_string())
@@ -276,6 +280,9 @@ pub async fn create_note(
     let root_path = fs_path(&root_loc);
     let dir_path = fs_path(&dir_loc);
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &dir_path)
             .map_err(|e| e.to_string())?;
@@ -299,6 +306,9 @@ pub async fn create_folder(
     let root_path = fs_path(&root_loc);
     let dir_path = fs_path(&dir_loc);
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &dir_path)
             .map_err(|e| e.to_string())?;
@@ -455,6 +465,11 @@ pub async fn rename_path(
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
     crate::sync::run_blocking(move || {
+        // N9: 워킹트리 쓰기 락으로 앱 내부 경합을 방지 (L3). 이 락으로
+        // rename_entry의 exists()+rename() 사이의 TOCTOU는 해결된다.
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
@@ -538,7 +553,11 @@ pub async fn delete_path(
     let backend = backend_for(&state, &root_loc)?;
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
+    let is_local = matches!(root_loc, Location::Local(_));
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
@@ -549,20 +568,57 @@ pub async fn delete_path(
         // 주석 사이드카 rel·레거시 경로는 삭제 전에 계산해 둔다(N3)
         let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
         let legacy = (!meta.is_dir).then(|| synapse_core::legacy_pdf_draw_sidecar(&resolved));
-        if meta.is_dir {
-            backend.remove_dir_all(&resolved).map_err(|e| e.to_string())?;
+
+        // 휴지통은 sync로 전파되면 안 되고, 오래된 것은 스스로 비워야 한다(M6).
+        // 둘 다 best-effort — 실패해도 삭제 자체를 막지 않는다.
+        let now = std::time::SystemTime::now();
+        synapse_core::purge_old_trash(&*backend, &root_path, now);
+        let _ = synapse_core::ensure_trash_exclude(&*backend, &root_path);
+
+        if is_local {
+            // 로컬은 OS 휴지통(파일·폴더 동일 API) — 사용자가 익숙한 곳에서 복구한다.
+            trash::delete(&resolved).map_err(|e| e.to_string())?;
         } else {
-            backend.remove_file(&resolved).map_err(|e| e.to_string())?;
+            // 원격(SFTP)엔 OS 휴지통이 없다 — 워크스페이스 안 휴지통으로 옮긴다.
+            let rel_path = old_rel.clone().ok_or("상대 경로를 구할 수 없습니다")?;
+            let trash_dest = synapse_core::trash_path_for(&root_path, &rel_path, now);
+            if let Some(parent) = trash_dest.parent() {
+                backend.create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            backend
+                .rename(&resolved, &trash_dest)
+                .map_err(|e| e.to_string())?;
         }
-        // 같은 경로에 동명 PDF가 다시 생겨도 죽은 주석이 부활하지 않도록
-        // 미러·레거시 사이드카를 함께 지운다
+
+        // PDF 주석 사이드카도 함께 휴지통으로 보낸다(M6 × N3). 영구 삭제하면
+        // 휴지통에서 PDF를 되살려도 주석만 사라진다 — 같은 경로에 동명 PDF가
+        // 다시 생겼을 때 죽은 주석이 부활하지 않는다는 N3의 목적도 그대로
+        // 지켜진다(원래 위치에서는 사라지므로).
         if let Some(old_rel) = old_rel {
-            synapse_core::relocate_pdf_draw_sidecar(
-                &*backend, &root_path, &old_rel, None, meta.is_dir, false,
+            let dest = synapse_core::trash_path_for(
+                &root_path,
+                &format!("{SIDECAR_TRASH_SUBDIR}/{old_rel}"),
+                now,
+            );
+            synapse_core::move_pdf_draw_sidecar_to(
+                &*backend, &root_path, &old_rel, &dest, meta.is_dir,
             );
         }
         if let Some(legacy) = legacy {
-            let _ = backend.remove_file(&legacy);
+            if backend.metadata(&legacy).is_ok() {
+                let name = legacy.file_name().map(|n| n.to_string_lossy().into_owned());
+                if let Some(name) = name {
+                    let dest = synapse_core::trash_path_for(
+                        &root_path,
+                        &format!("{SIDECAR_TRASH_SUBDIR}/{name}"),
+                        now,
+                    );
+                    if let Some(parent) = dest.parent() {
+                        let _ = backend.create_dir_all(parent);
+                    }
+                    let _ = backend.rename(&legacy, &dest);
+                }
+            }
         }
         Ok(())
     })
@@ -581,6 +637,9 @@ pub async fn duplicate_path(
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
@@ -621,6 +680,10 @@ pub async fn move_path(
     let src = fs_path(&path_loc);
     let dest = fs_path(&dest_loc);
     crate::sync::run_blocking(move || {
+        // N9: 워킹트리 쓰기 락으로 앱 내부 경합을 방지 (L3)
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let src = backend
             .ensure_within(&root_path, &src)
             .map_err(|e| e.to_string())?;
