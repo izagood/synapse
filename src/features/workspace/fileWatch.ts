@@ -57,12 +57,27 @@ export function installFileWatch(): () => void {
 
   let disposed = false;
   let unlistenEvent: (() => void) | null = null;
+  let unlistenPathChanged: (() => void) | null = null;
 
   // 외부 변경 이벤트 → 디바운스 후 reload
   void ipc.onFilesChanged(() => scheduler.trigger()).then((un) => {
     if (disposed) un();
     else unlistenEvent = un;
   });
+
+  // 다른 창의 파일 조작(rename/move/delete) → 이 창의 탭·문서 경로를 맞춘다.
+  // 이게 없으면 옛 경로로 자동저장이 나가 유령 파일이 생기거나, 삭제된
+  // 파일이 되살아난다(감사 M7). 이 창이 한 조작은 해당 탭이 이미 정리돼
+  // 있어 no-op이 된다.
+  void ipc
+    .onPathChanged((payload) => {
+      useWorkspace.getState().applyExternalPathChange(payload);
+      scheduler.trigger();
+    })
+    .then((un) => {
+      if (disposed) un();
+      else unlistenPathChanged = un;
+    });
 
   // 루트에 따라 워처 시작/교체/중단 (로컬만 감시)
   const syncWatcher = (root: string | null) => {
@@ -90,6 +105,7 @@ export function installFileWatch(): () => void {
     disposed = true;
     scheduler.cancel();
     unlistenEvent?.();
+    unlistenPathChanged?.();
     unsubStore();
     window.removeEventListener("focus", onFocus);
     void ipc.stopWatching().catch(() => undefined);

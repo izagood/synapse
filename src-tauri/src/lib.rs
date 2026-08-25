@@ -38,6 +38,11 @@ pub fn run() {
                 if let Some(pty) = window.try_state::<terminal::PtyState>() {
                     pty.drop_window(window.label());
                 }
+                // 그 윈도우의 파일 워처도 정리한다. 창별로 들고 있으므로
+                // 생존한 다른 창의 감시는 그대로 유지된다(감사 N11).
+                if let Some(watch) = window.try_state::<watcher::WatcherState>() {
+                    watch.drop_window(window.label());
+                }
             }
         })
         .plugin(tauri_plugin_dialog::init())

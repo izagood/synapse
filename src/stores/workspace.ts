@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { ipc, parseRemoteConnectError } from "../ipc/ipc";
-import type { FileNode, FileType, LiveStatePayload, RemoteConnectError } from "../ipc/types";
+import type {
+  FileNode,
+  FileType,
+  LiveStatePayload,
+  PathChangedPayload,
+  RemoteConnectError,
+} from "../ipc/types";
 import { ancestorDirsOf, findNode } from "../features/workspace/fileTreeUtils";
 import { isRedundantOrInvalidMove } from "../features/workspace/dndUtils";
 import { basename, dirname, fileTypeOf, isUnder } from "../shared/pathUtils";
@@ -152,6 +158,13 @@ interface WorkspaceState {
    * 저장이 다음 sync에서 자연히 합쳐진다).
    */
   reloadAfterSync(): Promise<void>;
+  /**
+   * 다른 창에서 파일이 rename/move/delete 됐을 때 이 창의 탭·문서를 맞춘다
+   * (감사 M7). 창마다 독립 store라 이 반영이 없으면 옛 경로로 자동저장이
+   * 나가 유령 파일이 생기거나 삭제된 파일이 되살아난다.
+   * 해당 경로의 탭이 없으면 no-op이라 조작한 창이 자기 이벤트를 받아도 안전하다.
+   */
+  applyExternalPathChange(change: PathChangedPayload): void;
   createNote(dir?: string): Promise<void>;
   /** dir 안에 빈 `.excalidraw` 드로잉을 만들어 연다 */
   createDrawing(dir?: string): Promise<void>;
@@ -929,6 +942,45 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       for (const d of dirs) expandedDirs[d] = true;
       return { expandedDirs };
     });
+  },
+
+  applyExternalPathChange({ kind, from, to }) {
+    const affected = Object.keys(get().docs).filter(
+      (p) => p === from || isUnder(from, p),
+    );
+    if (affected.length === 0) return; // 이 창과 무관 (조작한 창 자신 포함)
+    if (kind === "delete" || !to) {
+      // 이미 지워진 파일이다 — 저장하지 말고 버린다(저장하면 되살아난다).
+      affected.forEach((p) => get().closeTabDiscard(p));
+      return;
+    }
+    // rename/move: 경로만 갈아끼운다. dirty 내용은 유지해야 사용자 편집이
+    // 살아남고, 자동저장이 새 경로로 나간다.
+    for (const oldPath of affected) {
+      const newPath = oldPath === from ? to : to + oldPath.slice(from.length);
+      const timer = autosaveTimers.get(oldPath);
+      if (timer) {
+        clearTimeout(timer);
+        autosaveTimers.delete(oldPath);
+      }
+      set((s) => {
+        const doc = s.docs[oldPath];
+        if (!doc) return s;
+        const docs = { ...s.docs };
+        delete docs[oldPath];
+        docs[newPath] = doc;
+        const tabs = s.tabs.map((t) =>
+          t.path === oldPath ? { ...t, path: newPath, name: basename(newPath) } : t,
+        );
+        return {
+          docs,
+          tabs,
+          activePath: s.activePath === oldPath ? newPath : s.activePath,
+        };
+      });
+      // 옮겨진 문서에 대기 중이던 저장이 있으면 새 경로로 다시 건다.
+      if (isDirty(get().docs[newPath])) get().updateContent(newPath, get().docs[newPath].content);
+    }
   },
 
   closeTabDiscard(path) {

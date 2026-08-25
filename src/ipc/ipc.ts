@@ -12,6 +12,7 @@ import type {
   ConflictPreview,
   Backlink,
   FilesChangedPayload,
+  PathChangedPayload,
   LinkGraph,
   DeviceCode,
   FileCommit,
@@ -182,6 +183,8 @@ const tauriIpc: SynapseIpc = {
     listen<FilesChangedPayload>("workspace:files-changed", (e) =>
       handler(e.payload),
     ),
+  onPathChanged: (handler) =>
+    listen<PathChangedPayload>("workspace:path-changed", (e) => handler(e.payload)),
 
   appVersion: () => getVersion(),
   async checkUpdate() {
