@@ -788,6 +788,9 @@ impl GitWorkspace {
         let Ok(current) = std::str::from_utf8(current) else {
             return false; // 바이너리는 마커 출력이 아니다
         };
+        if let Some(true) = self.is_aa_conflict(path) {
+            return true; // AA 잔재 충돌은 git이 만든 마커다
+        }
         let Ok((ok, _, _)) = self.run(&["checkout", "-m", "--", path]) else {
             return false;
         };
@@ -799,6 +802,19 @@ impl GitWorkspace {
         };
         normalize_conflict_markers(current)
             == normalize_conflict_markers(&String::from_utf8_lossy(&regenerated))
+    }
+
+    /// AA(add/add) 잔재 충돌인지 판별한다.
+    /// stage 1(base)이 없으면서 stage 2(ours)와 stage 3(theirs)가 있으면 AA다.
+    fn is_aa_conflict(&self, path: &str) -> Option<bool> {
+        let base = self.stage_bytes(1, path).ok().flatten();
+        let ours = self.stage_bytes(2, path).ok().flatten();
+        let theirs = self.stage_bytes(3, path).ok().flatten();
+        if base.is_none() && ours.is_some() && theirs.is_some() {
+            Some(true)
+        } else {
+            None // 판정 불가
+        }
     }
 
     /// `capture_dirty_state` 스냅샷을 워킹트리에 그대로 되돌린다.
