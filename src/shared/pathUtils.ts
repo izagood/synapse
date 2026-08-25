@@ -49,6 +49,38 @@ export function stripExt(name: string): string {
 /** 루트 기준 상대 경로로 바꾼다. 루트 밖이면 절대 경로를 그대로 둔다. */
 export function toRelativePath(root: string, path: string): string {
   if (path === root) return ".";
-  const prefix = root.endsWith("/") ? root : `${root}/`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+  const prefix = isUnder(root, path) ? root : null;
+  if (!prefix) return path;
+  const suffix = path.slice(prefix.length);
+  return suffix.startsWith("/") || suffix.startsWith("\\")
+    ? suffix.slice(1)
+    : suffix;
+}
+
+/** 경로의 부모 디렉터리 경로를 돌려준다(구분자 없으면 빈 문자열). */
+export function parentOf(path: string): string {
+  let trimmed = path;
+  while (trimmed.length > 0 && (trimmed.endsWith("/") || trimmed.endsWith("\\"))) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  const i = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return i > 0 ? trimmed.slice(0, i) : "";
+}
+
+/**
+ * child가 parent 경로 아래에 있는지 확인한다.
+ * 경계 구분: a/b는 a의 하위가 아니고, a\\b 도 마찬가지다.
+ */
+export function isUnder(parent: string, child: string): boolean {
+  if (!parent || !child) return false;
+  const normalizedParent = parent.endsWith("/") || parent.endsWith("\\")
+    ? parent.slice(0, -1)
+    : parent;
+  if (child === normalizedParent) return true;
+  const separator = child.startsWith(normalizedParent + "/")
+    ? "/"
+    : child.startsWith(normalizedParent + "\\")
+      ? "\\"
+      : null;
+  return separator !== null;
 }
