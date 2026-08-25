@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, dirname, fileTypeOf, stripExt, toRelativePath } from "./pathUtils";
+import { basename, dirname, fileTypeOf, isUnder, parentOf, stripExt, toRelativePath } from "./pathUtils";
 
 describe("fileTypeOf", () => {
   it("마크다운 확장자를 분류한다", () => {
@@ -87,5 +87,50 @@ describe("toRelativePath", () => {
   });
   it("끝에 슬래시가 있는 루트도 처리한다", () => {
     expect(toRelativePath("/root/", "/root/a.md")).toBe("a.md");
+  });
+  it("Windows 백슬래시도 처리한다", () => {
+    expect(toRelativePath("C:\\Users\\test", "C:\\Users\\test\\doc.md")).toBe("doc.md");
+  });
+});
+
+describe("parentOf", () => {
+  it("부모 디렉터리를 돌려준다", () => {
+    expect(parentOf("/a/b/c.md")).toBe("/a/b");
+    expect(parentOf("a/b/c.md")).toBe("a/b");
+  });
+  it("백슬래시도 인식한다", () => {
+    expect(parentOf("a\\b\\c.md")).toBe("a\\b");
+  });
+  it("구분자가 없으면 빈 문자열", () => {
+    expect(parentOf("c.md")).toBe("");
+  });
+  it("끝에 구분자가 있으면 그 전까지", () => {
+    expect(parentOf("/a/b/")).toBe("/a");
+  });
+});
+
+describe("isUnder", () => {
+  it("하위 경로면 true", () => {
+    expect(isUnder("/root", "/root/a/b.md")).toBe(true);
+    expect(isUnder("/root", "/root/a")).toBe(true);
+  });
+  it("같은 경로도 true", () => {
+    expect(isUnder("/root", "/root")).toBe(true);
+  });
+  it("상위 경로면 false", () => {
+    expect(isUnder("/root/a", "/root")).toBe(false);
+  });
+  it("경계 구분: a/b는 a의 하위가 아니다", () => {
+    expect(isUnder("/a", "/a/b")).toBe(true);
+    expect(isUnder("/a/b", "/a/bc")).toBe(false);
+    expect(isUnder("/a/b", "/a/b/c")).toBe(true);
+  });
+  it("Windows 백슬래시도 인식한다", () => {
+    expect(isUnder("C:\\Users", "C:\\Users\\doc.md")).toBe(true);
+    expect(isUnder("C:\\Users", "C:\\Users2\\doc.md")).toBe(false);
+  });
+  it("빈 인자는 false", () => {
+    expect(isUnder("", "/root")).toBe(false);
+    expect(isUnder("/root", "")).toBe(false);
   });
 });

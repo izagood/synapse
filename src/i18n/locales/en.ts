@@ -72,6 +72,9 @@ export const en: LocaleShape<KoMessages> = {
     importHtml: "Import clipboard HTML as a note",
     refreshTree: "Refresh File Tree",
     empty: "Select a file on the left or create a new note",
+    flushFailed: "Failed to save some files: {files}",
+    externalConflictCopy: "External changes were preserved as {name}",
+    flushFailedOnClose: "Close failed: unsaved changes remain",
   },
   tabs: {
     close: "Close",
