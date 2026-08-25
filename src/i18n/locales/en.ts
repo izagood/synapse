@@ -11,6 +11,11 @@ export const en: LocaleShape<KoMessages> = {
     loading: "Loading…",
     retry: "Check again",
   },
+  crash: {
+    title: "Something went wrong",
+    description: "An error occurred while rendering. Your documents are safe as of the last save.",
+    restart: "Restart",
+  },
   start: {
     tagline: "AI-native notes, plain Markdown",
     gettingStarted: "Getting Started",

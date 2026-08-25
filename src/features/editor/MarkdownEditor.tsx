@@ -50,6 +50,13 @@ export function MarkdownEditor({ path }: { path: string }) {
   const baseline = useRef<string | null>(null);
   // 외부 머지 적용 중에는 onUpdate를 무시한다(사용자 편집으로 오인한 저장 루프 방지).
   const applyingExternal = useRef(false);
+  // 외부 리로드 카운터와 "에디터에 적용된" 카운터. onUpdate가 참조하므로 반드시
+  // useEditor 호출보다 위에 있어야 한다 — Placeholder의 viewport 플러그인이 뷰
+  // 생성 "도중" 트랜잭션을 dispatch해, 문서 끝이 문단이 아니면(TrailingNode가
+  // 빈 문단을 append) onUpdate가 이 컴포넌트 함수 실행 중간에 동기 발화한다.
+  // 아래 선언이면 TDZ ReferenceError로 React 트리 전체가 unmount된다(빈 화면).
+  const externalRev = useWorkspace((s) => s.docs[path]?.externalRev ?? 0);
+  const appliedRev = useRef(externalRev);
   // 변환 손실이 감지되면 위지윅 편집을 잠근다(읽기 전용). 배너는 닫을 수 없다 —
   // 무시하고 편집을 이어가면 손실본이 저장되므로, 알림이 아니라 상태 표시다.
   const [lossy, setLossy] = useState(false);
@@ -170,8 +177,6 @@ export function MarkdownEditor({ path }: { path: string }) {
   // sync 후 깨끗한 문서 리로드 등) 새 내용을 전체 교체로 적용하고 커서를
   // (범위 안으로) 복원한다. 라이브 머지는 없다 — 편집 중인 문서는 sync가
   // 건드리지 않고 externalStale 배지로만 알린다(워크스페이스 store 참고).
-  const externalRev = useWorkspace((s) => s.docs[path]?.externalRev ?? 0);
-  const appliedRev = useRef(externalRev);
   useEffect(() => {
     if (!editor || editor.isDestroyed || externalRev === appliedRev.current) return;
 
