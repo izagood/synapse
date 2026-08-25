@@ -67,6 +67,9 @@ export const ko = {
     importHtml: "클립보드 HTML을 노트로 가져오기",
     refreshTree: "파일 트리 새로고침",
     empty: "왼쪽에서 파일을 선택하거나 새 노트를 만드세요",
+    flushFailed: "일부 파일 저장 실패: {files}",
+    externalConflictCopy: "다른 곳에서 바뀐 내용을 {name} 으로 보존했습니다",
+    flushFailedOnClose: "닫기 실패: 저장되지 않은 변경사항이 있습니다",
   },
   tabs: {
     close: "닫기",

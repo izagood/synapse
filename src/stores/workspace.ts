@@ -3,9 +3,10 @@ import { ipc, parseRemoteConnectError } from "../ipc/ipc";
 import type { FileNode, FileType, LiveStatePayload, RemoteConnectError } from "../ipc/types";
 import { ancestorDirsOf, findNode } from "../features/workspace/fileTreeUtils";
 import { isRedundantOrInvalidMove } from "../features/workspace/dndUtils";
-import { basename, fileTypeOf } from "../shared/pathUtils";
+import { basename, dirname, fileTypeOf, isUnder } from "../shared/pathUtils";
 import { arrayBufferToBase64 } from "../shared/binary";
 import { useSettings } from "./settings";
+import { translate } from "../i18n";
 import { htmlToMarkdown } from "../features/html/htmlToMarkdown";
 import {
   htmlExportPath,
@@ -255,7 +256,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         try {
           await get().flushDirty();
         } catch (e) {
-          console.warn("openFolder: flushDirty failed, proceeding anyway", e);
+          // 폴더 전환은 막지 않되(사용자가 전환을 영구히 못 하면 곤란),
+          // 조용히 넘기지 않고 어떤 파일이 저장되지 않았는지 보여준다(O1).
+          const msg = e instanceof Error ? e.message : String(e);
+          const files = msg.replace("Failed to save: ", "");
+          console.warn("openFolder: flushDirty failed, proceeding anyway", msg);
+          const lang = useSettings.getState().settings.appearance.language;
+          set({ error: translate(lang, "workspace.flushFailed", { files }) });
         }
       }
       const tree = await ipc.listWorkspace(target);
@@ -591,18 +598,52 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       if (!root || !doc || doc.loading || doc.content === doc.savedContent) return true;
       const snapshot = doc.content;
       const isMarkdown = tabs.find((t) => t.path === path)?.fileType === "markdown";
+      let merged = snapshot;
+      // 외부 변경을 사본으로 보존했으면 그 파일명(사용자 안내용).
+      let conflictCopy: string | null = null;
       try {
         // 마크다운 저장은 base(마지막으로 본 디스크 = savedContent)를 함께 넘긴다.
         // 저장 직전 디스크가 그 base에서 갈라졌으면(외부 도구·브리지·sync 병합)
         // 백엔드가 3-way로 흡수해 미커밋 바이트를 파괴하지 않는다. 돌아온 텍스트가
         // snapshot과 다를 수 있고(병합·synapse_id strip), 그 경우 에디터에도
         // 반영해야 한다(아래 applyExternal 경로). 그 외 파일은 단순 쓰기.
-        const merged = isMarkdown
-          ? await ipc.saveDoc(root, path, snapshot, doc.savedContent)
-          : (await ipc.writeFile(root, path, snapshot), snapshot);
+        if (isMarkdown) {
+          merged = await ipc.saveDoc(root, path, snapshot, doc.savedContent);
+        } else {
+          // 비-마크다운: 저장 직전 디스크 내용을 확인해 외부 변경을 감지한다.
+          // dirty 창구에서만 확인하고, clean 문서는 리마운트로 처리한다(N4).
+          const currentDisk = await ipc.readFile(root, path);
+          if (currentDisk !== doc.savedContent && currentDisk !== doc.content) {
+            // 외부에서 변경됨 → 충돌 사본 생성. 사용자가 보고 있는 내용을 원래
+            // 이름으로 저장하고, 외부 변경을 "<이름> (conflict).<ext>"에 보존한다.
+            // 확장자는 마지막 점 이후다. stripExt는 stem을 주므로 거기에
+            // split(".").pop()을 쓰면 stem의 끝조각이 확장자로 둔갑한다
+            // (다이어그램.excalidraw -> "다이어그램 (conflict).다이어그램").
+            const baseName = basename(path);
+            const dot = baseName.lastIndexOf(".");
+            const stem = dot > 0 ? baseName.slice(0, dot) : baseName;
+            const ext = dot > 0 ? baseName.slice(dot) : "";
+            const savedPath = await createTextFileUnique(
+              root,
+              dirname(path),
+              stem + " (conflict)" + ext,
+              currentDisk,
+            );
+            conflictCopy = basename(savedPath);
+          }
+          await ipc.writeFile(root, path, snapshot);
+        }
         set((s) => {
           const current = s.docs[path];
           if (!current) return s; // 저장 중 탭이 닫힘
+          // 충돌 사본이 생겼으면 그 사실을 알린다(저장 자체는 성공이다).
+          const conflictError = conflictCopy
+            ? translate(
+                useSettings.getState().settings.appearance.language,
+                "workspace.externalConflictCopy",
+                { name: conflictCopy },
+              )
+            : null;
           if (current.content === snapshot) {
             // 저장 중 추가 입력 없음 — strip 등으로 바뀐 결과를 에디터에 반영
             return {
@@ -615,7 +656,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
                   externalRev:
                     merged === snapshot ? current.externalRev : current.externalRev + 1,
                   externalStale: false,
-                  error: null,
+                  error: conflictError,
                 },
               },
             };
@@ -627,7 +668,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
           return {
             docs: {
               ...s.docs,
-              [path]: { ...current, savedContent: snapshot, externalStale: false, error: null },
+              [path]: { ...current, savedContent: snapshot, externalStale: false, error: conflictError },
             },
           };
         });
@@ -849,11 +890,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 같은 이름의 기존 .html(사용자가 직접 만든 것 포함)을 무확인으로
       // 덮어쓰지 않도록 백엔드 유일 경로로 쓴다 — 존재하면 " 2"로 비켜 간다.
       const desired = htmlExportPath(target);
-      const slash = desired.lastIndexOf("/");
+      const slashIdx = Math.max(desired.lastIndexOf("/"), desired.lastIndexOf("\\"));
       const outPath = await createTextFileUnique(
         root,
-        desired.slice(0, slash),
-        desired.slice(slash + 1),
+        desired.slice(0, slashIdx),
+        desired.slice(slashIdx + 1),
         html,
       );
       await get().refreshTree();
@@ -915,7 +956,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     try {
       // 영향받는 열린 탭을 먼저 저장하고 닫는다 (자동 저장이 옛 경로에 쓰지 않게)
       const affected = get().tabs.filter(
-        (t) => t.path === node.path || t.path.startsWith(`${node.path}/`),
+        (t) => t.path === node.path || isUnder(node.path, t.path),
       );
       const reopen = affected.find((t) => t.path === node.path && node.kind === "file");
       for (const t of affected) {
@@ -942,7 +983,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (!root) return;
     try {
       for (const t of get().tabs.filter(
-        (t) => t.path === node.path || t.path.startsWith(`${node.path}/`),
+        (t) => t.path === node.path || isUnder(node.path, t.path),
       )) {
         get().closeTabDiscard(t.path);
       }
@@ -963,7 +1004,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       }
       const newName = await ipc.duplicatePath(root, node.path);
       await get().refreshTree();
-      const dir = node.path.slice(0, node.path.lastIndexOf("/"));
+      const dir = dirname(node.path);
       await get().openFile({
         path: `${dir}/${newName}`,
         name: newName,
@@ -985,7 +1026,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 영향받는 열린 탭을 먼저 저장·정리한다 (자동 저장이 옛 경로에 쓰지 않게).
       // 파일이면 옮긴 뒤 새 경로로 다시 연다 (renameEntry와 같은 동작).
       const affected = get().tabs.filter(
-        (t) => t.path === srcPath || t.path.startsWith(`${srcPath}/`),
+        (t) => t.path === srcPath || isUnder(srcPath, t.path),
       );
       const reopen =
         node.kind === "file" ? affected.find((t) => t.path === srcPath) : undefined;

@@ -453,6 +453,54 @@ describe("workspace store (mock ipc)", () => {
     expect(await ipc.readFile(MOCK_ROOT, b)).toContain("B 수정");
   });
 
+  it("N4: non-markdown save detects external change and creates conflict copy", async () => {
+    await useWorkspace.getState().openFile(findNode("flow.drawio"));
+    const path = useWorkspace.getState().activePath!;
+    const savedContent = useWorkspace.getState().docs[path].savedContent;
+
+    // 외부에서 파일을 수정한다 (sync나 다른 기기에서 변경됨)
+    await ipc.writeFile(MOCK_ROOT, path, `${savedContent}\n<!-- external edit -->`);
+    // 에디터에서 편집한다
+    useWorkspace.getState().updateContent(path, `${savedContent}\n<!-- editor edit -->`);
+
+    await useWorkspace.getState().saveDoc(path);
+
+    // 사용자의 편집이 원래 경로에 저장되고, 외부 변경은 conflict 사본에 보존된다
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.content).toContain("editor edit");
+    expect(doc.content).not.toContain("external edit"); // 원래 파일엔 외부 내용이 없음
+    // 충돌 사본이 생겼음을 사용자에게 알린다(문구는 i18n — 사본 이름이 들어간다)
+    expect(doc.error).toContain("(conflict).drawio");
+    // 확장자가 마지막 점 기준으로 붙어야 한다(stem 끝조각이 확장자로 둔갑하면 안 됨)
+    expect(doc.error).not.toContain("(conflict).flow");
+    // conflict 사본이 생성되었는지 확인
+    const tree = await ipc.listWorkspace(MOCK_ROOT);
+    const allFiles: string[] = [];
+    const collectFiles = (node: FileNode) => {
+      if (node.kind === "file") allFiles.push(node.path);
+      node.children?.forEach(collectFiles);
+    };
+    collectFiles(tree);
+    expect(allFiles.some((f) => f.includes("(conflict)"))).toBe(true);
+    expect(isDirty(doc)).toBe(false);
+  });
+
+  it("N4: non-markdown save without external change does not create conflict copy", async () => {
+    await useWorkspace.getState().openFile(findNode("sketch.excalidraw"));
+    const path = useWorkspace.getState().activePath!;
+    const originalContent = useWorkspace.getState().docs[path].content;
+
+    // 에디터에서 편집만 하고 외부 변경은 없음
+    useWorkspace.getState().updateContent(path, `${originalContent}\n<!-- just editor edit -->`);
+
+    await useWorkspace.getState().saveDoc(path);
+
+    // 충돌 에러가 없어야 함 (외부 변경이 없었으므로)
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.error).toBeNull();
+    expect(isDirty(doc)).toBe(false);
+  });
+
   it("H7: saveDoc serializes overlapping saves per path", async () => {
     vi.useFakeTimers();
     try {
