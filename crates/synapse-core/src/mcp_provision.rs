@@ -47,12 +47,28 @@ pub fn codex_config_snippet(sidecar_path: &str) -> String {
 ///
 /// 다른 MCP 서버 항목은 보존한다(비파괴적 병합). 이미 같은 command로 등록돼 있으면
 /// `None`을 돌려준다(쓰기 불필요). 비밀은 넣지 않는다 — 포트/토큰은 부모 env 상속.
+///
+/// 파싱할 수 없는 기존 파일이 있으면 `None`을 반환한다(덮어쓰지 않고 보존).
 pub fn merge_mcp_config(existing: Option<&str>, sidecar_path: &str) -> Option<String> {
-    let mut root: serde_json::Value = existing
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
+    let Some(existing) = existing else {
+        let mut root = serde_json::json!({});
+        let obj = root.as_object_mut().expect("object");
+        let servers = obj
+            .entry("mcpServers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers = servers.as_object_mut().expect("object");
+        servers.insert(
+            "synapse".to_string(),
+            serde_json::json!({ "command": sidecar_path, "args": [] }),
+        );
+        return Some(serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string()));
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(existing) else {
+        return None;
+    };
+    let mut root = root;
     if !root.is_object() {
-        root = serde_json::json!({});
+        return None;
     }
     let obj = root.as_object_mut().expect("object");
     let servers = obj
@@ -154,11 +170,15 @@ mod tests {
     }
 
     #[test]
-    fn merge_recovers_from_garbage_existing() {
-        // 깨진 기존 파일이면 새로 만든다(덮어쓰기).
-        let out = merge_mcp_config(Some("not json"), "/opt/synapse-mcp").unwrap();
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["mcpServers"]["synapse"]["command"], "/opt/synapse-mcp");
+    fn merge_preserves_unparseable_existing() {
+        // 파싱 불가 기존 파일은 덮어쓰지 않고 보존한다(N8 보안 정책).
+        assert!(merge_mcp_config(Some("not json"), "/opt/synapse-mcp").is_none());
+    }
+
+    #[test]
+    fn merge_preserves_jsonc_with_comments() {
+        // JSONC(주석 포함)도 파싱 실패 시 보존.
+        assert!(merge_mcp_config(Some("// comment\n{/* block */}"), "/opt/synapse-mcp").is_none());
     }
 
     #[test]

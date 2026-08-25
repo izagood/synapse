@@ -169,6 +169,13 @@ pub fn resolve_sidecar_path() -> Option<PathBuf> {
     cand.exists().then_some(cand)
 }
 
+fn write_atomic(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 /// 워크스페이스 루트에 `.mcp.json`을 병합 작성하고 `.gitignore`로 격리한다.
 /// 베스트 에포트(실패해도 앱은 정상). 로컬 워크스페이스에만 적용.
 pub fn provision_workspace_mcp(root: &str) {
@@ -184,11 +191,11 @@ pub fn provision_workspace_mcp(root: &str) {
     let mcp_path = root_path.join(".mcp.json");
     let existing = std::fs::read_to_string(&mcp_path).ok();
     if let Some(content) = synapse_core::merge_mcp_config(existing.as_deref(), &sidecar) {
-        let _ = std::fs::write(&mcp_path, content);
+        let _ = write_atomic(&mcp_path, &content);
     }
     let gi_path = root_path.join(".gitignore");
     let gi = std::fs::read_to_string(&gi_path).ok();
     if let Some(content) = synapse_core::ensure_gitignore_line(gi.as_deref(), ".mcp.json") {
-        let _ = std::fs::write(&gi_path, content);
+        let _ = write_atomic(&gi_path, &content);
     }
 }
