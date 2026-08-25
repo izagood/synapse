@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use synapse_core::{path_to_uri, urify_tree, Backlink, FileNode, LinkGraph, Location};
+use trash;
 
 use crate::remote::{backend_for, fs_path, require_local, RemoteState};
 
@@ -276,6 +277,9 @@ pub async fn create_note(
     let root_path = fs_path(&root_loc);
     let dir_path = fs_path(&dir_loc);
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &dir_path)
             .map_err(|e| e.to_string())?;
@@ -299,6 +303,9 @@ pub async fn create_folder(
     let root_path = fs_path(&root_loc);
     let dir_path = fs_path(&dir_loc);
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &dir_path)
             .map_err(|e| e.to_string())?;
@@ -455,13 +462,18 @@ pub async fn rename_path(
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
     crate::sync::run_blocking(move || {
+        // N9: 워킹트리 쓰기 락으로 앱 내부 경합을 방지 (L3). 이 락으로
+        // rename_entry의 exists()+rename() 사이의 TOCTOU는 해결된다.
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
         if resolved == root_path {
             return Err("워크스페이스 루트는 이름을 바꿀 수 없습니다".to_string());
         }
-        // 주석 사이드카 동반 이동 준비 — rel은 조작 전에만 계산 가능하다(N3)
+        // 주석 사이드카 동반 이동 준비 — rel은 조작 전에만 계산 가능한다(N3)
         let was_dir = backend.metadata(&resolved).map(|m| m.is_dir).unwrap_or(false);
         let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
         let renamed = backend
@@ -538,7 +550,11 @@ pub async fn delete_path(
     let backend = backend_for(&state, &root_loc)?;
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
+    let is_local = matches!(root_loc, Location::Local(_));
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
@@ -546,16 +562,28 @@ pub async fn delete_path(
             return Err("워크스페이스 루트는 삭제할 수 없습니다".to_string());
         }
         let meta = backend.metadata(&resolved).map_err(|e| e.to_string())?;
-        // 주석 사이드카 rel·레거시 경로는 삭제 전에 계산해 둔다(N3)
         let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
         let legacy = (!meta.is_dir).then(|| synapse_core::legacy_pdf_draw_sidecar(&resolved));
-        if meta.is_dir {
-            backend.remove_dir_all(&resolved).map_err(|e| e.to_string())?;
+
+        let now = std::time::SystemTime::now();
+        let _ = synapse_core::purge_old_trash(&root_path, now);
+        let _ = synapse_core::ensure_trash_exclude(&root_path);
+
+        if is_local {
+            if meta.is_dir {
+                trash::delete(&resolved).map_err(|e| e.to_string())?;
+            } else {
+                trash::delete(&resolved).map_err(|e| e.to_string())?;
+            }
         } else {
-            backend.remove_file(&resolved).map_err(|e| e.to_string())?;
+            let rel_path = old_rel.ok_or("상대 경로를 구할 수 없습니다")?;
+            let trash_dest = synapse_core::trash_path_for(&root_path, &rel_path, now);
+            if let Some(parent) = trash_dest.parent() {
+                backend.create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            backend.rename(&resolved, &trash_dest).map_err(|e| e.to_string())?;
         }
-        // 같은 경로에 동명 PDF가 다시 생겨도 죽은 주석이 부활하지 않도록
-        // 미러·레거시 사이드카를 함께 지운다
+
         if let Some(old_rel) = old_rel {
             synapse_core::relocate_pdf_draw_sidecar(
                 &*backend, &root_path, &old_rel, None, meta.is_dir, false,
@@ -581,6 +609,9 @@ pub async fn duplicate_path(
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
     crate::sync::run_blocking(move || {
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let resolved = backend
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
@@ -621,6 +652,10 @@ pub async fn move_path(
     let src = fs_path(&path_loc);
     let dest = fs_path(&dest_loc);
     crate::sync::run_blocking(move || {
+        // N9: 워킹트리 쓰기 락으로 앱 내부 경합을 방지 (L3)
+        let _guard = synapse_core::workspace_write_lock()
+            .lock()
+            .map_err(|_| "workspace write lock poisoned".to_string())?;
         let src = backend
             .ensure_within(&root_path, &src)
             .map_err(|e| e.to_string())?;

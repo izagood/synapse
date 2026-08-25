@@ -23,6 +23,7 @@ pub mod sftp;
 pub mod ssh;
 pub mod ssh_command;
 pub mod ssh_config;
+pub mod trash;
 pub mod tree;
 pub mod vfs;
 pub mod walk;
@@ -71,5 +72,8 @@ pub use ssh::{
 };
 pub use ssh_command::{parse_ssh_command, SshCommandError, SshInvocation};
 pub use ssh_config::{resolve_host, HostConfig};
+pub use trash::{
+    ensure_trash_exclude, purge_old_trash, should_purge_trash_dir, trash_path_for, TRASH_DIR_NAME,
+};
 pub use tree::{build_tree, FileNode, FileType, NodeKind};
 pub use vfs::{Backend, DirEntry, LocalBackend, Meta};
