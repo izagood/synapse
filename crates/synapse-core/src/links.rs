@@ -163,22 +163,45 @@ pub fn extract_links(body: &str) -> Vec<(OutLink, String)> {
 }
 
 /// 한 줄에서 위키링크와 표준 링크를 추출한다. 인라인 코드(`...`) 안은 무시.
+/// L9-3: 홀수 개 백틱 줄에서도 링크를 파싱한다(에디터 규칙과 일치).
 fn links_in_line(line: &str) -> Vec<OutLink> {
     let chars: Vec<char> = line.chars().collect();
     let mut links = Vec::new();
     let mut i = 0;
     let n = chars.len();
-    let mut in_code = false;
     while i < n {
         let c = chars[i];
+        // 인라인 코드 시작: 연속 백틱计数. 맞는 페어 있으면 건너뛰고, 없으면 그냥 문자.
         if c == '`' {
-            in_code = !in_code;
-            i += 1;
-            continue;
-        }
-        if in_code {
-            i += 1;
-            continue;
+            let mut j = i + 1;
+            while j < n && chars[j] == '`' && j < i + 10 {
+                j += 1;
+            }
+            let backtick_len = j - i;
+            let mut found_close = false;
+            let mut k = j;
+            while k + backtick_len <= n {
+                let mut match_count = 0;
+                for m in 0..backtick_len {
+                    if chars[k + m] == '`' {
+                        match_count += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if match_count == backtick_len {
+                    found_close = true;
+                    break;
+                }
+                k += 1;
+            }
+            if found_close {
+                i = k + backtick_len;
+                continue;
+            } else {
+                i += 1;
+                continue;
+            }
         }
         // 위키링크 [[ ... ]]
         if c == '[' && i + 1 < n && chars[i + 1] == '[' {
