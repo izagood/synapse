@@ -709,6 +709,9 @@ export const mockIpc: SynapseIpc = {
   async onFilesChanged() {
     return () => {};
   },
+  async onPathChanged() {
+    return () => {};
+  },
 
   async appVersion() {
     return "0.2.0-dev";

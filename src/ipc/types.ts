@@ -176,6 +176,16 @@ export interface WorkspaceSession {
 }
 
 /** workspace:files-changed 이벤트 페이로드 (외부 파일 변경 감지) */
+/** 파일 경로 변경 알림(다중 창 정합성, 감사 M7) */
+export interface PathChangedPayload {
+  kind: "rename" | "move" | "delete";
+  /** 조작 전 경로 */
+  from: string;
+  /** 조작 후 경로. delete면 null */
+  to: string | null;
+  root: string;
+}
+
 export interface FilesChangedPayload {
   /** 변경된 파일들의 워크스페이스 루트 기준 상대경로 */
   paths: string[];
@@ -499,6 +509,12 @@ export interface SynapseIpc {
   stopWatching(): Promise<void>;
   /** 외부 파일 변경 이벤트 구독. 해제 함수를 반환한다 */
   onFilesChanged(handler: (payload: FilesChangedPayload) => void): Promise<() => void>;
+  /**
+   * 다른 창(또는 이 창)에서 파일 경로가 바뀌었을 때의 이벤트 구독.
+   * 창마다 독립 store라 이 알림이 없으면 옛 경로로 자동저장이 나가
+   * 유령 파일이 생긴다(감사 M7). 해제 함수를 반환한다.
+   */
+  onPathChanged(handler: (payload: PathChangedPayload) => void): Promise<() => void>;
 
   // ---- 앱 업데이트 (F2) ----
   appVersion(): Promise<string>;

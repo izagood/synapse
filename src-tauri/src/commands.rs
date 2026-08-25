@@ -9,6 +9,44 @@ use crate::remote::{backend_for, fs_path, require_local, RemoteState};
 /// 충돌하지 않도록 별도 네임스페이스에 둔다.
 const SIDECAR_TRASH_SUBDIR: &str = "__annotations__";
 
+/// 파일 경로가 바뀌었음을 **모든 창**에 알리는 이벤트(감사 M7).
+///
+/// 창마다 독립 store라, 창 B가 파일을 옮기거나 지워도 창 A는 모른 채
+/// 옛 경로로 자동저장을 계속한다 — 유령 파일이 생기거나 저장이 실패한다.
+/// 조작을 수행한 창도 이 이벤트를 받지만, 프론트 처리는 멱등이라(해당
+/// 경로의 탭이 없으면 no-op) 중복 적용되지 않는다.
+const PATH_CHANGED_EVENT: &str = "workspace:path-changed";
+
+#[derive(serde::Serialize, Clone)]
+struct PathChanged {
+    /// "rename" | "move" | "delete"
+    kind: &'static str,
+    /// 조작 전 경로(프론트가 쓰는 URI 형식)
+    from: String,
+    /// 조작 후 경로. delete면 None.
+    to: Option<String>,
+    root: String,
+}
+
+fn emit_path_changed(
+    app: &tauri::AppHandle,
+    kind: &'static str,
+    root: &str,
+    from: String,
+    to: Option<String>,
+) {
+    use tauri::Emitter;
+    let _ = app.emit(
+        PATH_CHANGED_EVENT,
+        PathChanged {
+            kind,
+            from,
+            to,
+            root: root.to_string(),
+        },
+    );
+}
+
 /// 위치 문자열(로컬 경로 또는 ssh:// URI)을 [`Location`]으로 파싱한다.
 fn parse_loc(s: &str) -> Result<Location, String> {
     Location::parse(s).map_err(|e| e.to_string())
@@ -454,6 +492,7 @@ pub async fn write_binary_unique(
 
 #[tauri::command]
 pub async fn rename_path(
+    app: tauri::AppHandle,
     state: tauri::State<'_, RemoteState>,
     root: String,
     path: String,
@@ -464,7 +503,7 @@ pub async fn rename_path(
     let backend = backend_for(&state, &root_loc)?;
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
-    crate::sync::run_blocking(move || {
+    let out = crate::sync::run_blocking(move || {
         // N9: 워킹트리 쓰기 락으로 앱 내부 경합을 방지 (L3). 이 락으로
         // rename_entry의 exists()+rename() 사이의 TOCTOU는 해결된다.
         let _guard = synapse_core::workspace_write_lock()
@@ -477,7 +516,10 @@ pub async fn rename_path(
             return Err("워크스페이스 루트는 이름을 바꿀 수 없습니다".to_string());
         }
         // 주석 사이드카 동반 이동 준비 — rel은 조작 전에만 계산 가능하다(N3)
-        let was_dir = backend.metadata(&resolved).map(|m| m.is_dir).unwrap_or(false);
+        let was_dir = backend
+            .metadata(&resolved)
+            .map(|m| m.is_dir)
+            .unwrap_or(false);
         let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
         let renamed = backend
             .rename_entry(&resolved, &new_name)
@@ -486,7 +528,12 @@ pub async fn rename_path(
             (old_rel, backend.rel_path_within(&root_path, &renamed))
         {
             synapse_core::relocate_pdf_draw_sidecar(
-                &*backend, &root_path, &old_rel, Some(&new_rel), was_dir, false,
+                &*backend,
+                &root_path,
+                &old_rel,
+                Some(&new_rel),
+                was_dir,
+                false,
             );
         }
         if !was_dir {
@@ -500,7 +547,12 @@ pub async fn rename_path(
         }
         Ok(path_to_uri(&root_loc, &renamed.to_string_lossy()))
     })
-    .await
+    .await;
+    // 다른 창의 열린 탭이 옛 경로로 자동저장하지 않도록 알린다(M7).
+    if let Ok(new_uri) = &out {
+        emit_path_changed(&app, "rename", &root, path, Some(new_uri.clone()));
+    }
+    out
 }
 
 /// 워크스페이스 전체 텍스트 검색 (FR-1.5). 디스크 순회가 메인 스레드를 막지
@@ -544,6 +596,7 @@ pub async fn retrieve_notes(
 
 #[tauri::command]
 pub async fn delete_path(
+    app: tauri::AppHandle,
     state: tauri::State<'_, RemoteState>,
     root: String,
     path: String,
@@ -554,7 +607,7 @@ pub async fn delete_path(
     let root_path = fs_path(&root_loc);
     let cand = fs_path(&path_loc);
     let is_local = matches!(root_loc, Location::Local(_));
-    crate::sync::run_blocking(move || {
+    let out = crate::sync::run_blocking(move || {
         let _guard = synapse_core::workspace_write_lock()
             .lock()
             .map_err(|_| "workspace write lock poisoned".to_string())?;
@@ -601,7 +654,11 @@ pub async fn delete_path(
                 now,
             );
             synapse_core::move_pdf_draw_sidecar_to(
-                &*backend, &root_path, &old_rel, &dest, meta.is_dir,
+                &*backend,
+                &root_path,
+                &old_rel,
+                &dest,
+                meta.is_dir,
             );
         }
         if let Some(legacy) = legacy {
@@ -622,7 +679,12 @@ pub async fn delete_path(
         }
         Ok(())
     })
-    .await
+    .await;
+    // 삭제된 파일을 다른 창이 열어둔 채 자동저장하면 되살아난다 — 알린다(M7).
+    if out.is_ok() {
+        emit_path_changed(&app, "delete", &root, path, None);
+    }
+    out
 }
 
 #[tauri::command]
@@ -644,7 +706,9 @@ pub async fn duplicate_path(
             .ensure_within(&root_path, &cand)
             .map_err(|e| e.to_string())?;
         let old_rel = backend.rel_path_within(&root_path, &resolved).ok();
-        let new_name = backend.duplicate_file(&resolved).map_err(|e| e.to_string())?;
+        let new_name = backend
+            .duplicate_file(&resolved)
+            .map_err(|e| e.to_string())?;
         // 사본에도 주석을 복제한다(N3) — 원본 사이드카는 그대로 둔다
         if let Some(old_rel) = old_rel {
             let new_abs = resolved
@@ -653,7 +717,12 @@ pub async fn duplicate_path(
                 .unwrap_or_else(|| resolved.clone());
             if let Ok(new_rel) = backend.rel_path_within(&root_path, &new_abs) {
                 synapse_core::relocate_pdf_draw_sidecar(
-                    &*backend, &root_path, &old_rel, Some(&new_rel), false, true,
+                    &*backend,
+                    &root_path,
+                    &old_rel,
+                    Some(&new_rel),
+                    false,
+                    true,
                 );
             }
         }
@@ -667,6 +736,7 @@ pub async fn duplicate_path(
 /// (원격이면 URI로) 돌려준다.
 #[tauri::command]
 pub async fn move_path(
+    app: tauri::AppHandle,
     state: tauri::State<'_, RemoteState>,
     root: String,
     path: String,
@@ -679,7 +749,7 @@ pub async fn move_path(
     let root_path = fs_path(&root_loc);
     let src = fs_path(&path_loc);
     let dest = fs_path(&dest_loc);
-    crate::sync::run_blocking(move || {
+    let out = crate::sync::run_blocking(move || {
         // N9: 워킹트리 쓰기 락으로 앱 내부 경합을 방지 (L3)
         let _guard = synapse_core::workspace_write_lock()
             .lock()
@@ -700,11 +770,15 @@ pub async fn move_path(
         let was_dir = backend.metadata(&src).map(|m| m.is_dir).unwrap_or(false);
         let old_rel = backend.rel_path_within(&root_path, &src).ok();
         let moved = backend.move_entry(&src, &dest).map_err(|e| e.to_string())?;
-        if let (Some(old_rel), Ok(new_rel)) =
-            (old_rel, backend.rel_path_within(&root_path, &moved))
+        if let (Some(old_rel), Ok(new_rel)) = (old_rel, backend.rel_path_within(&root_path, &moved))
         {
             synapse_core::relocate_pdf_draw_sidecar(
-                &*backend, &root_path, &old_rel, Some(&new_rel), was_dir, false,
+                &*backend,
+                &root_path,
+                &old_rel,
+                Some(&new_rel),
+                was_dir,
+                false,
             );
         }
         if !was_dir {
@@ -716,7 +790,11 @@ pub async fn move_path(
         }
         Ok(path_to_uri(&root_loc, &moved.to_string_lossy()))
     })
-    .await
+    .await;
+    if let Ok(new_uri) = &out {
+        emit_path_changed(&app, "move", &root, path, Some(new_uri.clone()));
+    }
+    out
 }
 
 /// 트리 항목을 OS(Finder/탐색기)로 끌어 내보낼 때 커서에 붙는 미리보기 아이콘의
