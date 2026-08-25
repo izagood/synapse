@@ -1602,6 +1602,15 @@ body.resizing-sidebar {
   text-decoration-thickness: 2px;
 }
 
+.tiptap .wikilink {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.tiptap .wikilink:hover {
+  text-decoration-thickness: 2px;
+}
+
 .tiptap blockquote {
   border-left: 3px solid var(--border);
   margin: 0.6em 0;
