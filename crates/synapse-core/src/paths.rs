@@ -78,14 +78,7 @@ pub fn relocate_pdf_draw_sidecar(
     let Ok(root_canon) = backend.canonicalize(root) else {
         return;
     };
-    let base = root_canon.join(DATA_DIR).join("draw");
-    let mirror = |rel: &str, dir: bool| -> PathBuf {
-        if dir {
-            base.join(rel)
-        } else {
-            base.join(format!("{rel}.draw.json"))
-        }
-    };
+    let mirror = |rel: &str, dir: bool| -> PathBuf { pdf_draw_mirror_path(&root_canon, rel, dir) };
     let old = mirror(old_rel, was_dir);
     if backend.metadata(&old).is_err() {
         return; // 주석 없음 — 대부분의 파일이 여기서 끝난다
@@ -113,6 +106,39 @@ pub fn relocate_pdf_draw_sidecar(
             }
         }
     }
+}
+
+/// vault 상대 경로에 대응하는 주석 미러 경로(`.synapse/draw/<rel>[.draw.json]`).
+/// 파일이면 `.draw.json`이 붙고, 폴더면 미러 디렉토리 자체다.
+pub fn pdf_draw_mirror_path(root_canon: &Path, rel: &str, is_dir: bool) -> PathBuf {
+    let base = root_canon.join(DATA_DIR).join("draw");
+    if is_dir {
+        base.join(rel)
+    } else {
+        base.join(format!("{rel}.draw.json"))
+    }
+}
+
+/// 주석 사이드카를 임의 경로로 옮긴다(삭제 시 휴지통 이동에 쓴다).
+/// 사이드카가 없으면 no-op. best-effort — 실패해도 호출자의 조작을 막지 않는다.
+pub fn move_pdf_draw_sidecar_to(
+    backend: &dyn Backend,
+    root: &Path,
+    rel: &str,
+    dest: &Path,
+    is_dir: bool,
+) {
+    let Ok(root_canon) = backend.canonicalize(root) else {
+        return;
+    };
+    let src = pdf_draw_mirror_path(&root_canon, rel, is_dir);
+    if backend.metadata(&src).is_err() {
+        return;
+    }
+    if let Some(parent) = dest.parent() {
+        let _ = backend.create_dir_all(parent);
+    }
+    let _ = backend.rename(&src, dest);
 }
 
 #[cfg(test)]

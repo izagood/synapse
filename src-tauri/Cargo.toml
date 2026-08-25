@@ -32,6 +32,8 @@ portable-pty = "0.9"
 base64 = "0.22"
 # discovery sweep의 pid 생존 확인(kill(pid, 0))에 사용
 libc = "0.2"
+# OS 휴지통 경유 삭제 (M6)
+trash = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
