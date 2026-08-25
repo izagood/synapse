@@ -260,6 +260,8 @@ export const en: LocaleShape<KoMessages> = {
       "This document contains elements the editor may not fully preserve, such as HTML. Use source mode to avoid losing those parts. The file will not change unless you edit it.",
     lossyReadonly:
       "This document is read-only because it contains elements the editor cannot fully preserve. Edit it in source mode so the original is not damaged.",
+    legacyFrontmatterWarning:
+      "This document uses the legacy frontmatter format (a blank line after ---). Editing it in rich text can turn the YAML into a heading. Remove that blank line in source mode to fix it.",
     openSourceMode: "Edit in source mode",
     dismissWarning: "Dismiss",
     mermaidError: "Diagram error",

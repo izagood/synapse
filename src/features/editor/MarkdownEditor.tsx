@@ -3,8 +3,9 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { ipc } from "../../ipc/ipc";
 import { useWorkspace } from "../../stores/workspace";
 import { editorExtensions, getMarkdown, setImageBaseDir } from "./extensions";
-import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
+import { detectLegacyFrontmatter, joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { resolveInternalLink } from "./internalLink";
+import { resolveWikiTarget } from "./wikiLinkNavigation";
 import { insertImages, isImageFile } from "./images";
 import { FindBar } from "./FindBar";
 import { useT } from "../../i18n";
@@ -60,6 +61,7 @@ export function MarkdownEditor({ path }: { path: string }) {
   // 변환 손실이 감지되면 위지윅 편집을 잠근다(읽기 전용). 배너는 닫을 수 없다 —
   // 무시하고 편집을 이어가면 손실본이 저장되므로, 알림이 아니라 상태 표시다.
   const [lossy, setLossy] = useState(false);
+  const [legacyFrontmatter, setLegacyFrontmatter] = useState(false);
   const toggleSourceMode = useWorkspace((s) => s.toggleSourceMode);
 
   // 상대 경로 이미지 표시용 기준 디렉토리 (직렬화에는 영향 없음)
@@ -80,12 +82,29 @@ export function MarkdownEditor({ path }: { path: string }) {
       // 배너만 띄우고 편집을 허용하면 손실본이 자동저장·sync 로 디스크에 박히므로
       // 위지윅 편집을 잠근다(아래 effect 가 editable 을 반영).
       setLossy(hasRoundtripContentLoss(initial.body, baseline.current));
+      // 구 규칙 frontmatter(`---` 다음 빈 줄) 문서는 위지윅 편집 시 YAML이
+      // setext 헤딩으로 변질될 수 있다 — 감지해서 소스 모드로 유도한다.
+      setLegacyFrontmatter(detectLegacyFrontmatter(original.current).detected);
     },
     editorProps: {
-      // 링크 클릭: 외부 링크는 시스템 브라우저로, vault 내 상대 경로 링크는
-      // 해당 노트를 탭으로 연다 (커서는 CSS에서 pointer)
+      // 링크 클릭: 외부 링크는 시스템 브라우저로, vault 내 상대 경로/link는
+      // 해당 노트를 탭으로 열며, 위키링크는 stem 매칭으로 탐색한다 (커서는 CSS에서 pointer)
       handleClick(_view, _pos, event) {
-        const anchor = (event.target as HTMLElement).closest?.("a");
+        const targetEl = event.target as HTMLElement;
+        const wikiLink = targetEl.closest?.("[data-wikilink]");
+        if (wikiLink) {
+          const inner = wikiLink.getAttribute("data-inner");
+          const ws = useWorkspace.getState();
+          const hit = inner && ws.tree ? resolveWikiTarget(inner, ws.tree) : null;
+          if (hit && !hit.ambiguous) {
+            void ws.openFileAt(hit.path);
+            return true;
+          }
+          // 대상이 없거나 stem이 모호하면 이동하지 않는다. 여기서 true를
+          // 돌려주면 노드 선택·커서 이동 같은 기본 동작까지 막히므로 false.
+          return false;
+        }
+        const anchor = targetEl.closest?.("a");
         const href = anchor?.getAttribute("href");
         if (!href) return false;
         if (/^https?:\/\//i.test(href)) {
@@ -128,7 +147,19 @@ export function MarkdownEditor({ path }: { path: string }) {
     onUpdate({ editor }) {
       if (applyingExternal.current) return;
       const currentExternalRev = useWorkspace.getState().docs[path]?.externalRev ?? 0;
-      if (appliedRev.current !== currentExternalRev) return;
+      if (appliedRev.current !== currentExternalRev) {
+        // 외부 변경이 아직 에디터에 적용되지 않은 창에서 사용자가 입력했다.
+        // 이전에는 이 입력을 통째로 무시했고(F5), 뒤이은 setContent가 그
+        // 타이핑을 지웠다. 이제는 외부 적용을 포기하고(rev를 소비) 배지로
+        // 강등한 뒤 사용자 입력을 정상 반영한다 — 외부 변경은 저장 시
+        // 백엔드 3-way가 흡수하므로 소실되지 않는다(dirty 문서 정책과 동일).
+        appliedRev.current = currentExternalRev;
+        useWorkspace.setState((s) => {
+          const doc = s.docs[path];
+          if (!doc || doc.externalStale) return s;
+          return { docs: { ...s.docs, [path]: { ...doc, externalStale: true } } };
+        });
+      }
       let markdown = getMarkdown(editor);
       if (markdown === baseline.current) {
         // 편집했다가 원래대로 돌아온 경우: 원본 텍스트를 그대로 복원해
@@ -239,6 +270,24 @@ export function MarkdownEditor({ path }: { path: string }) {
           <span>⚠️ {t("editor.lossyReadonly")}</span>
           <button className="lossy-banner-action" onClick={toggleSourceMode}>
             {t("editor.openSourceMode")}
+          </button>
+        </div>
+      )}
+      {legacyFrontmatter && (
+        // 구 규칙 frontmatter 안내. 위지윅에서 자동 정규화하지 않는다 —
+        // store만 바꾸면 에디터 내용과 어긋나고, 다음 onUpdate가 에디터
+        // 기준으로 store를 되덮어 정규화가 사라진다. 소스 모드는 원문
+        // textarea라 사용자가 빈 줄 하나만 지우면 끝난다.
+        <div className="lossy-banner">
+          <span>⚠️ {t("editor.legacyFrontmatterWarning")}</span>
+          <button className="lossy-banner-action" onClick={toggleSourceMode}>
+            {t("editor.openSourceMode")}
+          </button>
+          <button
+            className="lossy-banner-action"
+            onClick={() => setLegacyFrontmatter(false)}
+          >
+            {t("editor.dismissWarning")}
           </button>
         </div>
       )}
