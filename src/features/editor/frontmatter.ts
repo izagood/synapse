@@ -28,3 +28,44 @@ export function joinFrontmatter(frontmatter: string | null, body: string): strin
   if (!frontmatter) return body;
   return `${frontmatter}\n\n${body}`;
 }
+
+const LEGACY_FRONTMATTER_RE =
+  /^---\r?\n\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+
+export interface LegacyFrontmatterResult {
+  detected: boolean;
+  normalizedText?: string;
+}
+
+export function detectLegacyFrontmatter(text: string): LegacyFrontmatterResult {
+  const match = text.match(LEGACY_FRONTMATTER_RE);
+  if (!match) return { detected: false };
+
+  const captured = match[0];
+  const lines = captured.split(/\r?\n/);
+  if (lines.length < 4) return { detected: false };
+
+  const yamlLines: string[] = [];
+  let inYaml = false;
+  for (const line of lines) {
+    if (line.trim() === "---") {
+      if (!inYaml) {
+        inYaml = true;
+        continue;
+      } else {
+        break;
+      }
+    }
+    if (inYaml && line.trim()) {
+      yamlLines.push(line);
+    }
+  }
+
+  if (yamlLines.length === 0) return { detected: false };
+
+  const yamlKeyValue = yamlLines.every((line) => /^[\w-]+:\s*/.test(line));
+  if (!yamlKeyValue) return { detected: false };
+
+  const normalized = `---\n${yamlLines.join("\n")}\n---\n${text.slice(captured.length).replace(/^\r?\n\r?\n/, "")}`;
+  return { detected: true, normalizedText: normalized };
+}
