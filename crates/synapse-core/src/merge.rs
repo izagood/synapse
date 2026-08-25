@@ -146,6 +146,169 @@ pub fn merge_three_way(base: &str, mine: &str, theirs: &str) -> String {
     if base == theirs {
         return mine.to_string();
     }
+    line_anchored_merge(base, mine, theirs)
+}
+
+/// 라인 앵커 3-way(M8). 먼저 base의 라인을 앵커로 삼아 세 텍스트를 정렬하고,
+/// **양쪽이 함께 바꾼 구간에서만** 문자 단위 병합을 돌린다.
+///
+/// 왜: 문자 단위 CRDT는 두 삽입이 "같은 내용"인지 알지 못한다. 그래서 양쪽이
+/// 같은 텍스트를 각자 삽입하면(base="A", mine="AB", theirs="ABC") 두 삽입이
+/// 모두 살아 "ABBC"류 중복이 됐다. 라인 앵커로 구간을 좁히면 중복이 구간을
+/// 넘지 못하고, 구간 단위 수렴 편집(양쪽이 같은 결과를 만든 경우)은 한 번만
+/// 반영된다. 소실 금지 계약은 그대로다 — 어느 구간에서도 한쪽 내용을 버리지
+/// 않고, 판단이 서지 않으면 기존 문자 병합에 위임한다.
+fn line_anchored_merge(base: &str, mine: &str, theirs: &str) -> String {
+    let b: Vec<&str> = base.split_inclusive('\n').collect();
+    let m: Vec<&str> = mine.split_inclusive('\n').collect();
+    let t: Vec<&str> = theirs.split_inclusive('\n').collect();
+    // 앵커가 없으면(한 줄짜리 문서 등) 나눌 것이 없다 — 기존 경로로.
+    if b.len() <= 1 || m.is_empty() || t.is_empty() {
+        return char_merge(base, mine, theirs);
+    }
+    let map_m = lcs_map(&b, &m);
+    let map_t = lcs_map(&b, &t);
+
+    let mut out = String::with_capacity(mine.len().max(theirs.len()));
+    let (mut bi, mut mi, mut ti) = (0usize, 0usize, 0usize);
+    while bi < b.len() {
+        // 두 쪽 모두 이 base 라인을 그대로 갖고 있고, 그 앞의 삽입도 없다면
+        // 앵커다 — 그대로 흘려보낸다.
+        if let (Some(mj), Some(tj)) = (map_m[bi], map_t[bi]) {
+            if mj == mi && tj == ti {
+                out.push_str(b[bi]);
+                bi += 1;
+                mi += 1;
+                ti += 1;
+                continue;
+            }
+        }
+        // 다음 공통 앵커까지를 한 구간으로 묶는다.
+        let mut nb = bi + 1;
+        while nb < b.len() {
+            if let (Some(mj), Some(tj)) = (map_m[nb], map_t[nb]) {
+                if mj >= mi && tj >= ti {
+                    break;
+                }
+            }
+            nb += 1;
+        }
+        let (nm, nt) = if nb < b.len() {
+            (map_m[nb].unwrap_or(m.len()), map_t[nb].unwrap_or(t.len()))
+        } else {
+            (m.len(), t.len())
+        };
+        let base_seg: String = b[bi..nb].concat();
+        let mine_seg: String = m[mi.min(m.len())..nm.min(m.len())].concat();
+        let theirs_seg: String = t[ti.min(t.len())..nt.min(t.len())].concat();
+        out.push_str(&merge_segment(&base_seg, &mine_seg, &theirs_seg));
+        bi = nb;
+        mi = nm.min(m.len());
+        ti = nt.min(t.len());
+    }
+    // 앵커 뒤에 남은 꼬리(양쪽이 문서 끝에 덧붙인 부분)
+    let mine_tail: String = m[mi.min(m.len())..].concat();
+    let theirs_tail: String = t[ti.min(t.len())..].concat();
+    if !mine_tail.is_empty() || !theirs_tail.is_empty() {
+        out.push_str(&merge_segment("", &mine_tail, &theirs_tail));
+    }
+    out
+}
+
+/// 한 구간의 3-way. 한쪽만 바꿨으면 그쪽을, 양쪽이 같은 결과면 한 번만,
+/// 진짜로 갈라졌으면 문자 단위 병합에 위임한다.
+fn merge_segment(base: &str, mine: &str, theirs: &str) -> String {
+    if mine == theirs {
+        return mine.to_string(); // 수렴 편집 — 한 번만 반영(중복 제거)
+    }
+    if base == mine {
+        return theirs.to_string();
+    }
+    if base == theirs {
+        return mine.to_string();
+    }
+    // 양쪽이 같은 줄을 각자 넣었으면(공통 앞/뒤 줄) 그 줄은 한 번만 내보내고
+    // 서로 다른 가운데만 병합한다. 문자 병합에 통째로 넘기면 이 공통 삽입이
+    // 두 번 남는다(M8의 "ABBC" 부류). base에도 같은 줄이 있으면 그것도 함께
+    // 떼어내 문맥이 어긋나지 않게 한다. 어느 줄도 버리지 않는다(소실 금지).
+    let mut b: Vec<&str> = base.split_inclusive('\n').collect();
+    let mut m: Vec<&str> = mine.split_inclusive('\n').collect();
+    let mut t: Vec<&str> = theirs.split_inclusive('\n').collect();
+    let mut head = String::new();
+    while !m.is_empty() && !t.is_empty() && m[0] == t[0] {
+        head.push_str(m[0]);
+        if !b.is_empty() && b[0] == m[0] {
+            b.remove(0);
+        }
+        m.remove(0);
+        t.remove(0);
+    }
+    let mut tail = String::new();
+    while !m.is_empty() && !t.is_empty() && m[m.len() - 1] == t[t.len() - 1] {
+        let line = m[m.len() - 1];
+        tail.insert_str(0, line);
+        if !b.is_empty() && b[b.len() - 1] == line {
+            b.pop();
+        }
+        m.pop();
+        t.pop();
+    }
+    if head.is_empty() && tail.is_empty() {
+        return char_merge(base, mine, theirs);
+    }
+    let (mid_b, mid_m, mid_t) = (b.concat(), m.concat(), t.concat());
+    let mid = if mid_m == mid_t {
+        mid_m
+    } else if mid_b == mid_m {
+        mid_t
+    } else if mid_b == mid_t {
+        mid_m
+    } else {
+        char_merge(&mid_b, &mid_m, &mid_t)
+    };
+    format!("{head}{mid}{tail}")
+}
+
+/// base 라인들이 `other`의 어느 라인에 대응하는지(LCS, 순서 보존·1:1).
+fn lcs_map(base: &[&str], other: &[&str]) -> Vec<Option<usize>> {
+    let (n, m) = (base.len(), other.len());
+    let mut dp = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i][j] = if base[i] == other[j] {
+                dp[i + 1][j + 1] + 1
+            } else {
+                dp[i + 1][j].max(dp[i][j + 1])
+            };
+        }
+    }
+    let mut map = vec![None; n];
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < n && j < m {
+        if base[i] == other[j] {
+            map[i] = Some(j);
+            i += 1;
+            j += 1;
+        } else if dp[i + 1][j] >= dp[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    map
+}
+
+/// 기존 문자 단위 CRDT 병합(양쪽 편집을 모두 보존한다).
+fn char_merge(base: &str, mine: &str, theirs: &str) -> String {
+    if mine == theirs {
+        return mine.to_string();
+    }
+    if base == mine {
+        return theirs.to_string();
+    }
+    if base == theirs {
+        return mine.to_string();
+    }
     let foundation = foundation_update(base);
     // 사전순으로 (a, b)를 고정해 mine/theirs 스왑에도 동일한 적용 순서가
     // 되도록 한다 (대칭·결정성 보장).
@@ -356,5 +519,80 @@ mod tests {
             save_merge(base, Some(base), content),
             "---\ntitle: t\n---\n\n수정 본문\n"
         );
+    }
+
+    // ── M8: 라인 앵커로 중복 줄이기 ──────────────────────────────────
+
+    #[test]
+    fn m8_convergent_line_insert_is_not_duplicated() {
+        // 두 기기가 같은 줄을 각자 추가하고 서로 다른 줄도 하나씩 더했다.
+        // 문자 단위 병합만 쓰면 공통 삽입("공통\n")이 두 번 남았다.
+        let base = "머리말\n\n끝\n";
+        let mine = "머리말\n공통\nA만\n\n끝\n";
+        let theirs = "머리말\n공통\nB만\n\n끝\n";
+        let out = merge_three_way(base, mine, theirs);
+        assert_eq!(
+            out.matches("공통").count(),
+            1,
+            "공통 줄이 중복되면 안 된다: {out:?}"
+        );
+        assert!(
+            out.contains("A만") && out.contains("B만"),
+            "양쪽 편집 보존: {out:?}"
+        );
+        assert!(out.contains("머리말") && out.contains("끝"));
+    }
+
+    #[test]
+    fn m8_untouched_regions_are_taken_verbatim() {
+        // 서로 다른 문단을 고쳤으면 각자 결과가 그대로 남아야 한다
+        // (구간이 분리돼 문자 병합이 개입하지 않는다).
+        let base = "1\n2\n3\n4\n5\n";
+        let mine = "1\n2 고침\n3\n4\n5\n";
+        let theirs = "1\n2\n3\n4 고침\n5\n";
+        assert_eq!(
+            merge_three_way(base, mine, theirs),
+            "1\n2 고침\n3\n4 고침\n5\n"
+        );
+    }
+
+    #[test]
+    fn m8_same_line_divergent_edit_still_preserves_both() {
+        // 같은 줄을 서로 다르게 고치면(진짜 발산) 문자 병합에 위임한다 —
+        // 결과가 어떻든 양쪽 내용이 남아야 한다(소실 금지 계약).
+        let base = "제목\n본문\n";
+        let mine = "제목\n본문 A\n";
+        let theirs = "제목\n본문 B\n";
+        let out = merge_three_way(base, mine, theirs);
+        assert!(out.contains('A') && out.contains('B'), "{out:?}");
+        assert!(out.starts_with("제목\n"));
+    }
+
+    #[test]
+    fn m8_append_only_both_sides_keeps_both() {
+        let base = "본문\n";
+        let mine = "본문\n내 꼬리\n";
+        let theirs = "본문\n네 꼬리\n";
+        let out = merge_three_way(base, mine, theirs);
+        assert!(
+            out.contains("내 꼬리") && out.contains("네 꼬리"),
+            "{out:?}"
+        );
+        assert_eq!(
+            out.matches("본문").count(),
+            1,
+            "앵커가 중복되면 안 된다: {out:?}"
+        );
+    }
+
+    #[test]
+    fn m8_stays_deterministic_and_symmetric() {
+        let base = "a\nb\nc\n";
+        let mine = "a\nb2\nc\nmine\n";
+        let theirs = "a\nb\nc2\ntheirs\n";
+        let ab = merge_three_way(base, mine, theirs);
+        let ba = merge_three_way(base, theirs, mine);
+        assert_eq!(ab, ba, "mine/theirs 스왑에 대칭이어야 한다");
+        assert_eq!(ab, merge_three_way(base, mine, theirs), "결정적이어야 한다");
     }
 }
