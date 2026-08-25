@@ -78,17 +78,19 @@ pub struct ApplyOutcome {
 /// 첫 auto-links 블록의 위치(라인 인덱스, 마커 줄 포함).
 pub(crate) struct BlockScan {
     pub first: Option<(usize, usize)>,
+    pub all: Vec<(usize, usize)>,
     pub duplicate: bool,
     pub unterminated: bool,
 }
 
-/// 코드펜스를 무시하며 첫 auto-links 블록을 찾는다. `lines`는
+/// 코드펜스를 무시하며 모든 auto-links 블록을 찾는다. `lines`는
 /// `split_inclusive('\n')` 결과(개행 보존) 기준.
 /// H2: CommonMark 호환 펜스 파싱 적용 (links::toggle_fence 재사용).
 pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
     let mut in_fence = false;
     let mut current_fence: Option<(char, usize)> = None;
     let mut first: Option<(usize, usize)> = None;
+    let mut all: Vec<(usize, usize)> = Vec::new();
     let mut duplicate = false;
     let mut unterminated = false;
     let mut i = 0;
@@ -108,7 +110,6 @@ pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
         if t == AUTO_LINKS_START {
             if first.is_some() {
                 duplicate = true;
-                break;
             }
             // 종료 마커 탐색(블록 안에도 펜스가 있을 수 있어 계속 토글)
             let mut j = i + 1;
@@ -132,13 +133,21 @@ pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
             }
             match end {
                 Some(e) => {
-                    first = Some((i, e));
+                    if first.is_none() {
+                        first = Some((i, e));
+                    }
+                    all.push((i, e));
                     i = e + 1;
                     continue;
                 }
                 None => {
                     // 종료 마커가 없으면(잘림/훼손) 블록은 기계 소유이므로 EOF까지로 간주.
-                    first = Some((i, lines.len().saturating_sub(1)));
+                    if first.is_none() {
+                        first = Some((i, lines.len().saturating_sub(1)));
+                    }
+                    if !duplicate {
+                        all.push((i, lines.len().saturating_sub(1)));
+                    }
                     unterminated = true;
                     break;
                 }
@@ -148,6 +157,7 @@ pub(crate) fn scan_auto_block(lines: &[&str]) -> BlockScan {
     }
     BlockScan {
         first,
+        all,
         duplicate,
         unterminated,
     }
@@ -182,20 +192,29 @@ fn top_keywords(body_lower: &str, k: usize) -> HashSet<String> {
 }
 
 /// 내용을 (auto 블록 밖, auto 블록 안)으로 나눈다.
+/// 모든 auto-links 블록을 "안쪽"으로 취급한다(L9-1: 두 번째 블록의 링크가 후보를 잘못 억제하던 버그 수정).
 fn split_auto_block(content: &str) -> (String, String) {
     let lines: Vec<&str> = content.split_inclusive('\n').collect();
     let scan = scan_auto_block(&lines);
-    match scan.first {
-        Some((s, e)) => {
-            let mut outside = String::new();
-            for l in lines[..s].iter().chain(lines[e + 1..].iter()) {
-                outside.push_str(l);
-            }
-            let inside: String = lines[s..=e].concat();
-            (outside, inside)
-        }
-        None => (content.to_string(), String::new()),
+    if scan.all.is_empty() {
+        return (content.to_string(), String::new());
     }
+    let mut outside = String::new();
+    let mut inside = String::new();
+    let mut last_end = 0;
+    for (s, e) in &scan.all {
+        for l in lines[last_end..*s].iter() {
+            outside.push_str(l);
+        }
+        for l in lines[*s..=*e].iter() {
+            inside.push_str(l);
+        }
+        last_end = e + 1;
+    }
+    for l in lines[last_end..].iter() {
+        outside.push_str(l);
+    }
+    (outside, inside)
 }
 
 /// 링크 목록을 대상 노트 절대 경로 집합으로 해석한다.
@@ -336,20 +355,22 @@ pub fn link_candidates(
 }
 
 /// 렌더된 목록 줄들로 블록 텍스트를 만든다. 빈 목록이면 빈 문자열(블록 제거).
-fn render_block(items: &[String]) -> String {
+/// L9-2: EOL 파라미터로 문서와 동일한 줄 endings 사용.
+fn render_block(items: &[String], eol: &str) -> String {
     if items.is_empty() {
         return String::new();
     }
     let mut s = String::new();
     s.push_str(AUTO_LINKS_START);
-    s.push('\n');
-    s.push_str("## 관련 노트\n");
+    s.push_str(eol);
+    s.push_str("## 관련 노트");
+    s.push_str(eol);
     for it in items {
         s.push_str(it);
-        s.push('\n');
+        s.push_str(eol);
     }
     s.push_str(AUTO_LINKS_END);
-    s.push('\n');
+    s.push_str(eol);
     s
 }
 
@@ -435,9 +456,19 @@ fn percent_encode_path(rel: &str) -> String {
     out
 }
 
+/// 문서의 지배적 EOL을 감지한다. CRLF가 하나라도 있으면 CRLF, 아니면 LF.
+fn dominant_eol(content: &str) -> &str {
+    if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
 /// auto-links 마커 블록만 `items`로 통째 재작성한다(멱등). 블록이 없고
 /// `items`가 있으면 파일 끝에 빈 줄 하나를 두고 추가한다. 마커 밖 바이트는
 /// 절대 바꾸지 않는다.
+/// L9-2: 문서의 지배적 EOL을 유지한다(CRLF 문서에 CRLF 블록 삽입).
 ///
 /// **H3 정책**: 종료 마커가 없는 블록은 재작성하지 않고 원본을 그대로 반환한다.
 /// 사용자의 본문이 의도치 않게 삭제되는 것을 방지한다.
@@ -454,7 +485,8 @@ pub fn rewrite_auto_links(original: &str, items: &[String]) -> RewriteOutcome {
             warnings: vec!["auto-links 종료 마커가 없어 재작성을 거부했습니다".to_string()],
         };
     }
-    let block = render_block(items);
+    let eol = dominant_eol(original);
+    let block = render_block(items, eol);
     let content = match scan.first {
         Some((s, e)) => {
             let mut out = String::with_capacity(original.len() + block.len());
@@ -477,12 +509,13 @@ pub fn rewrite_auto_links(original: &str, items: &[String]) -> RewriteOutcome {
             let mut out = String::with_capacity(original.len() + block.len() + 2);
             out.push_str(original);
             if !original.is_empty() && !original.ends_with('\n') {
-                out.push('\n');
+                out.push_str(eol);
             }
             // 이미 빈 줄(연속 개행)로 끝나면 구분 빈 줄을 또 넣지 않는다 —
             // add→remove→add를 반복해도 빈 줄이 누적되지 않게 한다.
-            if !original.trim_end().is_empty() && !original.ends_with("\n\n") {
-                out.push('\n'); // 본문과 블록 사이 빈 줄 하나
+            let double_eol = format!("{eol}{eol}");
+            if !original.trim_end().is_empty() && !original.ends_with(&double_eol) {
+                out.push_str(eol); // 본문과 블록 사이 빈 줄 하나
             }
             out.push_str(&block);
             out
@@ -758,6 +791,59 @@ mod tests {
         let scan = scan_auto_block(&lines);
         assert!(scan.first.is_none(), "펜스 안 마커가 블록으로 잡히면 안 됨");
         assert!(!scan.unterminated);
+    }
+
+    #[test]
+    fn l9_all_auto_blocks_count_as_inside() {
+        // 중복 블록이 있으면 두 번째 블록의 링크가 "사람이 쓴 링크"로 계산돼
+        // 후보를 잘못 억제했다(L9-1). 모든 블록이 안쪽으로 잡혀야 한다.
+        let body = format!(
+            "본문\n\n{}\n- [[a]]\n{}\n\n가운데 사람 글\n\n{}\n- [[b]]\n{}\n\n끝\n",
+            AUTO_LINKS_START, AUTO_LINKS_END, AUTO_LINKS_START, AUTO_LINKS_END
+        );
+        let (outside, inside) = split_auto_block(&body);
+        assert!(
+            inside.contains("[[a]]") && inside.contains("[[b]]"),
+            "inside={inside}"
+        );
+        assert!(
+            !outside.contains("[[a]]") && !outside.contains("[[b]]"),
+            "outside={outside}"
+        );
+        assert!(outside.contains("가운데 사람 글") && outside.contains("끝"));
+    }
+
+    #[test]
+    fn l9_block_follows_document_eol() {
+        // CRLF 문서에 LF 블록을 넣으면 EOL이 섞인다(L9-2).
+        let body = "본문\r\n\r\n둘째 줄\r\n";
+        let out = rewrite_auto_links(body, &["- [[x]]".to_string()]);
+        let added = &out.content[body.len()..];
+        assert!(added.contains("\r\n"), "CRLF 문서엔 CRLF로 삽입: {added:?}");
+        assert!(
+            !added.replace("\r\n", "").contains('\n'),
+            "LF 단독 개행이 섞이면 안 된다: {added:?}"
+        );
+    }
+
+    #[test]
+    fn l9_links_survive_odd_backticks_in_line() {
+        // 홀수 백틱 줄에서 링크를 통째로 버리면 인덱싱이 누락된다(L9-3).
+        // 짝이 맞는 코드 스팬 안은 여전히 무시해야 한다.
+        let found = crate::links::extract_links("가격은 `100 원 그리고 [[노트]] 참고\n");
+        assert!(
+            found
+                .iter()
+                .any(|(l, _)| matches!(l, crate::links::OutLink::Wiki(t) if t == "노트")),
+            "홀수 백틱 줄의 링크는 살아야 한다: {found:?}"
+        );
+        let in_code = crate::links::extract_links("`[[코드안]]` 설명\n");
+        assert!(
+            !in_code
+                .iter()
+                .any(|(l, _)| matches!(l, crate::links::OutLink::Wiki(t) if t == "코드안")),
+            "짝이 맞는 코드 스팬 안은 무시: {in_code:?}"
+        );
     }
 
     #[test]
