@@ -151,14 +151,15 @@ export function MarkdownEditor({ path }: { path: string }) {
         // 외부 변경이 아직 에디터에 적용되지 않은 창에서 사용자가 입력했다.
         // 이전에는 이 입력을 통째로 무시했고(F5), 뒤이은 setContent가 그
         // 타이핑을 지웠다. 이제는 외부 적용을 포기하고(rev를 소비) 배지로
-        // 강등한 뒤 사용자 입력을 정상 반영한다 — 외부 변경은 저장 시
-        // 백엔드 3-way가 흡수하므로 소실되지 않는다(dirty 문서 정책과 동일).
+        // 강등한 뒤 사용자 입력을 정상 반영한다.
+        //
+        // 이때 반드시 savedContent를 original.current(= 에디터가 실제로 보고
+        // 있는, 리로드 이전 전문)로 되돌려야 한다. reloadAfterSync가 이미
+        // savedContent를 새 디스크 내용으로 전진시켰기 때문에, 되돌리지 않으면
+        // 저장 시 base == disk가 되어 백엔드 3-way가 실행되지 않고 외부 변경이
+        // 조용히 덮어써진다. 되돌려야 다음 저장에서 병합이 실제로 돌아간다.
         appliedRev.current = currentExternalRev;
-        useWorkspace.setState((s) => {
-          const doc = s.docs[path];
-          if (!doc || doc.externalStale) return s;
-          return { docs: { ...s.docs, [path]: { ...doc, externalStale: true } } };
-        });
+        useWorkspace.getState().demoteExternalToStale(path, original.current);
       }
       let markdown = getMarkdown(editor);
       if (markdown === baseline.current) {

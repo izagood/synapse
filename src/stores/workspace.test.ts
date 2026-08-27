@@ -439,6 +439,69 @@ describe("workspace store (mock ipc)", () => {
     expect(await ipc.readFile(MOCK_ROOT, path)).toBe(doc.content);
   });
 
+  // F5 회귀: sync 리로드 직후, 에디터가 새 내용을 화면에 반영하기 전에 사용자가
+  // 입력하면 외부 변경이 조용히 덮어써지던 문제.
+  //
+  // reloadAfterSync가 savedContent를 새 디스크 내용으로 전진시켜 두기 때문에,
+  // 그대로 저장하면 save_merge에서 base == disk가 되어 3-way가 아예 실행되지
+  // 않는다. demoteExternalToStale이 base를 에디터 기준으로 되돌려야 병합이 돈다.
+  it("F5: demoting an unapplied external reload keeps the 3-way merge base", async () => {
+    await useWorkspace.getState().openFile(findNode("README.md"));
+    const path = useWorkspace.getState().activePath!;
+    // 에디터가 실제로 보고 있는 전문 (= MarkdownEditor의 original.current)
+    const editorBase = useWorkspace.getState().docs[path].savedContent;
+
+    // sync가 외부 변경을 가져와 디스크에 반영하고, 문서가 깨끗했으므로
+    // reloadAfterSync가 content·savedContent를 둘 다 새 내용으로 전진시킨다.
+    const external = `${editorBase}\n외부-변경\n`;
+    await ipc.writeFile(MOCK_ROOT, path, external);
+    await useWorkspace.getState().reloadAfterSync();
+    expect(useWorkspace.getState().docs[path].savedContent).toBe(external);
+
+    // 에디터가 setContent로 반영하기 전에 사용자가 입력했다 → 배지로 강등.
+    // 에디터 내용은 아직 리로드 이전 기준(editorBase)에 자기 타이핑을 얹은 것이다.
+    useWorkspace.getState().demoteExternalToStale(path, editorBase);
+    const doc = useWorkspace.getState().docs[path];
+    expect(doc.externalStale).toBe(true);
+    expect(doc.savedContent).toBe(editorBase); // 병합 기준이 되돌려졌다
+    useWorkspace.getState().updateContent(path, `${editorBase}\n내-타이핑\n`);
+
+    await useWorkspace.getState().saveDoc(path);
+
+    // 3-way가 실제로 돌아 양쪽이 모두 살아남는다 (되돌리지 않으면 외부-변경이 사라진다)
+    const saved = await ipc.readFile(MOCK_ROOT, path);
+    expect(saved).toContain("내-타이핑");
+    expect(saved).toContain("외부-변경");
+    expect(useWorkspace.getState().docs[path].externalStale).toBe(false);
+  });
+
+  it("F5: demoting is idempotent and does not clobber an already-restored base", () => {
+    useWorkspace.setState({
+      docs: {
+        "/mock/notes/a.md": {
+          content: "편집중",
+          savedContent: "기준",
+          externalRev: 1,
+          externalStale: true,
+          loading: false,
+          error: null,
+        },
+      },
+    });
+    const before = useWorkspace.getState().docs["/mock/notes/a.md"];
+    useWorkspace.getState().demoteExternalToStale("/mock/notes/a.md", "기준");
+    // 이미 강등·복원된 상태면 새 객체를 만들지 않는다(불필요한 리렌더 방지)
+    expect(useWorkspace.getState().docs["/mock/notes/a.md"]).toBe(before);
+  });
+
+  it("F5: demoting an unknown path is a no-op", () => {
+    useWorkspace.setState({ docs: {} });
+    expect(() =>
+      useWorkspace.getState().demoteExternalToStale("/mock/notes/없음.md", "기준"),
+    ).not.toThrow();
+    expect(useWorkspace.getState().docs["/mock/notes/없음.md"]).toBeUndefined();
+  });
+
   it("flushDirty saves every dirty doc before sync", async () => {
     await useWorkspace.getState().openFile(findNode("README.md"));
     await useWorkspace.getState().openFile(findNode("2026-06-10.md"));
