@@ -14,10 +14,11 @@ export type UrlMatch = { url: string; start: number; end: number };
 // 괄호는 경계에서 뺐다 — URL 경로에 정당하게 들어가기 때문이다
 // (위키백과의 `.../Rust_(programming_language)`가 `.../Rust_`로 잘리던 문제).
 // 대신 짝이 맞지 않는 닫는 괄호만 trimTrailing이 떼어낸다.
-// 전각 문장부호(。、…)는 URL에 쓰이지 않고 한국어·일본어 본문에서 URL 바로
-// 뒤에 붙으므로 여기서 잘라야 한다(뒤에 글자가 이어지면 trimTrailing으로는
-// 못 떼어낸다 — "https://ex.com、다음").
-const URL_RE = /https?:\/\/[^\s<>　、。…]+/gi;
+// 전각 문장부호(。、…)와 전각 공백은 URL에 쓰이지 않고 한국어·일본어 본문에서
+// URL 바로 뒤에 붙으므로 여기서 잘라야 한다(뒤에 글자가 이어지면 trimTrailing
+// 으로는 못 떼어낸다 — "https://ex.com、다음").
+// 전각 공백(U+3000)은 소스에 그대로 쓰면 눈에 보이지 않으므로 이스케이프로 쓴다.
+const URL_RE = /https?:\/\/[^\s<>\u3000、。…]+/gi;
 
 // 닫는 괄호류 → 짝이 되는 여는 괄호. 백틱은 짝 개념이 없어 자기 자신을 가리킨다.
 const CLOSERS: Record<string, string> = {
