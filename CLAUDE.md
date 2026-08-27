@@ -9,9 +9,12 @@ Tauri 2 + React(TypeScript) 마크다운 노트 앱.
 ## 자주 쓰는 명령어
 
 ```bash
+npm run lint                 # eslint --max-warnings=0 (CI의 test 잡이 돌린다)
 npm run typecheck            # tsc --noEmit
 npm test                     # vitest run
 npm run build                # typecheck + vite build
+cargo fmt --check            # crates/synapse-core, src-tauri 각각
+cargo clippy --all-targets -- -D warnings   # 각각 (CI가 돌린다)
 cargo test                   # crates/synapse-core 에서 실행
 cargo check                  # src-tauri 에서 실행
 ```
@@ -43,8 +46,11 @@ npm run e2e:update           # 시각 스냅샷 기준선 (재)생성
 - main에 직접 푸시하지 않는다. 기능 브랜치 → PR → CI 통과 확인 → 머지.
 - PR 본문에는 변경 요약, 추가/수정한 테스트, 수동 검증 내용을 적는다.
 - 푸시 전 로컬에서 먼저 돌린다:
-  `npm run typecheck && npm test && npm run build`,
-  Rust 변경 시 `cargo test`(synapse-core) / `cargo check`(src-tauri).
+  `npm run lint && npm run typecheck && npm test && npm run build`,
+  Rust 변경 시 `cargo fmt --check && cargo clippy --all-targets -- -D warnings &&
+  cargo test`(synapse-core) / `cargo check`(src-tauri).
+  **`lint`와 `clippy`를 빼먹지 말 것** — CI의 `test` 잡이 둘 다 돌리므로,
+  나머지가 통과해도 여기서 떨어진다.
 
 ### 3. CI가 실패하면 원인을 고친다
 
@@ -58,8 +64,17 @@ npm run e2e:update           # 시각 스냅샷 기준선 (재)생성
 - 모든 PR은 머지 시점에 그대로 릴리즈할 수 있어야 한다. CI의
   `release-dry-run` 잡이 실제 릴리스 워크플로우와 같은 macOS 번들 빌드를
   드라이런해서 이를 검증한다 (통과 못 하면 머지하지 않는다).
-- 버전을 올릴 때는 `package.json`, `src-tauri/tauri.conf.json`,
-  `src-tauri/Cargo.toml` 세 곳을 함께 올린다. CI가 일치 여부를 검사한다.
-- 릴리스 절차: 세 버전을 올려 머지한 뒤
-  `git tag vX.Y.Z && git push origin vX.Y.Z`
-  → `release-macos.yml`이 .dmg를 GitHub Releases에 올린다.
+- **릴리스는 머지하면 자동이다. 태그를 직접 밀지 않는다.**
+  main에 push되면 `auto-release.yml`이 돌아서 버전 bump 커밋 →
+  `vX.Y.Z` 태그 → macOS(Apple Silicon/Intel)·Windows 번들 빌드 →
+  GitHub Releases 게시까지 한 번에 처리한다. 진행 상황은
+  `gh run list --workflow=auto-release.yml`로 본다.
+- 버전은 워크플로우가 정한다: `package.json`의 버전이 이미 태그로 있으면
+  patch를 자동 증가하고, `package.json`/`tauri.conf.json`/`Cargo.toml`/
+  `Cargo.lock` 네 곳을 함께 갱신해 커밋한다. 손으로 bump 커밋을 만들 필요가 없다.
+- **minor/major 릴리스만 예외**: PR에서 위 네 파일의 버전을 직접 올려 머지하면
+  워크플로우가 그 버전을 그대로 쓴다(자동 증가하지 않는다). CI의 버전 일치 검사는
+  `package.json`/`tauri.conf.json`/`Cargo.toml` 세 곳만 보지만, `Cargo.lock`도
+  함께 올려야 빌드가 깨지지 않는다.
+- 릴리스 실패·취소 시에는 `cleanup-failed-release`가 draft와 태그를 지운다.
+  버전 bump 커밋은 main에 남으므로, 다음 머지 때 그 버전으로 다시 릴리스된다.
