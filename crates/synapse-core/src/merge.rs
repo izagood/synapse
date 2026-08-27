@@ -483,6 +483,28 @@ mod tests {
         assert_eq!(merged, "---\ntitle: t\n---\n\n수정된 본문\n");
     }
 
+    // 호출자가 읽기 실패를 빈 문자열로 뭉개면 안 되는 이유를 고정한다.
+    // merge_agent_edit은 disk를 "지금 디스크에 실제로 있는 내용"으로 신뢰하므로,
+    // 읽지 못한 것을 ""로 넘기면 "사용자가 파일을 통째로 비웠다"로 해석해
+    // 에이전트 편집과 병합한 결과가 노트를 파괴한다.
+    // 따라서 호출부(bridge.rs)는 read_to_string_if_exists로 None(진짜 없음)과
+    // Err(읽기 실패)를 구분해야 한다 — 후자는 쓰기 자체를 하지 않는다.
+    #[test]
+    fn agent_edit_treats_empty_disk_as_deletion_not_missing_file() {
+        let base = "# 제목\n\n문단 하나.\n\n문단 둘.\n";
+        let new_content = "# 제목\n\n문단 하나 수정.\n\n문단 둘.\n";
+
+        // 파일이 없거나 base 그대로면(정상 경로) 에이전트 편집이 온전히 반영된다.
+        assert_eq!(merge_agent_edit(base, base, new_content), new_content);
+
+        // 반면 ""를 넘기면 "비워졌다"로 보고 병합해 원문 대부분이 사라진다.
+        let merged_from_empty = merge_agent_edit(base, "", new_content);
+        assert!(
+            merged_from_empty.len() < base.len() / 2,
+            "빈 디스크는 삭제로 해석되어야 한다(호출부가 읽기 실패를 이리로 보내면 안 되는 이유): {merged_from_empty:?}"
+        );
+    }
+
     #[test]
     fn save_merge_passthrough_when_disk_matches_base() {
         // 외부 변경이 없으면(disk == base) 에디터 내용을 그대로 쓴다.
