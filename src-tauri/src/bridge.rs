@@ -317,7 +317,14 @@ fn apply_edit_request(live: &LiveState, body: &[u8]) -> Result<String, String> {
         .map_err(|_| "workspace write lock poisoned".to_string())?;
     // 파일이 없으면(에이전트가 새 노트를 만드는 경우) 빈 문자열이 현재 디스크
     // 상태다 — merge_agent_edit이 base와 비교해 알아서 처리한다.
-    let disk = backend.read_to_string(&resolved).unwrap_or_default();
+    // "없음"과 "읽지 못함"은 반드시 구분한다: 권한·I/O 오류를 빈 문자열로
+    // 뭉개면 merge_agent_edit이 "디스크가 통째로 비워졌다"로 해석해 기존 노트를
+    // 파괴한다(base 30바이트 노트가 병합 결과 7바이트로 줄어드는 것을 실측).
+    // 진짜 오류는 삼키지 말고 전파해 쓰기를 아예 하지 않는다.
+    let disk = backend
+        .read_to_string_if_exists(&resolved)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
     let merged = merge_agent_edit(&req.base_content, &disk, &req.new_content);
     backend
         .write_atomic(&resolved, merged.as_bytes())

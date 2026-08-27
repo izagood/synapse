@@ -159,6 +159,18 @@ interface WorkspaceState {
    */
   reloadAfterSync(): Promise<void>;
   /**
+   * 외부 리로드가 들어왔지만 에디터가 아직 화면에 반영하지 못한 사이에 사용자가
+   * 입력했다 — 외부 적용을 포기하고 배지로 강등한다.
+   *
+   * `editorBase`는 에디터가 실제로 보고 있는 전문(리로드 이전 디스크 내용)이다.
+   * 이 값으로 savedContent를 되돌리는 것이 이 액션의 핵심이다: reloadAfterSync가
+   * savedContent를 새 디스크 내용으로 전진시켜 둔 상태라 그대로 저장하면
+   * `base == disk`가 되어 백엔드 3-way(save_merge)가 아예 실행되지 않고,
+   * 에디터의 낡은 내용이 외부 변경을 통째로 덮어쓴다. base를 되돌려야
+   * `base != disk`가 성립해 병합이 실제로 돌아간다.
+   */
+  demoteExternalToStale(path: string, editorBase: string): void;
+  /**
    * 다른 창에서 파일이 rename/move/delete 됐을 때 이 창의 탭·문서를 맞춘다
    * (감사 M7). 창마다 독립 store라 이 반영이 없으면 옛 경로로 자동저장이
    * 나가 유령 파일이 생기거나 삭제된 파일이 되살아난다.
@@ -941,6 +953,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const expandedDirs = { ...s.expandedDirs };
       for (const d of dirs) expandedDirs[d] = true;
       return { expandedDirs };
+    });
+  },
+
+  demoteExternalToStale(path, editorBase) {
+    set((s) => {
+      const doc = s.docs[path];
+      if (!doc) return s;
+      // 이미 강등돼 기준까지 되돌아가 있으면 새 객체를 만들지 않는다(불필요한 리렌더 방지).
+      if (doc.externalStale && doc.savedContent === editorBase) return s;
+      return {
+        docs: { ...s.docs, [path]: { ...doc, savedContent: editorBase, externalStale: true } },
+      };
     });
   },
 
