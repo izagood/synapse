@@ -89,7 +89,14 @@ export default function App() {
           } catch (e) {
             console.warn("onCloseRequested: flushAllPdfDraws failed", e);
           }
-          await win.destroy();
+          // preventDefault()로 OS 닫기를 이미 취소했으므로 창을 닫는 책임은
+          // 전적으로 여기에 있다 — 실패하면 창이 영영 안 닫히니 삼키지 않는다
+          // (실제 사례: capability에 core:window:allow-destroy 누락 → IPC 거부).
+          try {
+            await win.destroy();
+          } catch (e) {
+            console.error("onCloseRequested: destroy failed", e);
+          }
         });
       } catch {
         // Not in Tauri environment (browser dev mode) — no-op
