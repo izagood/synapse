@@ -139,13 +139,13 @@ jobs:
           ls -l src-tauri/binaries
       # createUpdaterArtifacts: true 라서 서명 키가 필요하다.
       # 시크릿이 없는 환경(포크에서 온 PR)에서는 업데이터 아티팩트 생성을 끄고 빌드한다.
-      # macOS 코드 서명도 릴리스와 동일하게 드라이런한다
-      # (셀프사인 인증서 — release-desktop.yml 상단 주석 참고. 없으면 ad-hoc)
-      # 주의: tauri의 APPLE_CERTIFICATE 자동 import는 Apple 발급 인증서
-      # 이름("Developer ID Application:" 등)만 인식해 셀프사인 인증서로는
-      # "failed to resolve signing identity"로 실패한다. 그래서 키체인
-      # 구성은 여기서 직접 하고, tauri에는 APPLE_SIGNING_IDENTITY만 넘겨
-      # `codesign -s <이름>`이 키체인 검색 목록에서 인증서를 찾게 한다.
+      # macOS 코드 서명도 릴리스와 동일하게 드라이런한다 — entitlements와
+      # Hardened Runtime 조합이 깨지면 여기서 잡힌다.
+      # (공증은 하지 않는다. Apple 서버 왕복이라 PR마다 돌리기엔 느리고,
+      #  검증 대상인 서명·entitlements는 공증 없이도 확인된다.)
+      # 이 잡은 tauri-action이 아니라 `npx tauri build`를 직접 부르므로
+      # .p12 자동 import가 없다 — 임시 키체인을 직접 구성하고 tauri에는
+      # APPLE_SIGNING_IDENTITY만 넘겨 codesign이 찾게 한다.
       - name: macOS 코드 서명 키체인 구성 (시크릿 있을 때만)
         if: runner.os == 'macOS'
         shell: bash
@@ -154,38 +154,34 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ -n "$APPLE_CERTIFICATE" ]; then
-            CERT_P12="$RUNNER_TEMP/signing-cert.p12"
-            CERT_PEM="$RUNNER_TEMP/signing-cert.pem"
-            KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-            KEYCHAIN_PW="$(openssl rand -hex 16)"
-            echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_P12"
-            security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-            security set-keychain-settings -lut 3600 "$KEYCHAIN"
-            security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-            security import "$CERT_P12" -k "$KEYCHAIN" \
-              -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-            security set-key-partition-list -S "apple-tool:,apple:,codesign:" \
-              -s -k "$KEYCHAIN_PW" "$KEYCHAIN" > /dev/null
-            security list-keychains -d user -s "$KEYCHAIN" \
-              $(security list-keychains -d user | sed 's/["[:space:]]//g')
-            # 셀프사인 인증서는 신뢰 앵커가 아니라서 그대로는 유효한
-            # 서명 ID로 인식되지 않는다 — 시스템 키체인에 신뢰 루트로 등록
-            openssl pkcs12 -in "$CERT_P12" -clcerts -nokeys \
-              -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$CERT_PEM" \
-              || openssl pkcs12 -legacy -in "$CERT_P12" -clcerts -nokeys \
-                -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$CERT_PEM"
-            sudo security add-trusted-cert -d -r trustRoot \
-              -k /Library/Keychains/System.keychain "$CERT_PEM"
-            rm -f "$CERT_P12" "$CERT_PEM"
-            if ! security find-identity -v -p codesigning "$KEYCHAIN" \
-                | grep -qF "$APPLE_SIGNING_IDENTITY"; then
-              echo "::error::APPLE_SIGNING_IDENTITY와 일치하는 유효한 서명 ID가 키체인에 없습니다"
-              security find-identity -p codesigning "$KEYCHAIN"
-              exit 1
-            fi
-            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "APPLE_CERTIFICATE 없음 — ad-hoc 서명으로 빌드한다 (포크 PR 등)"
+            exit 0
           fi
+          CERT_P12="$RUNNER_TEMP/signing-cert.p12"
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PW="$(openssl rand -hex 16)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_P12"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security import "$CERT_P12" -k "$KEYCHAIN" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S "apple-tool:,apple:,codesign:" \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | sed 's/["[:space:]]//g')
+          rm -f "$CERT_P12"
+          # Developer ID는 Apple 루트가 이미 신뢰 앵커라 add-trusted-cert가
+          # 필요 없다 (셀프사인 때와 달라진 점). 바로 유효한 ID로 잡힌다.
+          if ! security find-identity -v -p codesigning "$KEYCHAIN" \
+              | grep -qF "$APPLE_SIGNING_IDENTITY"; then
+            echo "::error::APPLE_SIGNING_IDENTITY와 일치하는 유효한 서명 ID가 키체인에 없습니다"
+            security find-identity -p codesigning "$KEYCHAIN"
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
       - name: Tauri 번들 빌드 (드라이런)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

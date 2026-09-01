@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Hardened Runtime 아래에서 앱이 실제로 하는 일에 필요한 최소 권한만 연다.
+       (Developer ID + 공증 배포 전제. App Sandbox는 켜지 않는다 — 사용자가 고른
+       임의 경로의 노트 폴더를 직접 읽고 쓰는 앱이라 샌드박스와 맞지 않는다.) -->
+
+  <!-- WKWebView가 JS를 JIT 컴파일한다. 없으면 웹뷰가 뜨지 않는다. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+
+  <!-- 사이드카(synapse-mcp)와 git·osascript 등 외부 실행 파일을 spawn한다.
+       이들은 Synapse와 다른 팀이 서명했거나 서명이 없어서, 라이브러리 검증을
+       끄지 않으면 로드가 거부된다. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- 자식 프로세스(git, which, osascript, 사이드카)가 부모의 제한을 그대로
+       물려받지 않게 한다. Hardened Runtime에서 서브프로세스 실행에 필요. -->
+  <key>com.apple.security.inherit</key>
+  <false/>
+
+  <!-- 외부 터미널 연동: osascript로 Terminal/iTerm에 AppleScript를 보낸다.
+       Info.plist의 NSAppleEventsUsageDescription과 짝이다 — 둘 중 하나라도
+       빠지면 프롬프트 없이 조용히 실패한다. -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+
+  <!-- GitHub Device Flow 로그인, 원격 동기화, 업데이터 피드 조회. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>
