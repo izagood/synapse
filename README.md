@@ -61,8 +61,10 @@ Prebuilt desktop installers are produced by the release workflow for:
 - macOS: `.dmg`
 - Windows: `.msi`
 
-Unsigned builds may show a macOS Gatekeeper or Windows SmartScreen warning on
-first launch. See [Packaging](docs/PACKAGING.md) for details.
+macOS builds are signed with a Developer ID certificate and notarized by Apple,
+so they launch without a Gatekeeper prompt. Windows builds are not yet signed and
+may show a SmartScreen warning on first launch. See [Packaging](docs/PACKAGING.md)
+for details.
 
 If a release installer is not available, build from source.
 
