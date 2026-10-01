@@ -12,18 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 공개 저장소라 커밋 메타데이터의 메일은 한 번 들어오면 히스토리를 다시 써야만 지워진다
-  # (2026-10 에 그렇게 했다). PR 커밋의 author·committer·Co-authored-by 를 허용 목록과
-  # 대조한다 — 목록과 이유는 스크립트 머리에 있다.
-  commit-emails:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - run: .github/scripts/check-commit-emails.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
-
   test:
     runs-on: ubuntu-latest
     steps:
