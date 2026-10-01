@@ -8,21 +8,24 @@
 #   리포지토리 Settings → Secrets and variables → Actions 에
 #   SYNAPSE_GITHUB_CLIENT_ID = GitHub OAuth App의 Client ID (Device Flow 활성화)
 #
-# 코드 서명 (1회, 선택이지만 강력 권장):
-#   ad-hoc 서명은 빌드마다 서명이 달라져 업데이트할 때마다 키체인
-#   "항상 허용"이 무효화된다. Apple 개발자 등록 없이도 셀프사인 인증서로
-#   서명을 고정하면 최초 1회 허용 후 다시 묻지 않는다.
-#     1. 키체인 접근.app → 메뉴 키체인 접근 → 인증서 지원 → 인증서 생성...
-#        이름: Synapse Self Sign / 인증서 유형: 코드 서명 /
-#        "기본값 무시" 체크 → 유효 기간 3650일
-#     2. 키체인 접근에서 해당 인증서를 우클릭 → 내보내기 → .p12 (암호 설정)
-#        base64 -i synapse-sign.p12 | pbcopy
+# macOS 코드 서명 + 공증 (1회 준비):
+#   Apple Developer Program의 "Developer ID Application" 인증서로 서명하고
+#   Apple에 공증(notarize)을 받아야 사용자가 경고 없이 바로 실행할 수 있다.
+#   (App Store용 "Apple Distribution" 인증서로는 DMG 직접 배포가 안 된다 —
+#    반드시 Developer ID Application 이어야 한다.)
+#     1. 키체인 접근에서 인증서를 개인 키와 함께 선택 → 내보내기 → .p12
+#        (개인 키가 빠지면 러너에서 서명이 실패한다)
+#        base64 -i developer-id.p12 | pbcopy
+#     2. https://appleid.apple.com → 앱 암호(App-Specific Password) 생성
 #     3. Secrets에 등록:
 #        APPLE_CERTIFICATE          = (위에서 복사한 base64)
 #        APPLE_CERTIFICATE_PASSWORD = .p12 내보내기 암호
-#        APPLE_SIGNING_IDENTITY     = Synapse Self Sign
-#   시크릿이 없으면 기존처럼 ad-hoc 서명으로 빌드된다 (동작은 동일, 키체인
-#   프롬프트만 업데이트마다 재발).
+#        APPLE_SIGNING_IDENTITY     = Developer ID Application: 이름 (TEAMID)
+#        APPLE_ID                   = Apple 계정 이메일       (공증용)
+#        APPLE_PASSWORD             = 앱 암호                 (공증용)
+#        APPLE_TEAM_ID              = 10자리 팀 ID            (공증용)
+#   시크릿이 없으면 ad-hoc 서명으로 빌드된다 — 배포는 되지만 Gatekeeper가
+#   첫 실행을 차단하므로 릴리스에는 반드시 채워야 한다.
 #
 # 릴리스 방법:
 #   - 자동: PR이 CI를 통과하고 main에 merge되면 auto-release.yml이 버전을 올리고
@@ -116,53 +119,6 @@ jobs:
              "src-tauri/binaries/synapse-mcp-$triple$ext"
           ls -l src-tauri/binaries
 
-      # macOS 코드 서명 — 셀프사인 인증서 (파일 상단 "코드 서명" 주석 참고).
-      # 주의: tauri의 APPLE_CERTIFICATE 자동 import는 Apple 발급 인증서
-      # 이름("Developer ID Application:" 등)만 인식해 셀프사인 인증서로는
-      # "failed to resolve signing identity"로 실패한다. 그래서 키체인
-      # 구성은 여기서 직접 하고, tauri에는 APPLE_SIGNING_IDENTITY만 넘겨
-      # `codesign -s <이름>`이 키체인 검색 목록에서 인증서를 찾게 한다.
-      - name: macOS 코드 서명 키체인 구성 (시크릿 있을 때만)
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          if [ -n "$APPLE_CERTIFICATE" ]; then
-            CERT_P12="$RUNNER_TEMP/signing-cert.p12"
-            CERT_PEM="$RUNNER_TEMP/signing-cert.pem"
-            KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-            KEYCHAIN_PW="$(openssl rand -hex 16)"
-            echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_P12"
-            security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-            security set-keychain-settings -lut 3600 "$KEYCHAIN"
-            security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-            security import "$CERT_P12" -k "$KEYCHAIN" \
-              -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-            security set-key-partition-list -S "apple-tool:,apple:,codesign:" \
-              -s -k "$KEYCHAIN_PW" "$KEYCHAIN" > /dev/null
-            security list-keychains -d user -s "$KEYCHAIN" \
-              $(security list-keychains -d user | sed 's/["[:space:]]//g')
-            # 셀프사인 인증서는 신뢰 앵커가 아니라서 그대로는 유효한
-            # 서명 ID로 인식되지 않는다 — 시스템 키체인에 신뢰 루트로 등록
-            openssl pkcs12 -in "$CERT_P12" -clcerts -nokeys \
-              -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$CERT_PEM" \
-              || openssl pkcs12 -legacy -in "$CERT_P12" -clcerts -nokeys \
-                -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$CERT_PEM"
-            sudo security add-trusted-cert -d -r trustRoot \
-              -k /Library/Keychains/System.keychain "$CERT_PEM"
-            rm -f "$CERT_P12" "$CERT_PEM"
-            if ! security find-identity -v -p codesigning "$KEYCHAIN" \
-                | grep -qF "$APPLE_SIGNING_IDENTITY"; then
-              echo "::error::APPLE_SIGNING_IDENTITY와 일치하는 유효한 서명 ID가 키체인에 없습니다"
-              security find-identity -p codesigning "$KEYCHAIN"
-              exit 1
-            fi
-            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
-          fi
-
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -170,6 +126,16 @@ jobs:
           # 원클릭 업데이트 아티팩트 서명 (tauri signer로 생성한 키)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          # macOS 코드 서명 — tauri-action이 .p12를 임시 키체인에 import하고
+          # Hardened Runtime + entitlements.plist로 서명한다 (파일 상단 주석 참고).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # 공증 — 이 세 개가 모두 있어야 tauri가 notarytool을 돌리고 티켓을
+          # staple 한다. 하나라도 비면 서명만 되고 공증은 건너뛴다.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ inputs.release_tag || github.ref_name }}
           releaseName: "Synapse ${{ inputs.release_tag || github.ref_name }}"
@@ -180,7 +146,8 @@ jobs:
             - macOS (Intel): `_x64.dmg` 를 받으세요.
             - Windows: `.msi` 파일을 받으세요.
 
-            서명되지 않은 빌드는 OS가 첫 실행을 차단할 수 있습니다. 자세한 내용은 패키징 가이드를 확인하세요.
+            macOS 빌드는 Apple 공증을 받아 별도 우회 없이 바로 실행됩니다.
+            Windows 빌드는 아직 서명되지 않아 SmartScreen 경고가 뜰 수 있습니다 — `추가 정보` → `실행`으로 진행하세요.
           releaseDraft: true
           prerelease: false
           retryAttempts: 1
@@ -263,7 +230,8 @@ jobs:
           - macOS: `.dmg` 파일을 받으세요. Intel/Apple Silicon 모두 지원합니다.
           - Windows: `.msi` 파일을 받으세요.
 
-          서명되지 않은 빌드는 OS가 첫 실행을 차단할 수 있습니다. 자세한 내용은 패키징 가이드를 확인하세요.
+          macOS 빌드는 Apple 공증을 받아 별도 우회 없이 바로 실행됩니다.
+          Windows 빌드는 아직 서명되지 않아 SmartScreen 경고가 뜰 수 있습니다 — `추가 정보` → `실행`으로 진행하세요.
           EOF
           if [ -n "$changelog" ]; then
             printf '\n%s\n' "$changelog" >> "$notes_file"

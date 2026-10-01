@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Tauri가 생성하는 기본 Info.plist에 병합된다 (src-tauri/ 안에 있으면 자동 인식).
+       여기에는 기본값에 없는 항목만 둔다. -->
+
+  <!-- 외부 터미널 열기(Terminal·iTerm)에서 osascript로 AppleScript를 보낸다.
+       entitlements의 com.apple.security.automation.apple-events와 짝이며,
+       이 문자열이 없으면 macOS가 권한 프롬프트를 띄우지 못해 기능이
+       조용히 실패한다. 사용자에게 그대로 보이는 문구다. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>노트 폴더나 원격 저장소를 외부 터미널(Terminal·iTerm)에서 열기 위해 사용합니다.</string>
+</dict>
+</plist>
